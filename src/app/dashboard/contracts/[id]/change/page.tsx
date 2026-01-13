@@ -58,10 +58,6 @@ function ContractChangeRequestPageContent() {
         throw new Error('Contrato no encontrado');
       }
       setContract(contractData);
-      setFormData(prev => ({
-        ...prev,
-        folio_number: contractData.folio_number || '',
-      }));
     } catch (error) {
       console.error('Error loading contract:', error);
       setErrorMessage('Error al cargar el contrato');
@@ -72,7 +68,14 @@ function ContractChangeRequestPageContent() {
 
   const loadClients = async () => {
     try {
-      const clientsData = await db.client.getAllClients();
+      let clientsData: Client[];
+      if (profile?.role === 'consultant' && profile.id) {
+        // Consultants can only see clients they have contracts with
+        clientsData = await db.client.getClientsByConsultant(profile.id);
+      } else {
+        // Promotory users can see all clients
+        clientsData = await db.client.getAllClients();
+      }
       setClients(clientsData);
     } catch (error) {
       console.error('Error loading clients:', error);

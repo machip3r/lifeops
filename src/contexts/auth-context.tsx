@@ -63,12 +63,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
 
             if (consultantData) {
+                // For consultants, use auth_user_id if available, otherwise use id
+                const consultantId = consultantData.auth_user_id || consultantData.id;
                 setProfile({
-                    id: consultantData.id,
-                    email: consultantData.email,
+                    id: consultantId,
+                    email: consultantData.email || '',
                     role: 'consultant', // Role is inferred: consultant table = consultant role
                     name: consultantData.name,
-                    consultant_code: consultantData.consultant_code,
+                    consultant_code: consultantData.consultant_code || '',
                     office_id: consultantData.office_id,
                 });
                 // Don't set loading to false here - it's already false

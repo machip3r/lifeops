@@ -67,6 +67,7 @@ export default function DashboardLayout({
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/dashboard/extractor', label: 'Extractor' },
     { href: '/dashboard/contracts', label: 'Contracts' },
+    { href: '/dashboard/clients', label: 'Clients' },
     { href: '/dashboard/consultants', label: 'Consultants' },
     { href: '/dashboard/change-requests', label: 'Requests' },
     { href: '/dashboard/profile', label: 'Profile' },

@@ -25,10 +25,11 @@ export interface Office {
 }
 
 export interface Consultant {
-    id: string | null; // Can be null if consultant hasn't been invited yet
+    id: string; // Always has a value (temporary UUID or auth user ID)
     email: string | null; // Can be null initially
     name: string;
     consultant_code: string | null; // Can be null initially
+    auth_user_id: string | null; // Links to auth user when consultant is invited
     office_id: string;
     status: 'ACTIVE' | 'INACTIVE' | 'PENDING';
     created_at?: string;
@@ -47,7 +48,6 @@ export interface Contract {
     id: string;
     consultant_id: string;
     client_id?: string | null;
-    folio_number?: string | null;
     contract_number?: string | null; // This stores the poliza ID
     capture_date?: string | null;
     project_name?: string | null;
@@ -73,6 +73,37 @@ export interface ContractChangeRequest {
     folder_key?: string | null;
     status: string; // Default 'PENDING'
     metadata?: { [key: string]: any };
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface ContractDetail {
+    id: string;
+    contract_id: string;
+    ticket_number?: string | null; // RECIBO
+    plan?: string | null; // PLAN
+    issue_date?: string | null; // FECHA EMISION
+    product?: string | null; // PRODUCTO
+    expiration_date?: string | null; // FECHA VENCIMIENTO
+    payment_date?: string | null; // FECHA PAGO
+    premium_payment?: string | null; // PRIMA PAGO
+    payment_method?: string | null; // FORMA DE PAGO
+    unit_value?: string | null; // U.V.
+    participation_percentage?: string | null; // PORCENTAJE PARTICIPACION
+    commission_premium?: string | null; // PRIMA COMISION
+    commission_honoraries?: string | null; // COMISION/HONORARIOS
+    condition?: string | null; // CONDICION
+    commission_percentage?: string | null; // % COMISION
+    movement?: string | null; // MOVIMIENTO
+    collection_premium?: string | null; // PRIMA COBRO
+    promotional_collection_premium?: string | null; // PRIMA COBRO PROM
+    incremental_premium?: string | null; // PRIMA INCREMENTAL
+    seniority?: string | null; // ANTIGÜEDAD
+    generation_date?: string | null; // FECHA GENERACION
+    group_name?: string | null; // GRUPO
+    index_premium?: string | null; // PRIMA INDICE
+    target_premium?: string | null; // PRIMA META
+    row_data?: { [key: string]: any };
     created_at?: string;
     updated_at?: string;
 }

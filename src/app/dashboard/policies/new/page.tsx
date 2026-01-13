@@ -99,7 +99,6 @@ function NewRequestPageContent() {
             const contractData: Omit<Contract, 'id' | 'created_at' | 'updated_at'> = {
                 consultant_id: profile?.id || '',
                 client_id: formData.client_full_name ? null : null, // TODO: Map to actual client_id if available
-                folio_number: formData.folio_to_correct || null,
                 contract_number: formData.contract_number || null,
                 capture_date: formData.capture_date || null,
                 project_name: formData.project_name || null,

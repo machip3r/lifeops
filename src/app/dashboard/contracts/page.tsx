@@ -10,7 +10,7 @@ import ProtectedRoute from '@/components/protected-route';
 function ContractsPageContent() {
     const router = useRouter();
     const { profile } = useAuth();
-    const [contracts, setContracts] = useState<Contract[]>([]);
+    const [contracts, setContracts] = useState<Array<Contract & { client_name?: string }>>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -18,14 +18,27 @@ function ContractsPageContent() {
         try {
             if (!profile?.id) return;
 
-            let data: Contract[];
-            if (profile.role === 'promotory') {
-                data = await db.contract.getContractsByOffice(profile.id);
-            } else {
-                data = await db.contract.getContractsByConsultant(profile.id);
-            }
+            // Use optimized function that includes client names in the query
+            const dataWithClients = await db.contract.getContractsWithClients(
+                profile.role === 'consultant' ? profile.id : undefined,
+                profile.role === 'promotory' ? profile.id : undefined
+            );
 
-            setContracts(data);
+            setContracts(dataWithClients);
+
+            // Extract unique clients for the client list (if needed elsewhere)
+            const uniqueClients = new Map<string, Client>();
+            dataWithClients.forEach((contract: any) => {
+                if (contract.client_id && contract.client_name) {
+                    if (!uniqueClients.has(contract.client_id)) {
+                        uniqueClients.set(contract.client_id, {
+                            id: contract.client_id,
+                            name: contract.client_name,
+                        } as Client);
+                    }
+                }
+            });
+            setClients(Array.from(uniqueClients.values()));
         } catch (error) {
             console.error('Error loading contracts:', error);
         } finally {
@@ -36,23 +49,13 @@ function ContractsPageContent() {
     useEffect(() => {
         if (profile) {
             loadContracts();
-            loadClients();
         }
     }, [profile, loadContracts]);
 
-    const loadClients = async () => {
-        try {
-            const clientsData = await db.client.getAllClients();
-            setClients(clientsData);
-        } catch (error) {
-            console.error('Error loading clients:', error);
-        }
-    };
-
     const getClientName = (clientId: string | null | undefined) => {
         if (!clientId) return 'N/A';
-        const client = clients.find(c => c.id === clientId);
-        return client?.name || 'N/A';
+        const contract = contracts.find(c => c.client_id === clientId);
+        return (contract as any)?.client_name || 'N/A';
     };
 
     const handleDelete = async (id: string) => {
@@ -110,7 +113,7 @@ function ContractsPageContent() {
                     </button>
                 </div>
             ) : (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
@@ -118,22 +121,31 @@ function ContractsPageContent() {
                                     Client
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Folio Number
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Contract
+                                    Contract Number
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Project
+                                    Project Name
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Insured Amount
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Status
+                                    Annual Premium
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Date
+                                    Payment Method
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    Currency
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    Payment Channel
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    Capture Date
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    Status
                                 </th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Actions
@@ -145,12 +157,7 @@ function ContractsPageContent() {
                                 <tr key={contract.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                            {getClientName(contract.client_id)}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="text-sm text-gray-600 dark:text-gray-400">
-                                            {contract.folio_number || 'N/A'}
+                                            {(contract as any).client_name || getClientName(contract.client_id) || 'N/A'}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -169,14 +176,24 @@ function ContractsPageContent() {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'PENDING'
-                                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                                            : contract.status === 'APPROVED'
-                                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                                            }`}>
-                                            {contract.status}
-                                        </span>
+                                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                                            {contract.annual_premium || 'N/A'}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                                            {contract.payment_method || 'N/A'}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                                            {contract.currency || 'N/A'}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                                            {contract.payment_channel || 'N/A'}
+                                        </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm text-gray-600 dark:text-gray-400">
@@ -187,12 +204,28 @@ function ContractsPageContent() {
                                                     : 'N/A'}
                                         </div>
                                     </td>
+                                    <td className="px-6 py-4 whitespace-nowrap">
+                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'PENDING'
+                                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                            : contract.status === 'APPROVED'
+                                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                            }`}>
+                                            {contract.status}
+                                        </span>
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <button
+                                            onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
+                                            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4"
+                                        >
+                                            Ver Detalles
+                                        </button>
                                         {profile?.role === 'consultant' && (
                                             <>
                                                 <button
                                                     onClick={() => router.push(`/dashboard/contracts/${contract.id}/change`)}
-                                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4"
+                                                    className="text-orange-600 dark:text-orange-400 hover:text-orange-900 dark:hover:text-orange-300 mr-4"
                                                 >
                                                     Solicitar Cambio
                                                 </button>
@@ -208,7 +241,7 @@ function ContractsPageContent() {
                                             onClick={() => router.push(`/dashboard/contracts/${contract.id}/files`)}
                                             className="text-purple-600 dark:text-purple-400 hover:text-purple-900 dark:hover:text-purple-300 mr-4"
                                         >
-                                            Ver Archivos
+                                            Archivos
                                         </button>
                                         <button
                                             onClick={() => handleDelete(contract.id)}

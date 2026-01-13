@@ -76,7 +76,7 @@ function ContractFilesPageContent() {
           Archivos del Contrato
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Contrato: {contract.contract_number || contract.folio_number || 'N/A'}
+          Contrato: {contract.contract_number || 'N/A'}
         </p>
       </div>
 

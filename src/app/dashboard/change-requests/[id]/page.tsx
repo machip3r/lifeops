@@ -37,8 +37,8 @@ function ChangeRequestDetailsPageContent() {
       if (contractData) {
         setContract(contractData);
         if (contractData.client_id) {
-          const clients = await db.client.getAllClients();
-          const clientData = clients.find(c => c.id === contractData.client_id);
+          // Use getClientById instead of loading all clients
+          const clientData = await db.client.getClientById(contractData.client_id);
           if (clientData) {
             setClient(clientData);
           }
@@ -166,7 +166,7 @@ function ChangeRequestDetailsPageContent() {
             <div>
               <p className="text-sm text-gray-600 dark:text-gray-400">Folio:</p>
               <p className="text-lg font-medium text-gray-900 dark:text-white">
-                {changeRequest.folio_number || contract.folio_number || 'N/A'}
+                {changeRequest.folio_number || 'N/A'}
               </p>
             </div>
             <div>

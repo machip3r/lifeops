@@ -170,15 +170,15 @@ function ConsultantsPageContent() {
               </tr>
             ) : (
               consultants.map((consultant) => (
-                <tr key={consultant.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                <tr key={consultant.id || `temp-${consultant.name}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                     {consultant.name}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {consultant.email}
+                    {consultant.email || <span className="text-gray-400 italic">Not set</span>}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {consultant.consultant_code}
+                    {consultant.consultant_code || <span className="text-gray-400 italic">Not set</span>}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${consultant.status === 'ACTIVE'

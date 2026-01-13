@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Client } from '@/lib/supabase';
+import { Client, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
@@ -9,6 +9,7 @@ import ProtectedRoute from '@/components/protected-route';
 function ClientsPageContent() {
     const { profile } = useAuth();
     const [clients, setClients] = useState<Client[]>([]);
+    const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -21,20 +22,48 @@ function ClientsPageContent() {
 
     const loadClients = useCallback(async () => {
         try {
-            const data = await db.client.getAllClients();
+            let data: Client[];
+            if (profile?.role === 'consultant' && profile.id) {
+                // Consultants can only see clients they have contracts with
+                data = await db.client.getClientsByConsultant(profile.id);
+            } else {
+                // Promotory users can see all clients
+                data = await db.client.getAllClients();
+            }
             setClients(data);
         } catch (error) {
             console.error('Error loading clients:', error);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [profile]);
+
+    const loadContracts = useCallback(async () => {
+        try {
+            if (!profile?.id) return;
+
+            let data: Contract[];
+            if (profile.role === 'promotory') {
+                data = await db.contract.getContractsByOffice(profile.id);
+            } else {
+                data = await db.contract.getContractsByConsultant(profile.id);
+            }
+            setContracts(data);
+        } catch (error) {
+            console.error('Error loading contracts:', error);
+        }
+    }, [profile]);
 
     useEffect(() => {
-        if (profile?.role === 'consultant') {
+        if (profile && (profile.role === 'consultant' || profile.role === 'promotory')) {
             loadClients();
+            loadContracts();
         }
-    }, [profile?.role, loadClients]);
+    }, [profile, loadClients, loadContracts]);
+
+    const getContractCount = (clientId: string) => {
+        return contracts.filter(c => c.client_id === clientId).length;
+    };
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -277,6 +306,9 @@ function ClientsPageContent() {
                                     Edad
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    Contratos
+                                </th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Fecha de Registro
                                 </th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -302,6 +334,11 @@ function ClientsPageContent() {
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="text-sm text-gray-600 dark:text-gray-400">
                                                 {age !== null ? `${age} años` : 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                                {getContractCount(client.id)}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -338,7 +375,7 @@ function ClientsPageContent() {
 
 export default function ClientsPage() {
     return (
-        <ProtectedRoute allowedRoles={['consultant']}>
+        <ProtectedRoute allowedRoles={['consultant', 'promotory']}>
             <ClientsPageContent />
         </ProtectedRoute>
     );

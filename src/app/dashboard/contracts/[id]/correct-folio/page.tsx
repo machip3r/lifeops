@@ -38,10 +38,6 @@ function CorrectFolioPageContent() {
         throw new Error('Contrato no encontrado');
       }
       setContract(contractData);
-      setFormData(prev => ({
-        ...prev,
-        folio_number: contractData.folio_number || '',
-      }));
     } catch (error) {
       console.error('Error loading contract:', error);
       setErrorMessage('Error al cargar el contrato');

@@ -30,11 +30,12 @@ CREATE INDEX IF NOT EXISTS idx_office_email ON office (email);
 -- 2. CONSULTANT TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS consultant (
-    id UUID PRIMARY KEY, -- Can be null initially, linked to auth.users when consultant is invited
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid (), -- Can be temporary UUID or auth user ID
     office_id UUID NOT NULL REFERENCES office (id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     email TEXT, -- Can be null initially
     consultant_code TEXT, -- Can be null initially
+    auth_user_id UUID REFERENCES auth.users (id) ON DELETE SET NULL, -- Links to auth user when created
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK (
         status IN (
             'ACTIVE',
@@ -51,33 +52,19 @@ CREATE TABLE IF NOT EXISTS consultant (
 );
 
 -- Indexes for consultant
-CREATE UNIQUE INDEX IF NOT EXISTS consultant_email_unique ON consultant (email) WHERE email IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS consultant_email_unique ON consultant (email)
+WHERE
+    email IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS consultant_code_unique ON consultant (consultant_code) WHERE consultant_code IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS consultant_code_unique ON consultant (consultant_code)
+WHERE
+    consultant_code IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_consultant_office_id ON consultant (office_id);
 
 CREATE INDEX IF NOT EXISTS idx_consultant_status ON consultant (status);
 
--- Trigger to validate id references auth.users when id is not null
-CREATE OR REPLACE FUNCTION validate_consultant_auth_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.id IS NOT NULL THEN
-        -- Check if the id exists in auth.users
-        IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = NEW.id) THEN
-            RAISE EXCEPTION 'Consultant id must reference an existing auth user when provided';
-        END IF;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS validate_consultant_auth_user_trigger ON consultant;
-CREATE TRIGGER validate_consultant_auth_user_trigger
-    BEFORE INSERT OR UPDATE ON consultant
-    FOR EACH ROW
-    EXECUTE FUNCTION validate_consultant_auth_user();
+CREATE INDEX IF NOT EXISTS idx_consultant_auth_user_id ON consultant (auth_user_id);
 
 -- ============================================
 -- 3. CLIENT TABLE
@@ -130,7 +117,6 @@ CREATE TABLE IF NOT EXISTS contract (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     consultant_id UUID NOT NULL REFERENCES consultant (id) ON DELETE CASCADE,
     client_id UUID REFERENCES client (id) ON DELETE SET NULL,
-    folio_number TEXT,
     contract_number TEXT, -- This stores the poliza ID (extracted "poliza" value)
     capture_date DATE,
     project_name TEXT,
@@ -151,13 +137,58 @@ CREATE INDEX IF NOT EXISTS idx_contract_consultant_id ON contract (consultant_id
 
 CREATE INDEX IF NOT EXISTS idx_contract_client_id ON contract (client_id);
 
-CREATE INDEX IF NOT EXISTS idx_contract_folio_number ON contract (folio_number);
-
 CREATE INDEX IF NOT EXISTS idx_contract_contract_number ON contract (contract_number);
 
 CREATE INDEX IF NOT EXISTS idx_contract_status ON contract (status);
 
 CREATE INDEX IF NOT EXISTS idx_contract_created_at ON contract (created_at DESC);
+
+-- ============================================
+-- 4.5. CONTRACT DETAILS TABLE
+-- ============================================
+-- Stores row-level details for contracts (multiple rows per contract)
+-- Each row in the HTML table becomes a contract_detail record
+CREATE TABLE IF NOT EXISTS contract_detail (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    contract_id UUID NOT NULL REFERENCES contract (id) ON DELETE CASCADE,
+    ticket_number TEXT, -- RECIBO
+    plan TEXT, -- PLAN
+    issue_date DATE, -- FECHA EMISION
+    product TEXT, -- PRODUCTO
+    expiration_date DATE, -- FECHA VENCIMIENTO
+    payment_date DATE, -- FECHA PAGO
+    premium_payment TEXT, -- PRIMA PAGO
+    payment_method TEXT, -- FORMA DE PAGO
+    unit_value TEXT, -- U.V.
+    participation_percentage TEXT, -- PORCENTAJE PARTICIPACION
+    commission_premium TEXT, -- PRIMA COMISION
+    commission_honoraries TEXT, -- COMISION/HONORARIOS
+    condition TEXT, -- CONDICION
+    commission_percentage TEXT, -- % COMISION
+    movement TEXT, -- MOVIMIENTO
+    collection_premium TEXT, -- PRIMA COBRO
+    promotional_collection_premium TEXT, -- PRIMA COBRO PROM
+    incremental_premium TEXT, -- PRIMA INCREMENTAL
+    seniority TEXT, -- ANTIGÜEDAD
+    generation_date DATE, -- FECHA GENERACION
+    group_name TEXT, -- GRUPO
+    index_premium TEXT, -- PRIMA INDICE
+    target_premium TEXT, -- PRIMA META
+    row_data JSONB DEFAULT '{}'::jsonb, -- Store any additional columns dynamically
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for contract_detail
+CREATE INDEX IF NOT EXISTS idx_contract_detail_contract_id ON contract_detail (contract_id);
+
+CREATE INDEX IF NOT EXISTS idx_contract_detail_ticket_number ON contract_detail (ticket_number);
+
+CREATE INDEX IF NOT EXISTS idx_contract_detail_payment_date ON contract_detail (payment_date);
+
+CREATE INDEX IF NOT EXISTS idx_contract_detail_issue_date ON contract_detail (issue_date);
+
+CREATE INDEX IF NOT EXISTS idx_contract_detail_created_at ON contract_detail (created_at DESC);
 
 -- ============================================
 -- 5. CONTRACT CHANGE REQUEST TABLE
@@ -275,6 +306,13 @@ CREATE TRIGGER update_client_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION handle_updated_at();
 
+DROP TRIGGER IF EXISTS update_contract_detail_updated_at ON contract_detail;
+
+CREATE TRIGGER update_contract_detail_updated_at
+    BEFORE UPDATE ON contract_detail
+    FOR EACH ROW
+    EXECUTE FUNCTION handle_updated_at();
+
 -- ============================================
 -- 7. DATABASE FUNCTIONS
 -- ============================================
@@ -298,6 +336,7 @@ END;
 $$;
 
 -- Create consultant function
+-- Now updates auth_user_id if consultant exists, or creates new consultant
 CREATE OR REPLACE FUNCTION public.create_consultant(
     user_id UUID,
     user_email TEXT,
@@ -311,9 +350,22 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-    INSERT INTO consultant (id, email, name, consultant_code, office_id)
-    VALUES (user_id, user_email, consultant_name, consultant_code, office_id_param)
-    ON CONFLICT (id) DO NOTHING;
+    -- Try to find existing consultant by email or name in the same office
+    UPDATE consultant
+    SET
+        auth_user_id = user_id,
+        email = COALESCE(consultant.email, user_email),
+        consultant_code = COALESCE(consultant.consultant_code, consultant_code)
+    WHERE (email = user_email OR name = consultant_name)
+    AND office_id = office_id_param
+    AND auth_user_id IS NULL;
+
+    -- If no consultant was updated, create a new one
+    IF NOT FOUND THEN
+        INSERT INTO consultant (auth_user_id, email, name, consultant_code, office_id)
+        VALUES (user_id, user_email, consultant_name, consultant_code, office_id_param)
+        ON CONFLICT DO NOTHING;
+    END IF;
 END;
 $$;
 
@@ -668,6 +720,93 @@ WITH
                     FROM office
                     WHERE
                         id = auth.uid ()
+                )
+        )
+    );
+
+-- Enable RLS on contract_detail
+ALTER TABLE contract_detail ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Consultants can view own contract details" ON contract_detail;
+
+DROP POLICY IF EXISTS "Consultants can insert own contract details" ON contract_detail;
+
+DROP POLICY IF EXISTS "Offices can view their consultants contract details" ON contract_detail;
+
+DROP POLICY IF EXISTS "Offices can insert contract details for consultants" ON contract_detail;
+
+CREATE POLICY "Consultants can view own contract details" ON contract_detail FOR
+SELECT TO authenticated USING (
+        contract_id IN (
+            SELECT id
+            FROM contract
+            WHERE
+                consultant_id IN (
+                    SELECT id
+                    FROM consultant
+                    WHERE
+                        id = auth.uid ()
+                )
+        )
+    );
+
+CREATE POLICY "Consultants can insert own contract details" ON contract_detail FOR
+INSERT
+    TO authenticated
+WITH
+    CHECK (
+        contract_id IN (
+            SELECT id
+            FROM contract
+            WHERE
+                consultant_id IN (
+                    SELECT id
+                    FROM consultant
+                    WHERE
+                        id = auth.uid ()
+                )
+        )
+    );
+
+CREATE POLICY "Offices can view their consultants contract details" ON contract_detail FOR
+SELECT TO authenticated USING (
+        contract_id IN (
+            SELECT id
+            FROM contract
+            WHERE
+                consultant_id IN (
+                    SELECT id
+                    FROM consultant
+                    WHERE
+                        office_id IN (
+                            SELECT id
+                            FROM office
+                            WHERE
+                                id = auth.uid ()
+                        )
+                )
+        )
+    );
+
+CREATE POLICY "Offices can insert contract details for consultants" ON contract_detail FOR
+INSERT
+    TO authenticated
+WITH
+    CHECK (
+        contract_id IN (
+            SELECT id
+            FROM contract
+            WHERE
+                consultant_id IN (
+                    SELECT id
+                    FROM consultant
+                    WHERE
+                        office_id IN (
+                            SELECT id
+                            FROM office
+                            WHERE
+                                id = auth.uid ()
+                        )
                 )
         )
     );

@@ -31,7 +31,6 @@ function NewContractPageContent() {
     const [formData, setFormData] = useState<Partial<Contract>>({
         consultant_id: '',
         client_id: '',
-        folio_number: '',
         contract_number: '',
         capture_date: '',
         project_name: '',
@@ -77,7 +76,14 @@ function NewContractPageContent() {
 
     const loadClients = async () => {
         try {
-            const clientsData = await db.client.getAllClients();
+            let clientsData: Client[];
+            if (profile?.role === 'consultant' && profile.id) {
+                // Consultants can only see clients they have contracts with
+                clientsData = await db.client.getClientsByConsultant(profile.id);
+            } else {
+                // Promotory users can see all clients
+                clientsData = await db.client.getAllClients();
+            }
             setClients(clientsData);
         } catch (error) {
             console.error('Error loading clients:', error);
@@ -147,7 +153,6 @@ function NewContractPageContent() {
             const contractData: Omit<Contract, 'id' | 'created_at' | 'updated_at'> = {
                 consultant_id: consultantId,
                 client_id: formData.client_id || null,
-                folio_number: formData.folio_number || null,
                 contract_number: formData.contract_number || null,
                 capture_date: formData.capture_date || null,
                 project_name: formData.project_name || null,
@@ -226,43 +231,41 @@ function NewContractPageContent() {
             );
         }
 
-        // Step 2: Folio Info
+        // Step 2: Contract Info
         if (stepId === 'folio') {
             return (
                 <div className="space-y-6">
                     <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
-                        Información del Folio
+                        Información del Contrato
                     </h2>
                     <div>
-                        <label htmlFor="folio_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Folio (Solo si lo creaste por central o por OV propia)
+                        <label htmlFor="contract_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Número de Contrato (Poliza) *
                         </label>
                         <input
                             type="text"
-                            id="folio_number"
-                            name="folio_number"
-                            value={formData.folio_number || ''}
+                            id="contract_number"
+                            name="contract_number"
+                            value={formData.contract_number || ''}
                             onChange={handleInputChange}
+                            required
                             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            placeholder="Ingresa el folio si aplica"
+                            placeholder="Ingresa el número de contrato"
                         />
                     </div>
-                    {formData.folio_number && (
-                        <div>
-                            <label htmlFor="capture_date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Fecha de Captura (si es que creaste el folio) *
-                            </label>
-                            <input
-                                type="date"
-                                id="capture_date"
-                                name="capture_date"
-                                value={formData.capture_date || ''}
-                                onChange={handleInputChange}
-                                required={!!formData.folio_number}
-                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            />
-                        </div>
-                    )}
+                    <div>
+                        <label htmlFor="capture_date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            Fecha de Captura
+                        </label>
+                        <input
+                            type="date"
+                            id="capture_date"
+                            name="capture_date"
+                            value={formData.capture_date || ''}
+                            onChange={handleInputChange}
+                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </div>
                 </div>
             );
         }
