@@ -116,7 +116,7 @@ CREATE INDEX IF NOT EXISTS idx_token_used_at ON token (used_at);
 CREATE TABLE IF NOT EXISTS contract (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     consultant_id UUID NOT NULL REFERENCES consultant (id) ON DELETE CASCADE,
-    client_id UUID REFERENCES client (id) ON DELETE SET NULL,
+    client_id UUID REFERENCES client (id) ON DELETE CASCADE,
     contract_number TEXT, -- This stores the poliza ID (extracted "poliza" value)
     capture_date DATE,
     project_name TEXT,
@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS contract (
     annual_premium TEXT,
     payment_method TEXT,
     currency TEXT,
+    exchange_rate NUMERIC,
     payment_channel TEXT,
     folder_key TEXT,
     status TEXT DEFAULT 'PENDING',
@@ -149,40 +150,29 @@ CREATE INDEX IF NOT EXISTS idx_contract_created_at ON contract (created_at DESC)
 -- Stores row-level details for contracts (multiple rows per contract)
 -- Each row in the HTML table becomes a contract_detail record
 CREATE TABLE IF NOT EXISTS contract_detail (
-    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    id UUID DEFAULT gen_random_uuid () PRIMARY KEY,
     contract_id UUID NOT NULL REFERENCES contract (id) ON DELETE CASCADE,
-    ticket_number TEXT, -- RECIBO
     plan TEXT, -- PLAN
-    issue_date DATE, -- FECHA EMISION
     product TEXT, -- PRODUCTO
-    expiration_date DATE, -- FECHA VENCIMIENTO
+    issue_date DATE, -- FECHA EMISION
     payment_date DATE, -- FECHA PAGO
-    premium_payment TEXT, -- PRIMA PAGO
+    premium_payment NUMERIC, -- PRIMA PAGO
     payment_method TEXT, -- FORMA DE PAGO
-    unit_value TEXT, -- U.V.
-    participation_percentage TEXT, -- PORCENTAJE PARTICIPACION
-    commission_premium TEXT, -- PRIMA COMISION
-    commission_honoraries TEXT, -- COMISION/HONORARIOS
-    condition TEXT, -- CONDICION
-    commission_percentage TEXT, -- % COMISION
-    movement TEXT, -- MOVIMIENTO
-    collection_premium TEXT, -- PRIMA COBRO
-    promotional_collection_premium TEXT, -- PRIMA COBRO PROM
-    incremental_premium TEXT, -- PRIMA INCREMENTAL
+    commission_honoraries NUMERIC, -- COMISION/HONORARIOS
+    commission_percentage NUMERIC, -- % COMISION
+    collection_premium NUMERIC, -- PRIMA COBRO
     seniority TEXT, -- ANTIGÜEDAD
-    generation_date DATE, -- FECHA GENERACION
-    group_name TEXT, -- GRUPO
-    index_premium TEXT, -- PRIMA INDICE
-    target_premium TEXT, -- PRIMA META
-    row_data JSONB DEFAULT '{}'::jsonb, -- Store any additional columns dynamically
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    target_premium NUMERIC, -- PRIMA META
+    created_at TIMESTAMP
+    WITH
+        TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP
+    WITH
+        TIME ZONE DEFAULT NOW()
 );
 
 -- Indexes for contract_detail
 CREATE INDEX IF NOT EXISTS idx_contract_detail_contract_id ON contract_detail (contract_id);
-
-CREATE INDEX IF NOT EXISTS idx_contract_detail_ticket_number ON contract_detail (ticket_number);
 
 CREATE INDEX IF NOT EXISTS idx_contract_detail_payment_date ON contract_detail (payment_date);
 
@@ -421,6 +411,27 @@ BEGIN
 END;
 $$;
 
+-- Mark token as used function
+CREATE OR REPLACE FUNCTION public.mark_token_as_used(
+    token_id UUID
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    UPDATE token
+    SET
+        used_at = NOW(),
+        status = 'USED'
+    WHERE id = token_id
+    AND used_at IS NULL
+    AND expires_at > NOW()
+    AND status = 'ACTIVE';
+END;
+$$;
+
 -- Grant execute permissions
 GRANT
 EXECUTE ON FUNCTION public.create_office (UUID, TEXT, TEXT) TO authenticated;
@@ -444,13 +455,15 @@ EXECUTE ON FUNCTION public.create_invitation_token (
 ) TO authenticated;
 
 GRANT
-EXECUTE ON FUNCTION public.create_invitation_token (
-    UUID,
-    TEXT,
-    TEXT,
-    TEXT,
-    INTEGER
-) TO anon;
+EXECUTE ON FUNCTION public.create_invitation_token (TEXT, UUID, TEXT, TEXT, TEXT) TO authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.create_invitation_token (TEXT, UUID, TEXT, TEXT, TEXT) TO anon;
+
+GRANT
+EXECUTE ON FUNCTION public.mark_token_as_used (UUID) TO authenticated;
+
+GRANT EXECUTE ON FUNCTION public.mark_token_as_used (UUID) TO anon;
 
 -- ============================================
 -- 8. ROW LEVEL SECURITY (RLS) POLICIES

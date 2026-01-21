@@ -55,6 +55,7 @@ export interface Contract {
     annual_premium?: string | null;
     payment_method?: string | null;
     currency?: string | null;
+    exchange_rate?: number | null; // Tipo de cambio. NULL means MXN (no conversion)
     payment_channel?: string | null;
     folder_key?: string | null;
     status: string; // Default 'PENDING'
@@ -80,30 +81,17 @@ export interface ContractChangeRequest {
 export interface ContractDetail {
     id: string;
     contract_id: string;
-    ticket_number?: string | null; // RECIBO
     plan?: string | null; // PLAN
-    issue_date?: string | null; // FECHA EMISION
     product?: string | null; // PRODUCTO
-    expiration_date?: string | null; // FECHA VENCIMIENTO
+    issue_date?: string | null; // FECHA EMISION
     payment_date?: string | null; // FECHA PAGO
-    premium_payment?: string | null; // PRIMA PAGO
+    premium_payment?: number | null; // PRIMA PAGO (NUMERIC)
     payment_method?: string | null; // FORMA DE PAGO
-    unit_value?: string | null; // U.V.
-    participation_percentage?: string | null; // PORCENTAJE PARTICIPACION
-    commission_premium?: string | null; // PRIMA COMISION
-    commission_honoraries?: string | null; // COMISION/HONORARIOS
-    condition?: string | null; // CONDICION
-    commission_percentage?: string | null; // % COMISION
-    movement?: string | null; // MOVIMIENTO
-    collection_premium?: string | null; // PRIMA COBRO
-    promotional_collection_premium?: string | null; // PRIMA COBRO PROM
-    incremental_premium?: string | null; // PRIMA INCREMENTAL
+    commission_honoraries?: number | null; // COMISION/HONORARIOS (NUMERIC)
+    commission_percentage?: number | null; // % COMISION (NUMERIC)
+    collection_premium?: number | null; // PRIMA COBRO (NUMERIC)
     seniority?: string | null; // ANTIGÜEDAD
-    generation_date?: string | null; // FECHA GENERACION
-    group_name?: string | null; // GRUPO
-    index_premium?: string | null; // PRIMA INDICE
-    target_premium?: string | null; // PRIMA META
-    row_data?: { [key: string]: any };
+    target_premium?: number | null; // PRIMA META (NUMERIC)
     created_at?: string;
     updated_at?: string;
 }

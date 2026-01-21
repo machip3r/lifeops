@@ -522,7 +522,7 @@ function NewContractPageContent() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
-                <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+                <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
             </div>
         );
     }
@@ -531,10 +531,10 @@ function NewContractPageContent() {
         <div className="max-w-4xl mx-auto">
             <div className="mb-8">
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                    {profile?.role === 'promotory' ? 'Register Emission' : 'Emit Contract'}
+                    {profile?.role === 'promotory' ? 'Registrar Emisión' : 'Emitir Contrato'}
                 </h1>
                 <p className="text-gray-600 dark:text-gray-400">
-                    Complete the following steps to create a new contract
+                    Completa los siguientes pasos para crear un nuevo contrato
                 </p>
             </div>
 

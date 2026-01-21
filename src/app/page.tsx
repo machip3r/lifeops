@@ -14,7 +14,7 @@ export default function LandingPage() {
             {assets.brand.tagline}
           </p>
           <p className="text-lg text-gray-500 dark:text-gray-500 mb-12 max-w-2xl mx-auto">
-            Powerful tools to streamline your daily operations and boost productivity
+            Herramientas poderosas para optimizar tus operaciones diarias y aumentar la productividad
           </p>
 
           <div className="flex gap-4 justify-center">
@@ -22,13 +22,13 @@ export default function LandingPage() {
               href="/login"
               className="px-8 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold text-lg"
             >
-              Get Started
+              Comenzar
             </Link>
             <Link
               href="/login"
               className="px-8 py-3 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors font-semibold text-lg"
             >
-              Sign In
+              Iniciar Sesión
             </Link>
           </div>
         </div>
@@ -42,10 +42,10 @@ export default function LandingPage() {
               </svg>
             </div>
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              HTML Extractor
+              Extractor HTML
             </h3>
             <p className="text-gray-600 dark:text-gray-400">
-              Extract tables from HTML files and convert them to CSV format with ease
+              Extrae tablas de archivos HTML y conviértelas a formato CSV con facilidad
             </p>
           </div>
 
@@ -56,10 +56,10 @@ export default function LandingPage() {
               </svg>
             </div>
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              Dashboard
+              Vista General
             </h3>
             <p className="text-gray-600 dark:text-gray-400">
-              Centralized dashboard to manage all your operations and tools
+              Vista centralizada para gestionar todas tus operaciones y herramientas
             </p>
           </div>
 
@@ -70,10 +70,10 @@ export default function LandingPage() {
               </svg>
             </div>
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              Profile Management
+              Gestión de Perfil
             </h3>
             <p className="text-gray-600 dark:text-gray-400">
-              Manage your profile and preferences in one convenient place
+              Gestiona tu perfil y preferencias en un solo lugar conveniente
             </p>
           </div>
         </div>

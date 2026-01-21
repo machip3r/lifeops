@@ -299,13 +299,9 @@ export const db = {
         },
 
         markTokenAsUsed: async (id: string): Promise<void> => {
-            const { error } = await supabase
-                .from('token')
-                .update({
-                    used_at: new Date().toISOString(),
-                    status: 'USED',
-                })
-                .eq('id', id);
+            const { error } = await supabase.rpc('mark_token_as_used', {
+                token_id: id,
+            });
 
             if (error) throw error;
         },
@@ -357,6 +353,17 @@ export const db = {
                 .from('contract')
                 .select('*')
                 .eq('consultant_id', consultantId)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return data || [];
+        },
+
+        getContractsByClient: async (clientId: string): Promise<Contract[]> => {
+            const { data, error } = await supabase
+                .from('contract')
+                .select('*')
+                .eq('client_id', clientId)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -454,12 +461,13 @@ export const db = {
             let successCount = 0;
 
             // Group rows by contract (Cliente + Poliza + Asesor)
-            // First 4 columns are: Cliente, Poliza, Moneda, Asesor
+            // First 5 columns are: Cliente, Poliza, Moneda, Tipo Cambio, Asesor
             // Rest are detail columns
             type ContractGroup = {
                 cliente: string;
                 poliza: string;
                 moneda: string;
+                tipoCambio: string;
                 asesor: string;
                 rows: Array<{ rowIndex: number; data: string[] }>;
             };
@@ -470,7 +478,7 @@ export const db = {
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 try {
-                    if (row.length < 4) {
+                    if (row.length < 5) {
                         errors.push({ row: i + 1, error: 'Row does not have enough columns' });
                         continue;
                     }
@@ -478,7 +486,8 @@ export const db = {
                     const cliente = row[0]?.trim();
                     const poliza = row[1]?.trim();
                     const moneda = row[2]?.trim();
-                    const asesor = row[3]?.trim(); // This is the consultant_code
+                    const tipoCambio = row[3]?.trim();
+                    const asesor = row[4]?.trim(); // This is the consultant_code
 
                     if (!cliente || !asesor) {
                         errors.push({ row: i + 1, error: 'Missing Cliente or Asesor (Consultant Code)' });
@@ -493,15 +502,16 @@ export const db = {
                             cliente,
                             poliza,
                             moneda,
+                            tipoCambio,
                             asesor,
                             rows: [],
                         });
                     }
 
-                    // Add this row to the contract group (skip first 4 columns as they're contract-level)
+                    // Add this row to the contract group (skip first 5 columns as they're contract-level)
                     contractGroups.get(contractKey)!.rows.push({
                         rowIndex: i + 1,
-                        data: row.slice(4), // All columns after the first 4 are detail columns
+                        data: row.slice(5), // All columns after the first 5 are detail columns
                     });
                 } catch (error: any) {
                     errors.push({ row: i + 1, error: error.message || 'Error grouping row' });
@@ -549,6 +559,16 @@ export const db = {
             // Pre-fetch clients in batch (single query for all clients)
             const uniqueClientes = [...new Set(Array.from(contractGroups.values()).map(g => g.cliente))];
             const clientCache = await db.client.findOrCreateClientsByName(uniqueClientes);
+
+            // Helper functions (defined here so they can be used in the loop)
+            // Parse exchange rate - tipo cambio
+            const parseExchangeRate = (value: string | null): number | null => {
+                if (!value || !value.trim() || value.trim() === 'NULL' || value.trim() === '') return null;
+                // Remove commas, spaces, and other formatting
+                const cleaned = value.trim().replace(/,/g, '').replace(/\s/g, '');
+                const parsed = parseFloat(cleaned);
+                return isNaN(parsed) ? null : parsed;
+            };
 
             // Process each contract group
             for (const [contractKey, group] of contractGroups.entries()) {
@@ -598,6 +618,7 @@ export const db = {
                                 client_id: client.id,
                                 contract_number: group.poliza,
                                 currency: group.moneda || null,
+                                exchange_rate: parseExchangeRate(group.tipoCambio),
                                 status: 'PENDING',
                             });
                             isNewContract = true;
@@ -611,14 +632,13 @@ export const db = {
                             client_id: client.id,
                             contract_number: null,
                             currency: group.moneda || null,
+                            exchange_rate: parseExchangeRate(group.tipoCambio),
                             status: 'PENDING',
                         });
                         isNewContract = true;
                     }
 
-                    // Prepare all detail records first, then batch check for duplicates
-                    const detailRecords: Array<{ record: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>; rowInfo: { rowIndex: number; data: string[] } }> = [];
-
+                    // Helper functions
                     // Map columns helper
                     const mapColumn = (detailData: string[], index: number): string | null => {
                         if (index >= detailData.length) return null;
@@ -626,7 +646,8 @@ export const db = {
                         return value || null;
                     };
 
-                    // Parse dates helper
+                    // Parse dates helper - converts DD/MM/YYYY to YYYY-MM-DD
+                    // This format is safe for PostgreSQL DATE type and avoids timezone issues
                     const parseDate = (dateStr: string | null): string | null => {
                         if (!dateStr || !dateStr.trim()) return null;
                         const parts = dateStr.trim().split('/');
@@ -634,43 +655,56 @@ export const db = {
                             const day = parts[0].padStart(2, '0');
                             const month = parts[1].padStart(2, '0');
                             const year = parts[2];
+                            // Return in YYYY-MM-DD format (ISO date format, no time component)
+                            // This avoids timezone conversion issues when stored as DATE in PostgreSQL
                             return `${year}-${month}-${day}`;
                         }
                         return null;
                     };
 
+                    // Parse numeric helper - removes commas and converts to number
+                    const parseNumeric = (value: string | null): number | null => {
+                        if (!value || !value.trim() || value.trim() === 'NULL') return null;
+                        // Remove commas, spaces, and other formatting
+                        const cleaned = value.trim().replace(/,/g, '').replace(/\s/g, '');
+                        const parsed = parseFloat(cleaned);
+                        return isNaN(parsed) ? null : parsed;
+                    };
+
+                    // Prepare all detail records first, then batch check for duplicates
+                    const detailRecords: Array<{ record: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>; rowInfo: { rowIndex: number; data: string[] } }> = [];
+
                     // Prepare all details
+                    // Column mapping from HTML table:
+                    // 0: RECIBO (removed)
+                    // 1: PLAN
+                    // 2: FECHA EMISION
+                    // 3: PRODUCTO
+                    // 5: FECHA PAGO
+                    // 6: PRIMA PAGO
+                    // 7: FORMA DE PAGO
+                    // 11: COMISION/HONORARIOS
+                    // 13: % COMISION
+                    // 15: PRIMA COBRO
+                    // 18: ANTIGÜEDAD
+                    // 23: PRIMA META
                     for (const rowInfo of group.rows) {
                         try {
                             const detailData = rowInfo.data;
-                            const ticketNumber = mapColumn(detailData, 0); // RECIBO
 
                             const detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'> = {
                                 contract_id: contract.id,
-                                ticket_number: ticketNumber,
-                                plan: mapColumn(detailData, 1),
-                                issue_date: parseDate(mapColumn(detailData, 2)),
-                                product: mapColumn(detailData, 3),
-                                expiration_date: parseDate(mapColumn(detailData, 4)),
-                                payment_date: parseDate(mapColumn(detailData, 5)),
-                                premium_payment: mapColumn(detailData, 6),
-                                payment_method: mapColumn(detailData, 7),
-                                unit_value: mapColumn(detailData, 8),
-                                participation_percentage: mapColumn(detailData, 9),
-                                commission_premium: mapColumn(detailData, 10),
-                                commission_honoraries: mapColumn(detailData, 11),
-                                condition: mapColumn(detailData, 12),
-                                commission_percentage: mapColumn(detailData, 13),
-                                movement: mapColumn(detailData, 14),
-                                collection_premium: mapColumn(detailData, 15),
-                                promotional_collection_premium: mapColumn(detailData, 16),
-                                incremental_premium: mapColumn(detailData, 17),
-                                seniority: mapColumn(detailData, 18),
-                                generation_date: parseDate(mapColumn(detailData, 19)),
-                                group_name: mapColumn(detailData, 20),
-                                index_premium: mapColumn(detailData, 21),
-                                target_premium: mapColumn(detailData, 23),
-                                row_data: {},
+                                plan: mapColumn(detailData, 1), // PLAN
+                                product: mapColumn(detailData, 3), // PRODUCTO
+                                issue_date: parseDate(mapColumn(detailData, 2)), // FECHA EMISION
+                                payment_date: parseDate(mapColumn(detailData, 5)), // FECHA PAGO
+                                premium_payment: parseNumeric(mapColumn(detailData, 6)), // PRIMA PAGO
+                                payment_method: mapColumn(detailData, 7), // FORMA DE PAGO
+                                commission_honoraries: parseNumeric(mapColumn(detailData, 11)), // COMISION/HONORARIOS
+                                commission_percentage: parseNumeric(mapColumn(detailData, 13)), // % COMISION
+                                collection_premium: parseNumeric(mapColumn(detailData, 15)), // PRIMA COBRO
+                                seniority: mapColumn(detailData, 18), // ANTIGÜEDAD
+                                target_premium: parseNumeric(mapColumn(detailData, 23)), // PRIMA META
                             };
 
                             detailRecords.push({ record: detail, rowInfo });
@@ -679,27 +713,42 @@ export const db = {
                         }
                     }
 
-                    // Batch check for duplicate details
-                    const detailChecks = detailRecords
-                        .filter(d => d.record.ticket_number)
-                        .map(d => ({ contractId: contract.id, ticketNumber: d.record.ticket_number! }));
+                    // Batch check for duplicate details by comparing all columns
+                    const detailChecks = detailRecords.map((d, index) => ({
+                        contractId: contract.id,
+                        detail: {
+                            plan: d.record.plan,
+                            product: d.record.product,
+                            issue_date: d.record.issue_date,
+                            payment_date: d.record.payment_date,
+                            premium_payment: d.record.premium_payment,
+                            payment_method: d.record.payment_method,
+                            commission_honoraries: d.record.commission_honoraries,
+                            commission_percentage: d.record.commission_percentage,
+                            collection_premium: d.record.collection_premium,
+                            seniority: d.record.seniority,
+                            target_premium: d.record.target_premium,
+                        } as Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'>,
+                        row: d.rowInfo.rowIndex,
+                        originalIndex: index,
+                    }));
 
-                    const existingDetails = detailChecks.length > 0
-                        ? await db.contractDetail.checkDetailsExist(detailChecks)
-                        : new Set<string>();
+                    const duplicateIndices = detailChecks.length > 0
+                        ? await db.contractDetail.checkDetailsExistByAllColumns(
+                            detailChecks.map(({ contractId, detail }) => ({ contractId, detail }))
+                        )
+                        : new Set<number>();
 
                     // Filter out duplicates and create records
                     const detailRecordsToInsert: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>[] = [];
                     let skippedDetails = 0;
 
-                    for (const { record, rowInfo } of detailRecords) {
-                        if (record.ticket_number) {
-                            const key = `${contract.id}:${record.ticket_number}`;
-                            if (existingDetails.has(key)) {
-                                warnings.push({ row: rowInfo.rowIndex, message: `Detail with ticket number "${record.ticket_number}" already exists for this contract. Skipping duplicate.` });
-                                skippedDetails++;
-                                continue;
-                            }
+                    for (let i = 0; i < detailRecords.length; i++) {
+                        const { record, rowInfo } = detailRecords[i];
+                        if (duplicateIndices.has(i)) {
+                            warnings.push({ row: rowInfo.rowIndex, message: `Detalle duplicado encontrado (todos los campos coinciden). Se omitirá.` });
+                            skippedDetails++;
+                            continue;
                         }
                         detailRecordsToInsert.push(record);
                     }
@@ -1113,6 +1162,160 @@ export const db = {
             return existingSet;
         },
 
+        // Check if a detail exists by comparing all columns
+        checkDetailExistsByAllColumns: async (detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>): Promise<boolean> => {
+            // Build query to check all columns
+            let query = supabase
+                .from('contract_detail')
+                .select('id')
+                .eq('contract_id', detail.contract_id);
+
+            // Add conditions for all fields (only the ones we're keeping)
+            if (detail.plan !== null && detail.plan !== undefined) {
+                query = query.eq('plan', detail.plan);
+            } else {
+                query = query.is('plan', null);
+            }
+
+            if (detail.product !== null && detail.product !== undefined) {
+                query = query.eq('product', detail.product);
+            } else {
+                query = query.is('product', null);
+            }
+
+            if (detail.issue_date !== null && detail.issue_date !== undefined) {
+                query = query.eq('issue_date', detail.issue_date);
+            } else {
+                query = query.is('issue_date', null);
+            }
+
+            if (detail.payment_date !== null && detail.payment_date !== undefined) {
+                query = query.eq('payment_date', detail.payment_date);
+            } else {
+                query = query.is('payment_date', null);
+            }
+
+            if (detail.premium_payment !== null && detail.premium_payment !== undefined) {
+                query = query.eq('premium_payment', detail.premium_payment);
+            } else {
+                query = query.is('premium_payment', null);
+            }
+
+            if (detail.payment_method !== null && detail.payment_method !== undefined) {
+                query = query.eq('payment_method', detail.payment_method);
+            } else {
+                query = query.is('payment_method', null);
+            }
+
+            if (detail.commission_honoraries !== null && detail.commission_honoraries !== undefined) {
+                query = query.eq('commission_honoraries', detail.commission_honoraries);
+            } else {
+                query = query.is('commission_honoraries', null);
+            }
+
+            if (detail.commission_percentage !== null && detail.commission_percentage !== undefined) {
+                query = query.eq('commission_percentage', detail.commission_percentage);
+            } else {
+                query = query.is('commission_percentage', null);
+            }
+
+            if (detail.collection_premium !== null && detail.collection_premium !== undefined) {
+                query = query.eq('collection_premium', detail.collection_premium);
+            } else {
+                query = query.is('collection_premium', null);
+            }
+
+            if (detail.seniority !== null && detail.seniority !== undefined) {
+                query = query.eq('seniority', detail.seniority);
+            } else {
+                query = query.is('seniority', null);
+            }
+
+            if (detail.target_premium !== null && detail.target_premium !== undefined) {
+                query = query.eq('target_premium', detail.target_premium);
+            } else {
+                query = query.is('target_premium', null);
+            }
+
+            const { data, error } = await query.limit(1).maybeSingle();
+
+            if (error && error.code !== 'PGRST116') throw error;
+            return !!data;
+        },
+
+        // Batch check multiple details by comparing all columns
+        checkDetailsExistByAllColumns: async (details: Array<{ contractId: string; detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'> }>): Promise<Set<number>> => {
+            // Returns a Set of indices (from the input array) that are duplicates
+            const duplicateIndices = new Set<number>();
+
+            if (details.length === 0) return duplicateIndices;
+
+            // Group by contract_id to optimize queries
+            const byContract = new Map<string, Array<{ index: number; detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'> }>>();
+            details.forEach(({ contractId, detail }, index) => {
+                if (!byContract.has(contractId)) {
+                    byContract.set(contractId, []);
+                }
+                byContract.get(contractId)!.push({ index, detail });
+            });
+
+            // For each contract, load all existing details and compare
+            for (const [contractId, detailList] of byContract.entries()) {
+                // Load all existing details for this contract
+                const { data: existingDetails, error } = await supabase
+                    .from('contract_detail')
+                    .select('*')
+                    .eq('contract_id', contractId);
+
+                if (error) throw error;
+
+                if (!existingDetails || existingDetails.length === 0) continue;
+
+                // Compare each new detail against all existing ones
+                for (const { index, detail: newDetail } of detailList) {
+                    const detailWithContractId: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'> = {
+                        ...newDetail,
+                        contract_id: contractId,
+                    };
+
+                    // Check if this detail matches any existing detail (comparing all fields)
+                    // For numeric fields, compare numbers directly (handling nulls)
+                    const isDuplicate = existingDetails.some((existing: ContractDetail) => {
+                        // Helper to compare values (handles null and numeric comparison)
+                        const compareValues = (a: any, b: any): boolean => {
+                            if (a === null || a === undefined) return (b === null || b === undefined);
+                            if (b === null || b === undefined) return false;
+                            // For numbers, use numeric comparison to handle precision
+                            if (typeof a === 'number' && typeof b === 'number') {
+                                return Math.abs(a - b) < 0.01; // Allow small floating point differences
+                            }
+                            return a === b;
+                        };
+
+                        return (
+                            compareValues(existing.plan, detailWithContractId.plan) &&
+                            compareValues(existing.product, detailWithContractId.product) &&
+                            compareValues(existing.issue_date, detailWithContractId.issue_date) &&
+                            compareValues(existing.payment_date, detailWithContractId.payment_date) &&
+                            compareValues(existing.premium_payment, detailWithContractId.premium_payment) &&
+                            compareValues(existing.payment_method, detailWithContractId.payment_method) &&
+                            compareValues(existing.commission_honoraries, detailWithContractId.commission_honoraries) &&
+                            compareValues(existing.commission_percentage, detailWithContractId.commission_percentage) &&
+                            compareValues(existing.collection_premium, detailWithContractId.collection_premium) &&
+                            compareValues(existing.seniority, detailWithContractId.seniority) &&
+                            compareValues(existing.target_premium, detailWithContractId.target_premium)
+                        );
+                    });
+
+                    if (isDuplicate) {
+                        duplicateIndices.add(index);
+                    }
+                }
+            }
+
+            return duplicateIndices;
+        },
+
         createDetail: async (detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>): Promise<ContractDetail> => {
             const { data, error } = await supabase
                 .from('contract_detail')
@@ -1153,6 +1356,179 @@ export const db = {
                 .eq('id', id);
 
             if (error) throw error;
+        },
+    },
+
+    // Dashboard/Statistics functions (all calculations done in SQL)
+    dashboard: {
+        // Get total prima pago and prima meta for an office (calculated in SQL via RPC)
+        getOfficeTotals: async (officeId: string): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
+            const { data, error } = await supabase.rpc('get_office_totals', {
+                office_id_param: officeId,
+            });
+
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                return { totalPrimaPago: 0, totalPrimaMeta: 0 };
+            }
+
+            return {
+                totalPrimaPago: parseFloat(data[0].total_prima_pago || '0') || 0,
+                totalPrimaMeta: parseFloat(data[0].total_prima_meta || '0') || 0,
+            };
+        },
+
+        // Get top consultants by sales for an office (calculated in SQL via RPC)
+        getTopConsultantsBySales: async (officeId: string, limit: number = 3): Promise<Array<{ consultant: Consultant; sales: number }>> => {
+            const { data, error } = await supabase.rpc('get_top_consultants_by_sales', {
+                office_id_param: officeId,
+                limit_count: limit,
+            });
+
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                return [];
+            }
+
+            // Map the RPC result to our expected format
+            return data.map((row: any) => ({
+                consultant: {
+                    id: row.consultant_id,
+                    name: row.consultant_name,
+                    consultant_code: row.consultant_code,
+                    email: row.consultant_email,
+                    office_id: officeId,
+                    auth_user_id: null,
+                    status: 'ACTIVE' as const,
+                } as Consultant,
+                sales: parseFloat(row.total_sales || '0') || 0,
+            }));
+        },
+
+        // Get total prima pago and prima meta for a consultant (calculated in SQL via RPC)
+        getConsultantTotals: async (consultantId: string): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
+            const { data, error } = await supabase.rpc('get_consultant_totals', {
+                consultant_id_param: consultantId,
+            });
+
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                return { totalPrimaPago: 0, totalPrimaMeta: 0 };
+            }
+
+            return {
+                totalPrimaPago: parseFloat(data[0].total_prima_pago || '0') || 0,
+                totalPrimaMeta: parseFloat(data[0].total_prima_meta || '0') || 0,
+            };
+        },
+
+        // Get office totals by contract type (VI and GM) - prima meta only
+        getOfficeTotalsByType: async (officeId: string): Promise<{ primaMetaVI: number; primaMetaGM: number }> => {
+            const { data, error } = await supabase.rpc('get_office_totals_by_type', {
+                office_id_param: officeId,
+            });
+
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                return { primaMetaVI: 0, primaMetaGM: 0 };
+            }
+
+            return {
+                primaMetaVI: parseFloat(data[0].prima_meta_vi || '0') || 0,
+                primaMetaGM: parseFloat(data[0].prima_meta_gm || '0') || 0,
+            };
+        },
+
+        // Get consultant totals by contract type (VI and GM) - prima pago and prima meta
+        getConsultantTotalsByType: async (consultantId: string): Promise<{ primaPagoVI: number; primaPagoGM: number; primaMetaVI: number; primaMetaGM: number }> => {
+            const { data, error } = await supabase.rpc('get_consultant_totals_by_type', {
+                consultant_id_param: consultantId,
+            });
+
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                return { primaPagoVI: 0, primaPagoGM: 0, primaMetaVI: 0, primaMetaGM: 0 };
+            }
+
+            return {
+                primaPagoVI: parseFloat(data[0].prima_pago_vi || '0') || 0,
+                primaPagoGM: parseFloat(data[0].prima_pago_gm || '0') || 0,
+                primaMetaVI: parseFloat(data[0].prima_meta_vi || '0') || 0,
+                primaMetaGM: parseFloat(data[0].prima_meta_gm || '0') || 0,
+            };
+        },
+    },
+
+    // Search functions
+    search: {
+        searchContracts: async (query: string, officeId?: string): Promise<Contract[]> => {
+            let queryBuilder = supabase
+                .from('contract')
+                .select('*')
+                .or(`contract_number.ilike.%${query}%,project_name.ilike.%${query}%`)
+                .limit(10);
+
+            // If officeId is provided, filter by office
+            if (officeId) {
+                queryBuilder = queryBuilder
+                    .select('*, consultant:consultant_id(office_id)')
+                    .eq('consultant.office_id', officeId);
+            }
+
+            const { data, error } = await queryBuilder;
+
+            if (error) throw error;
+            return data || [];
+        },
+
+        searchConsultants: async (query: string, officeId?: string): Promise<Consultant[]> => {
+            let queryBuilder = supabase
+                .from('consultant')
+                .select('*')
+                .or(`name.ilike.%${query}%,consultant_code.ilike.%${query}%,email.ilike.%${query}%`)
+                .limit(10);
+
+            if (officeId) {
+                queryBuilder = queryBuilder.eq('office_id', officeId);
+            }
+
+            const { data, error } = await queryBuilder;
+
+            if (error) throw error;
+            return data || [];
+        },
+
+        searchClients: async (query: string, officeId?: string): Promise<Client[]> => {
+            let queryBuilder = supabase
+                .from('client')
+                .select('*')
+                .ilike('name', `%${query}%`)
+                .limit(10);
+
+            // If officeId is provided, filter by contracts that belong to that office
+            if (officeId) {
+                // Get clients through contracts
+                const { data: contracts, error: contractError } = await supabase
+                    .from('contract')
+                    .select('client_id, consultant:consultant_id(office_id)')
+                    .eq('consultant.office_id', officeId)
+                    .not('client_id', 'is', null);
+
+                if (contractError) throw contractError;
+
+                const clientIds = contracts
+                    ?.map((c: any) => c.client_id)
+                    .filter((id: string | null): id is string => id !== null) || [];
+
+                if (clientIds.length === 0) return [];
+
+                queryBuilder = queryBuilder.in('id', clientIds);
+            }
+
+            const { data, error } = await queryBuilder;
+
+            if (error) throw error;
+            return data || [];
         },
     },
 };

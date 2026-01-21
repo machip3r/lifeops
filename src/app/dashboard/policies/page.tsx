@@ -172,7 +172,7 @@ function PoliciesPageContent() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+        <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
       </div>
     );
   }
@@ -182,17 +182,17 @@ function PoliciesPageContent() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Contracts
+            Contratos
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Manage your contracts and procedures
+            Gestiona tus contratos y procedimientos
           </p>
         </div>
         <button
           onClick={() => router.push('/dashboard/policies/new')}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
         >
-          + New Contract
+          + Nuevo Contrato
         </button>
       </div>
 
@@ -202,7 +202,7 @@ function PoliciesPageContent() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 my-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Edit Contract
+                Editar Contrato
               </h2>
               <button
                 onClick={() => {
@@ -219,7 +219,7 @@ function PoliciesPageContent() {
               {/* Request Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Request Type *
+                  Tipo de Solicitud *
                 </label>
                 <div className="grid grid-cols-3 gap-4">
                   <button
@@ -230,7 +230,7 @@ function PoliciesPageContent() {
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
                       }`}
                   >
-                    Emit Policy
+                    Emitir Póliza
                   </button>
                   <button
                     type="button"
@@ -240,7 +240,7 @@ function PoliciesPageContent() {
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
                       }`}
                   >
-                    Make Change
+                    Hacer Cambio
                   </button>
                   <button
                     type="button"
@@ -250,7 +250,7 @@ function PoliciesPageContent() {
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300'
                       }`}
                   >
-                    Edit Folio
+                    Corregir Folio
                   </button>
                 </div>
               </div>
@@ -259,7 +259,7 @@ function PoliciesPageContent() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Consultant Code
+                    Código del Consultor
                   </label>
                   <input
                     type="text"
@@ -271,7 +271,7 @@ function PoliciesPageContent() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Folio Number
+                    Número de Folio
                   </label>
                   <input
                     type="text"
@@ -289,7 +289,7 @@ function PoliciesPageContent() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Contract Status
+                        Estado del Contrato
                       </label>
                       <select
                         name="contract_number_status"
@@ -297,18 +297,18 @@ function PoliciesPageContent() {
                         onChange={handleInputChange}
                         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       >
-                        <option value="">Select...</option>
-                        <option value="ACEPTADO/PAGADO">Accepted/Paid</option>
-                        <option value="TERMINADO">Completed</option>
-                        <option value="RECHAZADO">Rejected</option>
-                        <option value="ACEPTADO/PAGADO GMM">Accepted/Paid GMM</option>
-                        <option value="TERMINADO GMM">Completed GMM</option>
-                        <option value="RECHAZADO GMM">Rejected GMM</option>
+                        <option value="">Seleccionar...</option>
+                        <option value="ACEPTADO/PAGADO">Aceptado/Pagado</option>
+                        <option value="TERMINADO">Terminado</option>
+                        <option value="RECHAZADO">Rechazado</option>
+                        <option value="ACEPTADO/PAGADO GMM">Aceptado/Pagado GMM</option>
+                        <option value="TERMINADO GMM">Terminado GMM</option>
+                        <option value="RECHAZADO GMM">Rechazado GMM</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Capture Date
+                        Fecha de Captura
                       </label>
                       <input
                         type="date"
@@ -322,7 +322,7 @@ function PoliciesPageContent() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Client Full Name
+                      Nombre Completo del Cliente
                     </label>
                     <input
                       type="text"
@@ -335,7 +335,7 @@ function PoliciesPageContent() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Project Name
+                      Nombre del Proyecto
                     </label>
                     <input
                       type="text"
@@ -349,7 +349,7 @@ function PoliciesPageContent() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Insured Amount
+                        Suma Asegurada
                       </label>
                       <input
                         type="text"
@@ -362,7 +362,7 @@ function PoliciesPageContent() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Annual Premium
+                        Prima Anual
                       </label>
                       <input
                         type="text"
@@ -377,7 +377,7 @@ function PoliciesPageContent() {
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Payment Method
+                        Método de Pago
                       </label>
                       <select
                         name="payment_method"
@@ -385,8 +385,8 @@ function PoliciesPageContent() {
                         onChange={handleInputChange}
                         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       >
-                        <option value="">Select...</option>
-                        <option value="Anual">Annual</option>
+                        <option value="">Seleccionar...</option>
+                        <option value="Anual">Anual</option>
                         <option value="Semestral">Semestral</option>
                         <option value="Mensual">Monthly</option>
                         <option value="Trimestral">Trimesterly</option>
@@ -394,7 +394,7 @@ function PoliciesPageContent() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Currency
+                        Moneda
                       </label>
                       <select
                         name="currency"
@@ -402,15 +402,15 @@ function PoliciesPageContent() {
                         onChange={handleInputChange}
                         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       >
-                        <option value="">Select...</option>
+                        <option value="">Seleccionar...</option>
                         <option value="Udis">UDIS</option>
-                        <option value="Pesos">Mexican Pesos</option>
-                        <option value="Dolares">Dollars</option>
+                        <option value="Pesos">Pesos Mexicanos</option>
+                        <option value="Dolares">Dólares</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Payment Channel
+                        Canal de Pago
                       </label>
                       <select
                         name="collection_channel"
@@ -418,7 +418,7 @@ function PoliciesPageContent() {
                         onChange={handleInputChange}
                         className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                       >
-                        <option value="">Select...</option>
+                        <option value="">Seleccionar...</option>
                         <option value="Agente">Agente</option>
                         <option value="Cargo Automático">Cargo Automático</option>
                       </select>
@@ -432,7 +432,7 @@ function PoliciesPageContent() {
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Contract Number *
+                      Número de Contrato *
                     </label>
                     <input
                       type="text"
@@ -446,7 +446,7 @@ function PoliciesPageContent() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Client Full Name
+                      Nombre Completo del Cliente
                     </label>
                     <input
                       type="text"
@@ -459,7 +459,7 @@ function PoliciesPageContent() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Change or procedure you want to make
+                      Cambio o trámite que deseas hacer
                     </label>
                     <select
                       name="change_type"
@@ -473,7 +473,7 @@ function PoliciesPageContent() {
                       }}
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     >
-                      <option value="">Select a change type</option>
+                      <option value="">Selecciona un tipo de cambio</option>
                       <option value="Cambio Agente, Forma de pago, Domicilio, Contratante, etc.">
                         Cambio Agente, Forma de pago, Domicilio, Contratante, etc.
                       </option>
@@ -497,7 +497,7 @@ function PoliciesPageContent() {
                   {formData.change_type === 'Otro' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Specify the change type
+                        Especifica el tipo de cambio
                       </label>
                       <input
                         type="text"
@@ -514,7 +514,7 @@ function PoliciesPageContent() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Description and Reason
+                      Descripción y Motivo
                     </label>
                     <textarea
                       name="change_description"
@@ -528,7 +528,7 @@ function PoliciesPageContent() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Bank
+                        Banco
                       </label>
                       <input
                         type="text"
@@ -559,7 +559,7 @@ function PoliciesPageContent() {
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Folio Number to Correct *
+                      Número de Folio a Corregir *
                     </label>
                     <input
                       type="text"
@@ -573,7 +573,7 @@ function PoliciesPageContent() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Description of changes
+                      Descripción de los cambios
                     </label>
                     <textarea
                       name="correction_description"
@@ -612,9 +612,9 @@ function PoliciesPageContent() {
                   onChange={handleInputChange}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
-                  <option value="pending">Pending</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
+                  <option value="pending">Pendiente</option>
+                  <option value="in_progress">En Progreso</option>
+                  <option value="completed">Completado</option>
                   <option value="terminado">Terminado</option>
                   <option value="aceptado_pagado">Aceptado/Pagado</option>
                   <option value="rechazado">Rechazado</option>
@@ -663,7 +663,7 @@ function PoliciesPageContent() {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
         {policies.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No contracts registered. Create your first contract
+            No hay contratos registrados. Crea tu primer contrato
           </div>
         ) : (
           <div className="overflow-x-auto">

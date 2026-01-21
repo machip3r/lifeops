@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import ProtectedRoute from '@/components/protected-route';
@@ -8,6 +9,7 @@ import { useAuth } from '@/contexts/auth-context';
 import RequestFormDialog from '@/components/request-form-dialog';
 
 function ConsultantsPageContent() {
+  const router = useRouter();
   const { profile } = useAuth();
   const [consultants, setConsultants] = useState<Consultant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +20,8 @@ function ConsultantsPageContent() {
   const [inviteCode, setInviteCode] = useState('');
   const [isInviting, setIsInviting] = useState(false);
   const [inviteError, setInviteError] = useState('');
+  const [inviteSuccess, setInviteSuccess] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const loadConsultants = useCallback(async () => {
     try {
@@ -31,10 +35,10 @@ function ConsultantsPageContent() {
       // Show all consultants (ACTIVE, PENDING, INACTIVE)
       // Previously was filtering to only ACTIVE, which excluded PENDING consultants
       setConsultants(data);
+      setLoadError('');
     } catch (error) {
       console.error('Error loading consultants:', error);
-      // Show error to user
-      alert('Error loading consultants. Please reload the page.');
+      setLoadError('Error al cargar los consultores. Por favor recarga la página.');
     } finally {
       setLoading(false);
     }
@@ -48,7 +52,7 @@ function ConsultantsPageContent() {
 
   const handleInviteConsultant = async () => {
     if (!inviteEmail || !inviteName || !inviteCode) {
-      setInviteError('Please fill in all fields');
+      setInviteError('Por favor completa todos los campos');
       return;
     }
 
@@ -73,20 +77,26 @@ function ConsultantsPageContent() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Error sending invitation');
+        throw new Error(data.error || 'Error al enviar la invitación');
       }
 
-      alert(`Invitation sent successfully to ${inviteEmail}. The consultant will receive an email with the registration link.`);
+      setInviteSuccess(`Invitación enviada exitosamente a ${inviteEmail}. El consultor recibirá un correo electrónico con el enlace de registro.`);
 
       // Reset form
       setInviteEmail('');
       setInviteName('');
       setInviteCode('');
-      setIsDialogOpen(false);
-      loadConsultants();
+      setInviteError('');
+
+      // Close dialog and reload after a short delay to show success message
+      setTimeout(() => {
+        setIsDialogOpen(false);
+        setInviteSuccess('');
+        loadConsultants();
+      }, 2000);
     } catch (error: any) {
       console.error('Error inviting consultant:', error);
-      setInviteError(error.message || 'Error inviting consultant. Please try again.');
+      setInviteError(error.message || 'Error al invitar al consultor. Por favor intenta de nuevo.');
     } finally {
       setIsInviting(false);
     }
@@ -100,12 +110,14 @@ function ConsultantsPageContent() {
   const closeDialog = () => {
     setIsDialogOpen(false);
     setSelectedConsultant(null);
+    setInviteError('');
+    setInviteSuccess('');
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Loading consultants...</p>
+        <p className="text-gray-600 dark:text-gray-400">Cargando consultores...</p>
       </div>
     );
   }
@@ -115,10 +127,10 @@ function ConsultantsPageContent() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Consultants
+            Consultores
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Manage your consultants and their requests
+            Gestiona tus consultores y sus solicitudes
           </p>
         </div>
         <button
@@ -127,14 +139,21 @@ function ConsultantsPageContent() {
             setInviteName('');
             setInviteCode('');
             setInviteError('');
+            setInviteSuccess('');
             setSelectedConsultant(null);
             setIsDialogOpen(true);
           }}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
         >
-          + Invite Consultant
+          + Invitar Consultor
         </button>
       </div>
+
+      {loadError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
+          <p className="text-sm text-red-800 dark:text-red-200">{loadError}</p>
+        </div>
+      )}
 
       {/* Consultants List */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
@@ -142,22 +161,22 @@ function ConsultantsPageContent() {
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Name
+                Nombre
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Email
+                Correo Electrónico
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Code
+                Código
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Status
+                Estado
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Invitation Date
+                Fecha de Invitación
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Actions
+                Acciones
               </th>
             </tr>
           </thead>
@@ -165,20 +184,24 @@ function ConsultantsPageContent() {
             {consultants.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                  No consultants registered. Invite one to start.
+                  No hay consultores registrados. Invita uno para comenzar.
                 </td>
               </tr>
             ) : (
               consultants.map((consultant) => (
-                <tr key={consultant.id || `temp-${consultant.name}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                <tr
+                  key={consultant.id || `temp-${consultant.name}`}
+                  onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                >
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                     {consultant.name}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {consultant.email || <span className="text-gray-400 italic">Not set</span>}
+                    {consultant.email || <span className="text-gray-400 italic">No establecido</span>}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {consultant.consultant_code || <span className="text-gray-400 italic">Not set</span>}
+                    {consultant.consultant_code || <span className="text-gray-400 italic">No establecido</span>}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${consultant.status === 'ACTIVE'
@@ -187,7 +210,7 @@ function ConsultantsPageContent() {
                         ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                         : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                       }`}>
-                      {consultant.status === 'ACTIVE' ? 'Active' : consultant.status === 'PENDING' ? 'Pending' : 'Inactive'}
+                      {consultant.status === 'ACTIVE' ? 'Activo' : consultant.status === 'PENDING' ? 'Pendiente' : 'Inactivo'}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -195,13 +218,19 @@ function ConsultantsPageContent() {
                       ? new Date(consultant.created_at).toLocaleDateString('en-US')
                       : '-'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end space-x-3">
                       <button
-                        onClick={() => openRequestDialog(consultant)}
+                        onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
                         className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
                       >
-                        New Request
+                        Ver Detalles
+                      </button>
+                      <button
+                        onClick={() => openRequestDialog(consultant)}
+                        className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300"
+                      >
+                        Nueva Solicitud
                       </button>
                     </div>
                   </td>
@@ -219,7 +248,7 @@ function ConsultantsPageContent() {
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {selectedConsultant ? 'New Request' : 'Invite Consultant'}
+                  {selectedConsultant ? 'Nueva Solicitud' : 'Invitar Consultor'}
                 </h2>
                 <button
                   onClick={closeDialog}
@@ -237,19 +266,19 @@ function ConsultantsPageContent() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Consultant Name *
+                      Nombre del Consultor *
                     </label>
                     <input
                       type="text"
                       value={inviteName}
                       onChange={(e) => setInviteName(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="Full name"
+                      placeholder="Nombre completo"
                     />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Email *
+                      Correo Electrónico *
                     </label>
                     <input
                       type="email"
@@ -261,14 +290,14 @@ function ConsultantsPageContent() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Consultant Code *
+                      Código del Consultor *
                     </label>
                     <input
                       type="text"
                       value={inviteCode}
                       onChange={(e) => setInviteCode(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="Unique consultant code"
+                      placeholder="Código único del consultor"
                     />
                   </div>
                   {inviteError && (
@@ -276,19 +305,24 @@ function ConsultantsPageContent() {
                       <p className="text-sm text-red-800 dark:text-red-200">{inviteError}</p>
                     </div>
                   )}
+                  {inviteSuccess && (
+                    <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                      <p className="text-sm text-green-800 dark:text-green-200">{inviteSuccess}</p>
+                    </div>
+                  )}
                   <div className="flex justify-end space-x-4">
                     <button
                       onClick={closeDialog}
                       className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                     >
-                      Cancel
+                      Cancelar
                     </button>
                     <button
                       onClick={handleInviteConsultant}
                       disabled={isInviting}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     >
-                      {isInviting ? 'Sending...' : 'Send Invitation'}
+                      {isInviting ? 'Enviando...' : 'Enviar Invitación'}
                     </button>
                   </div>
                 </div>

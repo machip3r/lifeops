@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin, ContractDetail } from '@/lib/supabase';
 
 interface ContractorMetadata {
   contratante?: string;
@@ -230,6 +230,7 @@ function ExtractorPageContent() {
       'Cliente',
       'Poliza',
       'Moneda',
+      'Tipo Cambio',
       'Asesor',
       ...mainHeaders
     ];
@@ -242,6 +243,7 @@ function ExtractorPageContent() {
           section.metadata.contratante || '',
           section.metadata.poliza || '',
           section.metadata.moneda || '',
+          section.metadata.tipoCambio || '',
           section.metadata.asesor || '',
           ...row
         ]);
@@ -371,7 +373,7 @@ function ExtractorPageContent() {
     if (htmlFile) {
       handleFile(htmlFile);
     } else {
-      alert('Please drop an HTML file');
+      alert('Por favor arrastra un archivo HTML');
     }
   };
 
@@ -415,7 +417,6 @@ function ExtractorPageContent() {
   };
 
   const checkDuplicates = async (rows: string[][]): Promise<{ contracts: string[]; details: Array<{ contract: string; ticket: string; row: number }> }> => {
-    const duplicateContracts: string[] = [];
     const duplicateDetails: Array<{ contract: string; ticket: string; row: number }> = [];
 
     // Group rows by contract (same logic as import)
@@ -423,6 +424,7 @@ function ExtractorPageContent() {
       cliente: string;
       poliza: string;
       moneda: string;
+      tipoCambio: string;
       asesor: string;
       rows: Array<{ rowIndex: number; data: string[] }>;
     };
@@ -431,11 +433,13 @@ function ExtractorPageContent() {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row.length < 4) continue;
+      if (row.length < 5) continue;
 
       const cliente = row[0]?.trim();
       const poliza = row[1]?.trim();
-      const asesor = row[3]?.trim();
+      const moneda = row[2]?.trim();
+      const tipoCambio = row[3]?.trim();
+      const asesor = row[4]?.trim();
 
       if (!cliente || !asesor) continue;
 
@@ -444,18 +448,19 @@ function ExtractorPageContent() {
         contractGroups.set(contractKey, {
           cliente,
           poliza,
-          moneda: row[2]?.trim() || '',
+          moneda: moneda || '',
+          tipoCambio: tipoCambio || '',
           asesor,
           rows: [],
         });
       }
       contractGroups.get(contractKey)!.rows.push({
         rowIndex: i + 1,
-        data: row.slice(4),
+        data: row.slice(5),
       });
     }
 
-    // Batch check all contracts at once
+    // Check which contracts exist to get their IDs (for checking ticket numbers)
     const polizasToCheck = Array.from(contractGroups.values())
       .map(g => g.poliza)
       .filter((p): p is string => !!p);
@@ -474,62 +479,112 @@ function ExtractorPageContent() {
       }
     }
 
-    // Batch check all details at once
-    const detailChecks: Array<{ contractId: string; ticketNumber: string; contract: string; row: number }> = [];
+    // Helper functions to parse data (same as import function)
+    const mapColumn = (detailData: string[], index: number): string | null => {
+      if (index >= detailData.length) return null;
+      const value = detailData[index]?.trim();
+      return value || null;
+    };
+
+    const parseDate = (dateStr: string | null): string | null => {
+      if (!dateStr || !dateStr.trim()) return null;
+      const parts = dateStr.trim().split('/');
+      if (parts.length === 3) {
+        const day = parts[0].padStart(2, '0');
+        const month = parts[1].padStart(2, '0');
+        const year = parts[2];
+        return `${year}-${month}-${day}`;
+      }
+      return null;
+    };
+
+    // Parse numeric helper - removes commas and converts to number
+    const parseNumeric = (value: string | null): number | null => {
+      if (!value || !value.trim() || value.trim() === 'NULL') return null;
+      // Remove commas, spaces, and other formatting
+      const cleaned = value.trim().replace(/,/g, '').replace(/\s/g, '');
+      const parsed = parseFloat(cleaned);
+      return isNaN(parsed) ? null : parsed;
+    };
+
+    // Build detail objects for all rows (only for existing contracts)
+    // For new contracts, we don't need to check since they won't have any details yet
+    const detailChecks: Array<{ contractId: string; detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'>; contract: string; row: number }> = [];
+
     for (const [, group] of contractGroups.entries()) {
       if (group.poliza) {
         const existingContract = existingContractsMap.get(group.poliza);
+        // Only check details if the contract already exists
         if (existingContract) {
-          duplicateContracts.push(`Contract "${group.poliza}" (Poliza: ${group.poliza})`);
-
-          // Collect all ticket numbers for this contract
+          // Build detail objects for all rows in this contract group
+          // Column mapping: 1=PLAN, 2=FECHA EMISION, 3=PRODUCTO, 5=FECHA PAGO, 6=PRIMA PAGO,
+          // 7=FORMA DE PAGO, 11=COMISION/HONORARIOS, 13=% COMISION, 15=PRIMA COBRO,
+          // 18=ANTIGÜEDAD, 23=PRIMA META
           for (const rowInfo of group.rows) {
-            const ticketNumber = rowInfo.data[0]?.trim();
-            if (ticketNumber) {
+            try {
+              const detailData = rowInfo.data;
+              const detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'> = {
+                plan: mapColumn(detailData, 1), // PLAN
+                product: mapColumn(detailData, 3), // PRODUCTO
+                issue_date: parseDate(mapColumn(detailData, 2)), // FECHA EMISION
+                payment_date: parseDate(mapColumn(detailData, 5)), // FECHA PAGO
+                premium_payment: parseNumeric(mapColumn(detailData, 6)), // PRIMA PAGO
+                payment_method: mapColumn(detailData, 7), // FORMA DE PAGO
+                commission_honoraries: parseNumeric(mapColumn(detailData, 11)), // COMISION/HONORARIOS
+                commission_percentage: parseNumeric(mapColumn(detailData, 13)), // % COMISION
+                collection_premium: parseNumeric(mapColumn(detailData, 15)), // PRIMA COBRO
+                seniority: mapColumn(detailData, 18), // ANTIGÜEDAD
+                target_premium: parseNumeric(mapColumn(detailData, 23)), // PRIMA META
+              };
+
               detailChecks.push({
                 contractId: existingContract.id,
-                ticketNumber,
+                detail,
                 contract: group.poliza,
                 row: rowInfo.rowIndex,
               });
+            } catch (error) {
+              // Skip rows that can't be parsed
+              console.error('Error parsing detail row:', error);
             }
           }
         }
       }
     }
 
-    // Batch check all details
+    // Batch check all details by comparing all columns (only for existing contracts)
     if (detailChecks.length > 0) {
-      const existingDetails = await db.contractDetail.checkDetailsExist(
-        detailChecks.map(d => ({ contractId: d.contractId, ticketNumber: d.ticketNumber }))
+      const duplicateIndices = await db.contractDetail.checkDetailsExistByAllColumns(
+        detailChecks.map(({ contractId, detail }) => ({ contractId, detail }))
       );
 
-      // Find which details exist
-      detailChecks.forEach(({ contractId, ticketNumber, contract, row }) => {
-        const key = `${contractId}:${ticketNumber}`;
-        if (existingDetails.has(key)) {
-          duplicateDetails.push({ contract, ticket: ticketNumber, row });
+      // Find which details are duplicates
+      detailChecks.forEach(({ contract, row, detail }, index) => {
+        if (duplicateIndices.has(index)) {
+          const product = detail.product || 'N/A';
+          duplicateDetails.push({ contract, ticket: product, row });
         }
       });
     }
 
-    return { contracts: duplicateContracts, details: duplicateDetails };
+    // Return empty contracts array since we no longer check for duplicate contracts
+    return { contracts: [], details: duplicateDetails };
   };
 
   const handleImport = async () => {
     if (tables.length === 0 || tables[0].rows.length === 0) {
-      setImportResult({ success: 0, errors: [{ row: 0, error: 'No data to import. Please extract a table first.' }], warnings: [] });
+      setImportResult({ success: 0, errors: [{ row: 0, error: 'No hay datos para importar. Por favor extrae una tabla primero.' }], warnings: [] });
       return;
     }
 
     if (!profile?.id) {
-      setImportResult({ success: 0, errors: [{ row: 0, error: 'You must be logged in to import data.' }], warnings: [] });
+      setImportResult({ success: 0, errors: [{ row: 0, error: 'Debes iniciar sesión para importar datos.' }], warnings: [] });
       return;
     }
 
     const officeId = profile.role === 'consultant' ? (profile.office_id || profile.id) : profile.id;
     if (!officeId) {
-      setImportResult({ success: 0, errors: [{ row: 0, error: 'Unable to determine office. Please contact support.' }], warnings: [] });
+      setImportResult({ success: 0, errors: [{ row: 0, error: 'No se pudo determinar la oficina. Por favor contacta al soporte.' }], warnings: [] });
       return;
     }
 
@@ -558,7 +613,7 @@ function ExtractorPageContent() {
 
       setIsCheckingDuplicates(false);
 
-      if (duplicateData.contracts.length > 0 || duplicateData.details.length > 0) {
+      if (duplicateData.details.length > 0) {
         setDuplicates(duplicateData);
         setShowDuplicateDialog(true);
         return;
@@ -570,7 +625,7 @@ function ExtractorPageContent() {
       setIsCheckingDuplicates(false);
       setImportResult({
         success: 0,
-        errors: [{ row: 0, error: error.message || 'Error checking for duplicates' }],
+        errors: [{ row: 0, error: error.message || 'Error al verificar duplicados' }],
         warnings: []
       });
     }
@@ -594,10 +649,10 @@ function ExtractorPageContent() {
       // Validate all consultants have email and password
       for (const consultant of missingConsultants) {
         if (!consultant.email || !consultant.password) {
-          throw new Error(`Please provide email and password for ${consultant.consultantCode}`);
+          throw new Error(`Por favor proporciona correo electrónico y contraseña para ${consultant.consultantCode}`);
         }
         if (consultant.password.length < 8) {
-          throw new Error(`Password for ${consultant.consultantCode} must be at least 8 characters`);
+          throw new Error(`La contraseña para ${consultant.consultantCode} debe tener al menos 8 caracteres`);
         }
       }
 
@@ -611,11 +666,11 @@ function ExtractorPageContent() {
         });
 
         if (authError) {
-          throw new Error(`Failed to create user for ${consultant.consultantCode}: ${authError.message}`);
+          throw new Error(`Error al crear usuario para ${consultant.consultantCode}: ${authError.message}`);
         }
 
         if (!authData.user) {
-          throw new Error(`Failed to create user for ${consultant.consultantCode}`);
+          throw new Error(`Error al crear usuario para ${consultant.consultantCode}`);
         }
 
         // Create consultant with auth user ID
@@ -632,7 +687,7 @@ function ExtractorPageContent() {
           });
 
         if (consultantError) {
-          throw new Error(`Failed to create consultant ${consultant.consultantCode}: ${consultantError.message}`);
+          throw new Error(`Error al crear consultor ${consultant.consultantCode}: ${consultantError.message}`);
         }
       }
 
@@ -647,7 +702,7 @@ function ExtractorPageContent() {
 
         setIsCheckingDuplicates(false);
 
-        if (duplicateData.contracts.length > 0 || duplicateData.details.length > 0) {
+        if (duplicateData.details.length > 0) {
           setDuplicates(duplicateData);
           setShowDuplicateDialog(true);
           return;
@@ -659,7 +714,7 @@ function ExtractorPageContent() {
         setIsCheckingDuplicates(false);
         setImportResult({
           success: 0,
-          errors: [{ row: 0, error: error.message || 'Error checking for duplicates' }],
+          errors: [{ row: 0, error: error.message || 'Error al verificar duplicados' }],
           warnings: []
         });
       }
@@ -667,7 +722,7 @@ function ExtractorPageContent() {
       console.error('Error creating consultants:', error);
       setImportResult({
         success: 0,
-        errors: [{ row: 0, error: error.message || 'Failed to create consultants' }],
+        errors: [{ row: 0, error: error.message || 'Error al crear consultores' }],
         warnings: []
       });
     } finally {
@@ -691,7 +746,7 @@ function ExtractorPageContent() {
       console.error('Import error:', error);
       setImportResult({
         success: 0,
-        errors: [{ row: 0, error: error.message || 'Unknown error occurred during import' }],
+        errors: [{ row: 0, error: error.message || 'Error desconocido durante la importación' }],
         warnings: []
       });
     } finally {
@@ -702,10 +757,10 @@ function ExtractorPageContent() {
   return (
     <div>
       <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-        Tables extractor
+        Extractor de Tablas
       </h1>
       <p className="text-gray-600 dark:text-gray-400 mb-8">
-        Drop an HTML file to extract tables and download as CSV
+        Arrastra un archivo HTML para extraer tablas y descargarlas como CSV
       </p>
 
       {/* File Drop Zone */}
@@ -745,10 +800,10 @@ function ExtractorPageContent() {
           </svg>
           <div>
             <p className="text-lg font-medium text-gray-900 dark:text-white">
-              Drop your HTML file here, or click to browse
+              Arrastra tu archivo HTML aquí, o haz clic para explorar
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-              Supports .html and .htm files
+              Soporta archivos .html y .htm
             </p>
           </div>
         </div>
@@ -759,7 +814,7 @@ function ExtractorPageContent() {
         <div className="mt-8 space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              Extracted Table ({tables[0].rows.length} rows)
+              Tabla Extraída ({tables[0].rows.length} filas)
             </h2>
             <div className="flex gap-2">
               <button
@@ -767,13 +822,13 @@ function ExtractorPageContent() {
                 disabled={isImporting || isCheckingDuplicates}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCheckingDuplicates ? 'Checking for duplicates...' : isImporting ? 'Importing...' : 'Import to Database'}
+                {isCheckingDuplicates ? 'Verificando duplicados...' : isImporting ? 'Importando...' : 'Importar a Base de Datos'}
               </button>
               <button
                 onClick={downloadAllCSV}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Download CSV
+                Descargar CSV
               </button>
               <button
                 onClick={copyAllToClipboard}
@@ -790,18 +845,18 @@ function ExtractorPageContent() {
               {importResult.warnings && importResult.warnings.length > 0 && (
                 <div className="rounded-lg p-4 border bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 mb-4">
                   <h3 className="text-sm font-semibold mb-2 text-blue-800 dark:text-blue-200">
-                    ⚠️ Import Warnings ({importResult.warnings.length})
+                    ⚠️ Advertencias de Importación ({importResult.warnings.length})
                   </h3>
                   <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
-                    The following items were skipped because they already exist in the database:
+                    Los siguientes elementos se omitieron porque ya existen en la base de datos:
                   </p>
                   <div className="text-sm text-blue-700 dark:text-blue-300 max-h-60 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1">
                       {importResult.warnings.slice(0, 50).map((warning, idx) => (
-                        <li key={idx}>Row {warning.row}: {warning.message}</li>
+                        <li key={idx}>Fila {warning.row}: {warning.message}</li>
                       ))}
                       {importResult.warnings.length > 50 && (
-                        <li>... and {importResult.warnings.length - 50} more warnings</li>
+                        <li>... y {importResult.warnings.length - 50} advertencias más</li>
                       )}
                     </ul>
                   </div>
@@ -818,18 +873,18 @@ function ExtractorPageContent() {
                   : 'text-yellow-800 dark:text-yellow-200'
                   }`}>
                   {importResult.errors.length === 0
-                    ? `✅ Successfully imported ${importResult.success} contract(s)!`
-                    : `⚠️ Import completed: ${importResult.success} imported, ${importResult.errors.length} error(s)`
+                    ? `✅ ¡Se importaron exitosamente ${importResult.success} contrato(s)!`
+                    : `⚠️ Importación completada: ${importResult.success} importados, ${importResult.errors.length} error(es)`
                   }
                 </h3>
                 {importResult.errors.length > 0 && (
                   <div className="text-sm text-yellow-700 dark:text-yellow-300 max-h-60 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1">
                       {importResult.errors.slice(0, 50).map((error, idx) => (
-                        <li key={idx}>Row {error.row}: {error.error}</li>
+                        <li key={idx}>Fila {error.row}: {error.error}</li>
                       ))}
                       {importResult.errors.length > 50 && (
-                        <li>... and {importResult.errors.length - 50} more errors</li>
+                        <li>... y {importResult.errors.length - 50} errores más</li>
                       )}
                     </ul>
                   </div>
@@ -888,12 +943,12 @@ function ExtractorPageContent() {
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                {isCheckingDuplicates ? 'Checking for Duplicates' : 'Importing Data'}
+                {isCheckingDuplicates ? 'Verificando Duplicados' : 'Importando Datos'}
               </h3>
               <p className="text-gray-600 dark:text-gray-400">
                 {isCheckingDuplicates
-                  ? 'Please wait while we check the database for existing records...'
-                  : 'Please wait while we import your data...'}
+                  ? 'Por favor espera mientras verificamos la base de datos por registros existentes...'
+                  : 'Por favor espera mientras importamos tus datos...'}
               </p>
             </div>
           </div>
@@ -906,37 +961,22 @@ function ExtractorPageContent() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                ⚠️ Duplicates Found
+                ⚠️ Duplicados Encontrados
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                The following records already exist in the database. Duplicate records will be skipped during import.
+                Los siguientes números de ticket ya existen en la base de datos. Los registros duplicados se omitirán durante la importación.
               </p>
-
-              {duplicates.contracts.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-                    Duplicate Contracts ({duplicates.contracts.length})
-                  </h3>
-                  <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 max-h-40 overflow-y-auto">
-                    <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800 dark:text-yellow-200">
-                      {duplicates.contracts.map((contract, idx) => (
-                        <li key={idx}>{contract}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              )}
 
               {duplicates.details.length > 0 && (
                 <div className="mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-                    Duplicate Contract Details ({duplicates.details.length})
+                    Números de Ticket Duplicados ({duplicates.details.length})
                   </h3>
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 max-h-40 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800 dark:text-yellow-200">
                       {duplicates.details.map((detail, idx) => (
                         <li key={idx}>
-                          Row {detail.row}: Contract &quot;{detail.contract}&quot; - Ticket &quot;{detail.ticket}&quot;
+                          Fila {detail.row}: Contrato &quot;{detail.contract}&quot; - Ticket &quot;{detail.ticket}&quot;
                         </li>
                       ))}
                     </ul>
@@ -952,13 +992,13 @@ function ExtractorPageContent() {
                   }}
                   className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                 >
-                  Cancel
+                  Cancelar
                 </button>
                 <button
                   onClick={handleConfirmImport}
                   className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold"
                 >
-                  Continue with Import
+                  Continuar con la Importación
                 </button>
               </div>
             </div>
@@ -972,22 +1012,22 @@ function ExtractorPageContent() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                Create Missing Consultants
+                Crear Consultores Faltantes
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                The following consultants were not found in the database. Please provide email and password to create them:
+                Los siguientes consultores no se encontraron en la base de datos. Por favor proporciona correo electrónico y contraseña para crearlos:
               </p>
 
               <div className="space-y-4 mb-6">
                 {missingConsultants.map((consultant, index) => (
                   <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                     <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
-                      Consultant Code: {consultant.consultantCode}
+                      Código del Consultor: {consultant.consultantCode}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Consultant Name
+                          Nombre del Consultor
                         </label>
                         <input
                           type="text"
@@ -998,12 +1038,12 @@ function ExtractorPageContent() {
                             setMissingConsultants(updated);
                           }}
                           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="Consultant name"
+                          placeholder="Nombre del consultor"
                         />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Email *
+                          Correo Electrónico *
                         </label>
                         <input
                           type="email"
@@ -1014,12 +1054,12 @@ function ExtractorPageContent() {
                             setMissingConsultants(updated);
                           }}
                           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="consultant@example.com"
+                          placeholder="consultor@ejemplo.com"
                         />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Password * (min 8 chars)
+                          Contraseña * (mín. 8 caracteres)
                         </label>
                         <input
                           type="password"
@@ -1036,7 +1076,7 @@ function ExtractorPageContent() {
                     </div>
                     <div className="mt-3">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Consultant Code (Asesor) - Read Only
+                        Código del Consultor (Asesor) - Solo Lectura
                       </label>
                       <input
                         type="text"
@@ -1058,14 +1098,14 @@ function ExtractorPageContent() {
                   className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   disabled={isCreatingConsultants}
                 >
-                  Cancel
+                  Cancelar
                 </button>
                 <button
                   onClick={handleCreateConsultants}
                   disabled={isCreatingConsultants}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isCreatingConsultants ? 'Creating...' : 'Create Consultants & Import'}
+                  {isCreatingConsultants ? 'Creando...' : 'Crear Consultores e Importar'}
                 </button>
               </div>
             </div>

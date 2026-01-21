@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Client, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 
 function ClientsPageContent() {
+    const router = useRouter();
     const { profile } = useAuth();
     const [clients, setClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
@@ -168,7 +170,7 @@ function ClientsPageContent() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
-                <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+                <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
             </div>
         );
     }
@@ -181,7 +183,7 @@ function ClientsPageContent() {
                         Clientes
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400">
-                        Manage your registered clients
+                        Gestiona tus clientes registrados
                     </p>
                 </div>
                 <button
@@ -320,7 +322,11 @@ function ClientsPageContent() {
                             {clients.map((client) => {
                                 const age = calculateAge(client.birth_date);
                                 return (
-                                    <tr key={client.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                    <tr
+                                        key={client.id}
+                                        onClick={() => router.push(`/dashboard/clients/${client.id}`)}
+                                        className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                                    >
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="text-sm font-medium text-gray-900 dark:text-white">
                                                 {client.name}
@@ -348,7 +354,13 @@ function ClientsPageContent() {
                                                     : 'N/A'}
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                onClick={() => router.push(`/dashboard/clients/${client.id}`)}
+                                                className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4"
+                                            >
+                                                Ver Detalles
+                                            </button>
                                             <button
                                                 onClick={() => handleEdit(client)}
                                                 className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4"

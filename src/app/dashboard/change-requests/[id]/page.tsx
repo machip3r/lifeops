@@ -93,7 +93,7 @@ function ChangeRequestDetailsPageContent() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+        <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
       </div>
     );
   }

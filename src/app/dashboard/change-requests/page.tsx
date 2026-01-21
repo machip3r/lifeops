@@ -66,7 +66,7 @@ function ChangeRequestsPageContent() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
-                <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+                <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
             </div>
         );
     }
@@ -80,10 +80,18 @@ function ChangeRequestsPageContent() {
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400">
                         {profile?.role === 'promotory'
-                            ? 'Manage the change requests of your consultants'
-                            : 'Manage your change requests'}
+                            ? 'Gestiona las solicitudes de cambio de tus consultores'
+                            : 'Gestiona tus solicitudes de cambio'}
                     </p>
                 </div>
+                {profile?.role === 'consultant' && (
+                    <button
+                        onClick={() => router.push('/dashboard/policies/new')}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                    >
+                        + Nueva Solicitud
+                    </button>
+                )}
             </div>
 
             {changeRequests.length === 0 ? (
@@ -124,7 +132,11 @@ function ChangeRequestsPageContent() {
                             {changeRequests.map((request) => {
                                 const contract = contracts[request.contract_id];
                                 return (
-                                    <tr key={request.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                    <tr
+                                        key={request.id}
+                                        onClick={() => router.push(`/dashboard/change-requests/${request.id}`)}
+                                        className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                                    >
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="text-sm font-medium text-gray-900 dark:text-white">
                                                 {request.request_type === 'CHANGE' ? 'Cambio' : 'Corrección'}
@@ -157,7 +169,7 @@ function ChangeRequestsPageContent() {
                                                     : 'N/A'}
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                                             <button
                                                 onClick={() => router.push(`/dashboard/change-requests/${request.id}`)}
                                                 className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"

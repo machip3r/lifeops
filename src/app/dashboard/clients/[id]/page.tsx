@@ -1,0 +1,319 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { Client, Contract, Consultant, ContractDetail } from '@/lib/supabase';
+import { db } from '@/lib/db';
+import { useAuth } from '@/contexts/auth-context';
+import ProtectedRoute from '@/components/protected-route';
+
+function ClientDetailsPageContent() {
+    const router = useRouter();
+    const params = useParams();
+    const clientId = params.id as string;
+    const { profile } = useAuth();
+    const [client, setClient] = useState<Client | null>(null);
+    const [contracts, setContracts] = useState<Contract[]>([]);
+    const [consultantsMap, setConsultantsMap] = useState<Map<string, Consultant>>(new Map());
+    const [contractSavingsMap, setContractSavingsMap] = useState<Map<string, number>>(new Map());
+    const [loading, setLoading] = useState(true);
+
+    const loadClientData = useCallback(async () => {
+        try {
+            setLoading(true);
+            const [clientData, contractsData] = await Promise.all([
+                db.client.getClientById(clientId),
+                db.contract.getContractsByClient(clientId),
+            ]);
+
+            if (!clientData) {
+                throw new Error('Cliente no encontrado');
+            }
+
+            setClient(clientData);
+            setContracts(contractsData);
+
+            // Load consultant names for all contracts
+            const consultantIds = [...new Set(contractsData.map(c => c.consultant_id).filter((id): id is string => !!id))];
+            const consultantsMap = new Map<string, Consultant>();
+
+            for (const consultantId of consultantIds) {
+                try {
+                    const consultant = await db.consultant.getConsultantById(consultantId);
+                    if (consultant) {
+                        consultantsMap.set(consultantId, consultant);
+                    }
+                } catch (error) {
+                    console.error(`Error loading consultant ${consultantId}:`, error);
+                }
+            }
+
+            setConsultantsMap(consultantsMap);
+
+            // Load contract details for all contracts and calculate savings (ahorro cliente)
+            // Ahorro cliente = sum of collection_premium for each contract
+            const savingsMap = new Map<string, number>();
+
+            for (const contract of contractsData) {
+                try {
+                    const details = await db.contractDetail.getDetailsByContract(contract.id);
+                    const totalSavings = details.reduce((sum, detail) => {
+                        const collectionPremium = detail.collection_premium || 0;
+                        return sum + collectionPremium;
+                    }, 0);
+                    savingsMap.set(contract.id, totalSavings);
+                } catch (error) {
+                    console.error(`Error loading details for contract ${contract.id}:`, error);
+                    savingsMap.set(contract.id, 0);
+                }
+            }
+
+            setContractSavingsMap(savingsMap);
+        } catch (error: any) {
+            console.error('Error loading client data:', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [clientId]);
+
+    useEffect(() => {
+        if (clientId) {
+            loadClientData();
+        }
+    }, [clientId, loadClientData]);
+
+    const formatDate = (dateString: string | null | undefined) => {
+        if (!dateString) return 'N/A';
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('es-MX', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+            });
+        } catch {
+            return dateString;
+        }
+    };
+
+    const calculateAge = (birthDate: string | null | undefined) => {
+        if (!birthDate) return null;
+        try {
+            const birth = new Date(birthDate);
+            const today = new Date();
+            let age = today.getFullYear() - birth.getFullYear();
+            const monthDiff = today.getMonth() - birth.getMonth();
+            if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+                age--;
+            }
+            return age;
+        } catch {
+            return null;
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
+            </div>
+        );
+    }
+
+    if (!client) {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                <div className="text-center">
+                    <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">Cliente no encontrado</p>
+                    <button
+                        onClick={() => router.push('/dashboard/clients')}
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                        Volver a Contratantes
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    const age = calculateAge(client.birth_date);
+
+    return (
+        <div>
+            <div className="flex justify-between items-center mb-8">
+                <div>
+                    <button
+                        onClick={() => router.push('/dashboard/clients')}
+                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-4"
+                    >
+                        ← Volver a Contratantes
+                    </button>
+                    <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+                        {client.name}
+                    </h1>
+                    <p className="text-gray-600 dark:text-gray-400">
+                        Detalles del contratante
+                    </p>
+                </div>
+            </div>
+
+            {/* Client Information */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
+                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Información del Contratante</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Nombre Completo</label>
+                        <p className="text-sm text-gray-900 dark:text-white">{client.name}</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Nacimiento</label>
+                        <p className="text-sm text-gray-900 dark:text-white">{formatDate(client.birth_date)}</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Edad</label>
+                        <p className="text-sm text-gray-900 dark:text-white">{age !== null ? `${age} años` : 'N/A'}</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Total de Pólizas</label>
+                        <p className="text-sm text-gray-900 dark:text-white">{contracts.length}</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Registro</label>
+                        <p className="text-sm text-gray-900 dark:text-white">
+                            {client.created_at ? new Date(client.created_at).toLocaleDateString('es-MX') : 'N/A'}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Contracts List */}
+            {contracts.length > 0 ? (
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                    <div className="p-6">
+                        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
+                            Pólizas ({contracts.length})
+                        </h2>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Número de Póliza
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Asesor
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Nombre del Proyecto
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Suma Asegurada
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Prima Anual
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Ahorro Cliente
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Estado
+                                    </th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Fecha de Creación
+                                    </th>
+                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Acciones
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                {contracts.map((contract) => (
+                                    <tr
+                                        key={contract.id}
+                                        onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
+                                        className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                                    >
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                                {contract.contract_number || 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                                                {contract.consultant_id && consultantsMap.has(contract.consultant_id)
+                                                    ? consultantsMap.get(contract.consultant_id)?.name || 'N/A'
+                                                    : contract.consultant_id
+                                                        ? 'Cargando...'
+                                                        : 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                                                {contract.project_name || 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                                                {contract.insured_amount || 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                                                {contract.annual_premium || 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                                ${(contractSavingsMap.get(contract.id) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'PENDING'
+                                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                                    : contract.status === 'APPROVED'
+                                                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                                        : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                                                }`}>
+                                                {contract.status}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap">
+                                            <div className="text-sm text-gray-600 dark:text-gray-400">
+                                                {contract.created_at
+                                                    ? new Date(contract.created_at).toLocaleDateString('es-MX')
+                                                    : 'N/A'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                                            <button
+                                                onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
+                                                className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
+                                            >
+                                                Ver Detalles
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            ) : (
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
+                    <p className="text-gray-600 dark:text-gray-400 text-lg">
+                        Este contratante no tiene pólizas registradas
+                    </p>
+                </div>
+            )}
+        </div>
+    );
+}
+
+export default function ClientDetailsPage() {
+    return (
+        <ProtectedRoute allowedRoles={['consultant', 'promotory']}>
+            <ClientDetailsPageContent />
+        </ProtectedRoute>
+    );
+}

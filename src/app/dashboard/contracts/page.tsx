@@ -73,7 +73,7 @@ function ContractsPageContent() {
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
-                <p className="text-gray-600 dark:text-gray-400">Loading...</p>
+                <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
             </div>
         );
     }
@@ -83,19 +83,19 @@ function ContractsPageContent() {
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-                        Contracts
+                        Contratos
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400">
                         {profile?.role === 'promotory'
-                            ? 'Manage the contracts of your consultants'
-                            : 'Manage your contracts'}
+                            ? 'Gestiona los contratos de tus consultores'
+                            : 'Gestiona tus contratos'}
                     </p>
                 </div>
                 <button
                     onClick={() => router.push('/dashboard/contracts/new')}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                 >
-                    + {profile?.role === 'promotory' ? 'Register Emission' : 'Emit Contract'}
+                    + {profile?.role === 'promotory' ? 'Registrar Emisión' : 'Emitir Contrato'}
                 </button>
             </div>
 
@@ -103,13 +103,13 @@ function ContractsPageContent() {
             {contracts.length === 0 ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
                     <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
-                        There are no contracts registered yet
+                        Aún no hay contratos registrados
                     </p>
                     <button
                         onClick={() => router.push('/dashboard/contracts/new')}
                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                     >
-                        Create First Contract
+                        Crear Primer Contrato
                     </button>
                 </div>
             ) : (
@@ -118,43 +118,47 @@ function ContractsPageContent() {
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Client
+                                    Cliente
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Contract Number
+                                    Número de Contrato
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Project Name
+                                    Nombre del Proyecto
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Insured Amount
+                                    Suma Asegurada
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Annual Premium
+                                    Prima Anual
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Payment Method
+                                    Método de Pago
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Currency
+                                    Moneda
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Payment Channel
+                                    Canal de Pago
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Capture Date
+                                    Fecha de Captura
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Status
+                                    Estado
                                 </th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Actions
+                                    Acciones
                                 </th>
                             </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {contracts.map((contract) => (
-                                <tr key={contract.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                <tr
+                                    key={contract.id}
+                                    onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
+                                    className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                                >
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">
                                             {(contract as any).client_name || getClientName(contract.client_id) || 'N/A'}
@@ -214,7 +218,7 @@ function ContractsPageContent() {
                                             {contract.status}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                                         <button
                                             onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
                                             className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-4"

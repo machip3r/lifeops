@@ -79,7 +79,7 @@ export default function LoginPage() {
         }
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred. Please try again.';
+      const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error. Por favor intenta de nuevo.';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -97,7 +97,7 @@ export default function LoginPage() {
       // Redirect to dashboard - layout will handle role-based routing
       router.push('/dashboard');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Invalid verification code. Please try again.';
+      const errorMessage = err instanceof Error ? err.message : 'Código de verificación inválido. Por favor intenta de nuevo.';
       setError(errorMessage);
     } finally {
       setVerifyingCode(false);
@@ -110,9 +110,9 @@ export default function LoginPage() {
     try {
       await resendVerificationEmail(email);
       setError('');
-      alert('Verification code sent! Please check your inbox.');
+      alert('¡Código de verificación enviado! Por favor revisa tu bandeja de entrada.');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to resend verification code.';
+      const errorMessage = err instanceof Error ? err.message : 'Error al reenviar el código de verificación.';
       setError(errorMessage);
     } finally {
       setResendingEmail(false);
@@ -124,7 +124,7 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg">Loading...</p>
+          <p className="text-gray-600 dark:text-gray-400 text-lg">Cargando...</p>
         </div>
       </div>
     );
@@ -135,7 +135,7 @@ export default function LoginPage() {
     return (
       <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg">Redirecting...</p>
+          <p className="text-gray-600 dark:text-gray-400 text-lg">Redirigiendo...</p>
         </div>
       </div>
     );
@@ -149,7 +149,7 @@ export default function LoginPage() {
             {assets.brand.name}
           </Link>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            {isSignUp ? 'Create your account' : 'Sign in to your account'}
+            {isSignUp ? 'Crea tu cuenta' : 'Inicia sesión en tu cuenta'}
           </p>
         </div>
 
@@ -160,12 +160,12 @@ export default function LoginPage() {
               {/* Email Verification Code Input */}
               <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
                 <p className="text-sm text-blue-800 dark:text-blue-200 mb-4">
-                  We&apos;ve sent a verification code to <strong>{email}</strong>. Please enter the code below to verify your account.
+                  Hemos enviado un código de verificación a <strong>{email}</strong>. Por favor ingresa el código a continuación para verificar tu cuenta.
                 </p>
                 <form onSubmit={handleVerifyCode} className="space-y-3">
                   <div>
                     <label htmlFor="verificationCode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Verification Code
+                      Código de Verificación
                     </label>
                     <input
                       id="verificationCode"
@@ -184,7 +184,7 @@ export default function LoginPage() {
                     disabled={verifyingCode || verificationCode.length !== 6}
                     className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {verifyingCode ? 'Verifying...' : 'Verify Code'}
+                    {verifyingCode ? 'Verificando...' : 'Verificar Código'}
                   </button>
                 </form>
                 <div className="mt-3 text-center">
@@ -194,7 +194,7 @@ export default function LoginPage() {
                     disabled={resendingEmail}
                     className="text-sm text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
                   >
-                    {resendingEmail ? 'Sending...' : "Didn't receive the code? Resend"}
+                    {resendingEmail ? 'Enviando...' : '¿No recibiste el código? Reenviar'}
                   </button>
                 </div>
               </div>
@@ -212,12 +212,12 @@ export default function LoginPage() {
                 <>
                   <div>
                     <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-                      Consultants must be invited by an office. Only office accounts can be created here.
+                      Los consultores deben ser invitados por una oficina. Solo se pueden crear cuentas de oficina aquí.
                     </p>
                   </div>
                   <div>
                     <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Full Name
+                      Nombre Completo
                     </label>
                     <input
                       id="name"
@@ -225,7 +225,7 @@ export default function LoginPage() {
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Your name"
+                      placeholder="Tu nombre"
                     />
                   </div>
                 </>
@@ -234,7 +234,7 @@ export default function LoginPage() {
               {/* Email */}
               <div>
                 <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Email
+                  Correo Electrónico
                 </label>
                 <input
                   id="email"
@@ -250,7 +250,7 @@ export default function LoginPage() {
               {/* Password */}
               <div>
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Password
+                  Contraseña
                 </label>
                 <input
                   id="password"
@@ -277,7 +277,7 @@ export default function LoginPage() {
                 disabled={loading}
                 className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Please wait...' : isSignUp ? 'Sign Up' : 'Sign In'}
+                {loading ? 'Por favor espera...' : isSignUp ? 'Registrarse' : 'Iniciar Sesión'}
               </button>
 
               {/* Toggle Sign Up/Sign In */}
@@ -293,12 +293,12 @@ export default function LoginPage() {
                   className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
                 >
                   {isSignUp
-                    ? 'Already have an account? Sign in'
-                    : "Don't have an account? Sign up"}
+                    ? '¿Ya tienes una cuenta? Inicia sesión'
+                    : '¿No tienes una cuenta? Regístrate'}
                 </button>
                 {!isSignUp && (
                   <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    Need an account? Contact your office for an invitation.
+                    ¿Necesitas una cuenta? Contacta a tu oficina para una invitación.
                   </p>
                 )}
               </div>
