@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Consultant, Policy } from '@/lib/supabase';
+import { Consultant, Policy, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
 
 interface RequestFormDialogProps {
@@ -14,7 +14,7 @@ export default function RequestFormDialog({ consultant, onClose }: RequestFormDi
         request_type: undefined,
         consultant_id: consultant.id,
         consultant_name: consultant.name,
-        consultant_code: consultant.consultant_code,
+        consultant_code: consultant.consultant_code || undefined,
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitStatus, setSubmitStatus] = useState<'success' | 'error' | null>(null);
@@ -38,17 +38,17 @@ export default function RequestFormDialog({ consultant, onClose }: RequestFormDi
                 throw new Error('Por favor selecciona un tipo de solicitud');
             }
 
-            const contractData: Omit<Policy, 'id' | 'created_at' | 'updated_at'> = {
+            const contractData = {
                 ...formData,
                 request_type: formData.request_type as 'EMIT' | 'CHANGE' | 'CORRECT',
                 consultant_id: consultant.id,
                 consultant_name: consultant.name,
-                consultant_code: consultant.consultant_code,
+                consultant_code: consultant.consultant_code || undefined,
                 status: 'PENDING',
-            } as Omit<Policy, 'id' | 'created_at' | 'updated_at'>;
+            };
 
             try {
-                await db.contract.createContract(contractData);
+                await db.contract.createContract(contractData as Omit<Contract, 'id' | 'created_at' | 'updated_at'>);
                 setSubmitStatus('success');
                 setTimeout(() => {
                     onClose();

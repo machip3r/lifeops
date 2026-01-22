@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 
@@ -41,6 +41,12 @@ interface SummaryBox {
 
 function CotizacionPageContent() {
   const { profile } = useAuth();
+  const [flow, setFlow] = useState<'manual' | 'pdf'>('manual');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [isProcessingPdf, setIsProcessingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [isDraggingPdf, setIsDraggingPdf] = useState(false);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const [formData, setFormData] = useState<FormData>({
     prospectName: '',
@@ -54,7 +60,7 @@ function CotizacionPageContent() {
     effectiveValueYear19: 57100,
     effectiveValueYear24: 60127,
     currentUDIValue: 8.56,
-    projectedDevaluation: 4.0,
+    projectedDevaluation: 4.0, // Default for UDIS
     advisor: profile?.name || '',
   });
 
@@ -62,6 +68,18 @@ function CotizacionPageContent() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    
+    // If currency changes, set default inflation/devaluation values
+    if (name === 'currency') {
+      const newCurrency = value as 'UDIS' | 'Dolares';
+      setFormData(prev => ({
+        ...prev,
+        currency: newCurrency,
+        projectedDevaluation: newCurrency === 'UDIS' ? 4.0 : 3.0,
+      }));
+      return;
+    }
+    
     setFormData(prev => ({
       ...prev,
       [name]: name === 'age' || name === 'insuredAmount' || name === 'basicPremium' ||
@@ -69,9 +87,7 @@ function CotizacionPageContent() {
         name === 'effectiveValueYear24' || name === 'currentUDIValue' ||
         name === 'projectedDevaluation'
         ? parseFloat(value) || 0
-        : name === 'currency'
-          ? (value as 'UDIS' | 'Dolares')
-          : value
+        : value
     }));
   };
 
@@ -195,12 +211,79 @@ function CotizacionPageContent() {
     setShowProjection(true);
   };
 
+  const handlePdfDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingPdf(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type === 'application/pdf') {
+      setPdfFile(file);
+      setPdfError(null);
+    } else {
+      setPdfError('Por favor, sube un archivo PDF válido');
+    }
+  };
+
+  const handlePdfInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type === 'application/pdf') {
+      setPdfFile(file);
+      setPdfError(null);
+    } else {
+      setPdfError('Por favor, sube un archivo PDF válido');
+    }
+  };
+
+  const processPdf = async () => {
+    if (!pdfFile) return;
+
+    setIsProcessingPdf(true);
+    setPdfError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', pdfFile);
+
+      const response = await fetch('/api/ocr-extract', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al procesar el PDF');
+      }
+
+      const result = await response.json();
+      
+      if (result.success && result.extractedData) {
+        // Auto-fill form with extracted data
+        setFormData(prev => ({
+          ...prev,
+          ...result.extractedData,
+          // Keep existing values if extracted data doesn't have them
+          advisor: result.extractedData.advisor || prev.advisor,
+        }));
+        
+        // Switch to manual flow to show the filled form
+        setFlow('manual');
+        setPdfFile(null);
+      } else {
+        throw new Error('No se pudieron extraer los datos del PDF');
+      }
+    } catch (error: any) {
+      console.error('PDF processing error:', error);
+      setPdfError(error.message || 'Error al procesar el PDF. Por favor, verifica que el archivo sea válido.');
+    } finally {
+      setIsProcessingPdf(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Cotización
+            Proyección
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
             Genera proyecciones financieras
@@ -208,11 +291,111 @@ function CotizacionPageContent() {
         </div>
       </div>
 
-      {/* Input Form */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
-          Datos de Entrada
-        </h2>
+      {/* Flow Selector */}
+      <div className="mb-6">
+        <div className="flex gap-4 border-b border-gray-300 dark:border-gray-600">
+          <button
+            onClick={() => setFlow('manual')}
+            className={`px-6 py-3 font-medium transition-colors ${
+              flow === 'manual'
+                ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            Entrada Manual
+          </button>
+          <button
+            onClick={() => setFlow('pdf')}
+            className={`px-6 py-3 font-medium transition-colors ${
+              flow === 'pdf'
+                ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+            }`}
+          >
+            Subir PDF
+          </button>
+        </div>
+      </div>
+
+      {/* PDF Flow */}
+      {flow === 'pdf' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
+          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
+            Subir PDF para Extracción Automática
+          </h2>
+          
+          <div
+            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
+              isDraggingPdf
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700'
+            }`}
+            onDrop={handlePdfDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDraggingPdf(true);
+            }}
+            onDragLeave={() => setIsDraggingPdf(false)}
+            onClick={() => pdfInputRef.current?.click()}
+          >
+            <input
+              ref={pdfInputRef}
+              type="file"
+              accept=".pdf"
+              onChange={handlePdfInput}
+              className="hidden"
+            />
+            <div className="space-y-4">
+              <svg
+                className="mx-auto h-12 w-12 text-gray-400"
+                stroke="currentColor"
+                fill="none"
+                viewBox="0 0 48 48"
+              >
+                <path
+                  d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8m0-8h8m-8 0H28m-12 8h20m-12 0v-8m0 8l-4-4m4 4l4-4"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <div>
+                <p className="text-lg font-medium text-gray-900 dark:text-white">
+                  {pdfFile ? pdfFile.name : 'Arrastra tu archivo PDF aquí, o haz clic para explorar'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Solo archivos PDF
+                </p>
+              </div>
+              {pdfFile && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    processPdf();
+                  }}
+                  disabled={isProcessingPdf}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessingPdf ? 'Procesando PDF...' : 'Extraer Datos del PDF'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {pdfError && (
+            <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <p className="text-sm text-red-800 dark:text-red-200">{pdfError}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Manual Input Form */}
+      {flow === 'manual' && (
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
+          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
+            Datos de Entrada
+          </h2>
 
         <form onSubmit={handleGenerate} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -444,7 +627,8 @@ function CotizacionPageContent() {
             </button>
           </div>
         </form>
-      </div>
+        </div>
+      )}
 
       {/* Projection Table */}
       {showProjection && projectionData.length > 0 && (

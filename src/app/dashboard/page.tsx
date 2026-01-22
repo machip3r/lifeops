@@ -70,29 +70,29 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+      <h1 className="text-4xl font-bold text-white mb-2">
         Vista General
       </h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
+      <p className="text-[#FBDBAC] mb-8">
         Bienvenido a tu vista general de LifeOps. Gestiona todas tus operaciones desde aquí.
       </p>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
+        <div className="bg-[#2a2f38] rounded-lg shadow-lg p-6 border border-[#3a4049]">
+          <h3 className="text-lg font-semibold text-[#FBDBAC] mb-2">
             Total Prima Pago
           </h3>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">
+          <p className="text-3xl font-bold text-white">
             ${totalPrimaPago.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
+        <div className="bg-[#2a2f38] rounded-lg shadow-lg p-6 border border-[#3a4049]">
+          <h3 className="text-lg font-semibold text-[#FBDBAC] mb-2">
             Total Prima Meta
           </h3>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">
+          <p className="text-3xl font-bold text-white">
             ${totalPrimaMeta.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
@@ -100,28 +100,28 @@ export default function DashboardPage() {
 
       {/* Prima Meta by Contract Type */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
+        <div className="bg-[#2a2f38] rounded-lg shadow-lg p-6 border border-[#3a4049]">
+          <h3 className="text-lg font-semibold text-[#FBDBAC] mb-2">
             Prima Meta - Seguro de Vida (VI)
           </h3>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">
+          <p className="text-3xl font-bold text-white">
             ${primaMetaVI.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">
+        <div className="bg-[#2a2f38] rounded-lg shadow-lg p-6 border border-[#3a4049]">
+          <h3 className="text-lg font-semibold text-[#FBDBAC] mb-2">
             Prima Meta - Seguro de Gastos Mayores (GM)
           </h3>
-          <p className="text-3xl font-bold text-gray-900 dark:text-white">
+          <p className="text-3xl font-bold text-white">
             ${primaMetaGM.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
       </div>
 
       {/* Top Consultants */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
-        <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+      <div className="bg-[#2a2f38] rounded-lg shadow-lg p-6 border border-[#3a4049]">
+        <h3 className="text-xl font-semibold text-white mb-4">
           Asesores con más ventas
         </h3>
         {topConsultants.length > 0 ? (
@@ -129,24 +129,24 @@ export default function DashboardPage() {
             {topConsultants.map((item, index) => (
               <div
                 key={item.consultant.id}
-                className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer transition-colors"
+                className="flex items-center justify-between p-3 bg-[#242830] rounded-lg hover:bg-[#2f3540] cursor-pointer transition-colors border border-[#3a4049]"
                 onClick={() => router.push(`/dashboard/consultants/${item.consultant.id}`)}
               >
                 <div className="flex items-center space-x-3">
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white font-bold text-sm">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[#FBDBAC] text-black font-bold text-sm">
                     {index + 1}
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900 dark:text-white">
+                    <p className="font-medium text-white">
                       {item.consultant.name}
                     </p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-[#FBDBAC]">
                       {item.consultant.consultant_code || 'Sin código'}
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-gray-900 dark:text-white">
+                  <p className="font-bold text-white">
                     ${item.sales.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
@@ -154,7 +154,7 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : (
-          <p className="text-gray-600 dark:text-gray-400">No hay datos de ventas disponibles</p>
+          <p className="text-[#FBDBAC]">No hay datos de ventas disponibles</p>
         )}
       </div>
     </div>

@@ -1,85 +1,105 @@
 /**
  * Color theme configuration for LifeOps
- * Update these values to change the color scheme across the application
+ * Color palette: #FBDBAC (cream), #5D6C7A (dark blue-gray), #000000 (black), #FFFFFF (white)
  */
 
 export const colors = {
-  // Primary colors
+  // Primary colors (Cream/Beige - #FBDBAC)
   primary: {
-    50: '#eff6ff',
-    100: '#dbeafe',
-    200: '#bfdbfe',
-    300: '#93c5fd',
-    400: '#60a5fa',
-    500: '#3b82f6',
-    600: '#2563eb',
-    700: '#1d4ed8',
-    800: '#1e40af',
-    900: '#1e3a8a',
+    50: '#FEF9F3',
+    100: '#FDF3E7',
+    200: '#FCE7CF',
+    300: '#FADBB7',
+    400: '#FBCF9F',
+    500: '#FBDBAC',
+    600: '#E8C89B',
+    700: '#D5B58A',
+    800: '#C2A279',
+    900: '#AF8F68',
   },
 
-  // Secondary colors
+  // Secondary colors (Dark Blue-Gray - #5D6C7A)
   secondary: {
-    50: '#f0fdf4',
-    100: '#dcfce7',
-    200: '#bbf7d0',
-    300: '#86efac',
-    400: '#4ade80',
-    500: '#22c55e',
-    600: '#16a34a',
-    700: '#15803d',
-    800: '#166534',
-    900: '#14532d',
+    50: '#F5F6F7',
+    100: '#EBEDF0',
+    200: '#D7DBE0',
+    300: '#C3C9D1',
+    400: '#AFB7C2',
+    500: '#9BA5B3',
+    600: '#5D6C7A',
+    700: '#4A5561',
+    800: '#373E48',
+    900: '#24272F',
   },
 
-  // Accent colors
+  // Accent colors (using primary variations)
   accent: {
-    50: '#fef2f2',
-    100: '#fee2e2',
-    200: '#fecaca',
-    300: '#fca5a5',
-    400: '#f87171',
-    500: '#ef4444',
-    600: '#dc2626',
-    700: '#b91c1c',
-    800: '#991b1b',
-    900: '#7f1d1d',
+    50: '#FEF9F3',
+    100: '#FDF3E7',
+    200: '#FCE7CF',
+    300: '#FADBB7',
+    400: '#FBCF9F',
+    500: '#FBDBAC',
+    600: '#E8C89B',
+    700: '#D5B58A',
+    800: '#C2A279',
+    900: '#AF8F68',
   },
 
-  // Neutral/Gray colors
+  // Neutral/Gray colors (using secondary - dark blue-gray)
   gray: {
-    50: '#f9fafb',
-    100: '#f3f4f6',
-    200: '#e5e7eb',
-    300: '#d1d5db',
-    400: '#9ca3af',
-    500: '#6b7280',
-    600: '#4b5563',
-    700: '#374151',
-    800: '#1f2937',
-    900: '#111827',
+    50: '#F5F6F7',
+    100: '#EBEDF0',
+    200: '#D7DBE0',
+    300: '#C3C9D1',
+    400: '#AFB7C2',
+    500: '#9BA5B3',
+    600: '#5D6C7A',
+    700: '#4A5561',
+    800: '#373E48',
+    900: '#24272F',
   },
 
   // Background colors
   background: {
-    light: '#ffffff',
-    dark: '#0a0a0a',
-    lightSecondary: '#f9fafb',
-    darkSecondary: '#1f2937',
+    light: '#1a1d24', // Dark blue-gray background (not pure black)
+    dark: '#1a1d24',
+    lightSecondary: '#2a2f38', // Used for cards
+    darkSecondary: '#2a2f38', // Used for cards
+  },
+  
+  // Navbar colors
+  navbar: {
+    background: '#242830', // Slightly lighter than background
+    border: '#2a2f38',
+  },
+  
+  // Table colors
+  table: {
+    header: '#2a2f38',
+    row: '#242830',
+    rowHover: '#2f3540',
+    border: '#3a4049',
   },
 
   // Text colors
   text: {
-    light: '#171717',
-    dark: '#ededed',
-    lightSecondary: '#6b7280',
-    darkSecondary: '#9ca3af',
+    light: '#FFFFFF', // White text on black background
+    dark: '#FFFFFF', // White text on black background
+    lightSecondary: '#FBDBAC', // Cream for secondary text
+    darkSecondary: '#FBDBAC', // Cream for secondary text
+  },
+  
+  // Card colors
+  card: {
+    background: '#5D6C7A',
+    text: '#FFFFFF',
   },
 
-  // Status colors
-  success: '#22c55e',
-  warning: '#f59e0b',
-  error: '#ef4444',
-  info: '#3b82f6',
+  // Status colors (using secondary for consistency)
+  success: '#5D6C7A',
+  warning: '#E8C89B',
+  error: '#C2A279',
+  info: '#5D6C7A',
 } as const;
 

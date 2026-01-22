@@ -1,21 +1,64 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #1a1d24;
+  --foreground: #FFFFFF;
+  --primary: #FBDBAC;
+  --secondary: #5D6C7A;
+  --card: #2a2f38;
+  --navbar: #242830;
+  --table-header: #2a2f38;
+  --table-row: #242830;
+  --table-row-hover: #2f3540;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-secondary: var(--secondary);
+  --color-card: var(--card);
+  
+  /* Map blue colors to primary (cream) */
+  --color-blue-50: #FEF9F3;
+  --color-blue-100: #FDF3E7;
+  --color-blue-200: #FCE7CF;
+  --color-blue-300: #FADBB7;
+  --color-blue-400: #FBCF9F;
+  --color-blue-500: #FBDBAC;
+  --color-blue-600: #E8C89B;
+  --color-blue-700: #D5B58A;
+  --color-blue-800: #C2A279;
+  --color-blue-900: #AF8F68;
+  
+  /* Map gray colors to card/secondary (dark blue-gray) */
+  --color-gray-50: #F5F6F7;
+  --color-gray-100: #EBEDF0;
+  --color-gray-200: #D7DBE0;
+  --color-gray-300: #C3C9D1;
+  --color-gray-400: #AFB7C2;
+  --color-gray-500: #9BA5B3;
+  --color-gray-600: #5D6C7A;
+  --color-gray-700: #4A5561;
+  --color-gray-800: #373E48;
+  --color-gray-900: #24272F;
+  
+  /* Dark mode gray (for cards) - using the gray color */
+  --color-gray-800-dark: #5D6C7A;
+  --color-gray-700-dark: #5D6C7A;
+  
+  /* Text colors */
+  --color-black: #000000;
+  --color-white: #FFFFFF;
+  
   --font-title: var(--font-lexend);
   --font-text: var(--font-inter);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #1a1d24;
+    --foreground: #FFFFFF;
   }
 }
 

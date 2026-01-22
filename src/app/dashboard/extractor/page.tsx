@@ -39,6 +39,7 @@ function ExtractorPageContent() {
   const [importResult, setImportResult] = useState<{ success: number; errors: Array<{ row: number; error: string }>; warnings: Array<{ row: number; message: string }> } | null>(null);
   const [showConsultantDialog, setShowConsultantDialog] = useState(false);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+  const [showInfoDialog, setShowInfoDialog] = useState(false);
   const [duplicates, setDuplicates] = useState<{ contracts: string[]; details: Array<{ contract: string; ticket: string; row: number }> }>({ contracts: [], details: [] });
   const [missingConsultants, setMissingConsultants] = useState<MissingConsultant[]>([]);
   const [isCreatingConsultants, setIsCreatingConsultants] = useState(false);
@@ -756,12 +757,33 @@ function ExtractorPageContent() {
 
   return (
     <div>
-      <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-        Extractor de Tablas
-      </h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
-        Arrastra un archivo HTML para extraer tablas y descargarlas como CSV
-      </p>
+      <div className="flex items-start justify-between mb-8">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+            Subir archivo diario de comisiones
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400">
+            arrastra el archivo html generado desde la plataforma para extraer su informacion
+          </p>
+        </div>
+        <button
+          onClick={() => setShowInfoDialog(true)}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          ¿Cómo obtener el archivo HTML?
+        </button>
+      </div>
 
       {/* File Drop Zone */}
       <div
@@ -1108,6 +1130,50 @@ function ExtractorPageContent() {
                   {isCreatingConsultants ? 'Creando...' : 'Crear Consultores e Importar'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Info Dialog */}
+      {showInfoDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowInfoDialog(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+                ¿Cómo obtener el archivo HTML?
+              </h2>
+              <button
+                onClick={() => setShowInfoDialog(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <svg className="w-6 h-6" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                  <path d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-4 text-gray-700 dark:text-gray-300">
+              <p className="text-sm">
+                Para obtener el archivo HTML desde la plataforma, sigue estos pasos:
+              </p>
+              <ol className="list-decimal list-inside space-y-2 text-sm" start={1}>
+                <li>En la página del reporte, presiona <kbd className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded text-xs">Ctrl + S</kbd> (Windows) o <kbd className="px-2 py-1 bg-gray-200 dark:bg-gray-700 rounded text-xs">Cmd + S</kbd> (Mac) para guardar la página</li>
+                <li>Guarda el archivo con extensión <code className="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs">.html</code></li>
+                <li>Arrastra el archivo guardado a esta página para procesarlo</li>
+              </ol>
+              <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  <strong>Nota:</strong> Asegúrate de guardar la página completa (HTML) y no solo una captura de pantalla. El archivo debe contener las tablas con los datos de comisiones.
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setShowInfoDialog(false)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Entendido
+              </button>
             </div>
           </div>
         </div>

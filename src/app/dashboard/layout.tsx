@@ -44,9 +44,9 @@ export default function DashboardLayout({
   // Show loading state only on initial load
   if (loading) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[#1a1d24] flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg">Cargando...</p>
+          <p className="text-white text-lg">Cargando...</p>
         </div>
       </div>
     );
@@ -55,9 +55,9 @@ export default function DashboardLayout({
   // If no session, redirect to login (handled by useEffect)
   if (!session) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[#1a1d24] flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg">Redirigiendo al inicio de sesión...</p>
+          <p className="text-white text-lg">Redirigiendo al inicio de sesión...</p>
         </div>
       </div>
     );
@@ -67,10 +67,10 @@ export default function DashboardLayout({
   // Profile loads in background, so we can show a partial UI
   if (!profile) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-[#1a1d24] flex items-center justify-center">
         <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">Cargando tu perfil...</p>
-          <p className="text-gray-500 dark:text-gray-500 text-sm">Esto puede tomar un momento</p>
+          <p className="text-white text-lg mb-4">Cargando tu perfil...</p>
+          <p className="text-[#FBDBAC] text-sm">Esto puede tomar un momento</p>
         </div>
       </div>
     );
@@ -84,28 +84,29 @@ export default function DashboardLayout({
     { href: '/dashboard/clients', label: 'Contratantes' },
     { href: '/dashboard/consultants', label: 'Asesores' },
     { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
-    { href: '/dashboard/cotizacion', label: 'Cotización' },
+    { href: '/dashboard/projection', label: 'Proyección' },
   ];
 
   const consultantNavItems = [
     { href: '/dashboard/contracts', label: 'Pólizas' },
     { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
     { href: '/dashboard/clients', label: 'Contratantes' },
-    { href: '/dashboard/cotizacion', label: 'Cotización' },
+    { href: '/dashboard/projection', label: 'Proyección' },
   ];
 
   const navItems = profile.role === 'promotory' ? promotoryNavItems : consultantNavItems;
   const currentNavItem = navItems.find(item => pathname === item.href) || navItems[0];
+  const isProfilePage = pathname === '/dashboard/profile';
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
+    <div className="min-h-screen bg-[#1a1d24]">
       {/* Navigation Bar */}
-      <nav className="bg-white dark:bg-gray-800 shadow-md border-b border-gray-200 dark:border-gray-700">
+      <nav className="bg-[#242830] shadow-md border-b border-[#2a2f38]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <div className="flex items-center">
-              <Link href="/" className="text-2xl font-bold text-gray-900 dark:text-white">
+              <Link href="/" className="text-2xl font-bold text-white">
                 {assets.brand.name}
               </Link>
             </div>
@@ -121,7 +122,9 @@ export default function DashboardLayout({
               <div ref={menuRef} className="relative">
                 <button
                   onClick={() => setMenuOpen(!menuOpen)}
-                  className="flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  className={`flex items-center space-x-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors ${
+                    isProfilePage ? 'p-2' : 'px-4 py-2 text-sm font-medium'
+                  }`}
                 >
                   <svg
                     className="w-5 h-5"
@@ -134,7 +137,7 @@ export default function DashboardLayout({
                   >
                     <path d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
-                  <span className="hidden sm:inline">{currentNavItem.label}</span>
+                  {!isProfilePage && <span className="hidden sm:inline">{currentNavItem.label}</span>}
                 </button>
 
                 {menuOpen && (
@@ -147,8 +150,8 @@ export default function DashboardLayout({
                           href={item.href}
                           onClick={() => setMenuOpen(false)}
                           className={`block px-4 py-2 text-sm transition-colors ${isActive
-                              ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-medium'
-                              : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                              ? 'bg-[#FBDBAC]/20 text-[#FBDBAC] font-medium'
+                              : 'text-white hover:bg-[#2f3540]'
                             }`}
                         >
                           {item.label}
@@ -162,7 +165,7 @@ export default function DashboardLayout({
               {/* Profile Icon */}
               <Link
                 href="/dashboard/profile"
-                className="p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="p-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors"
                 title="Perfil"
               >
                 <svg
@@ -181,7 +184,7 @@ export default function DashboardLayout({
               {/* Logout Icon */}
               <button
                 onClick={signOut}
-                className="p-2 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                className="p-2 rounded-lg text-red-400 hover:bg-red-900/20 transition-colors"
                 title="Cerrar Sesión"
               >
                 <svg
