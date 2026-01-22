@@ -68,7 +68,7 @@ function CotizacionPageContent() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    
+
     // If currency changes, set default inflation/devaluation values
     if (name === 'currency') {
       const newCurrency = value as 'UDIS' | 'Dolares';
@@ -79,7 +79,7 @@ function CotizacionPageContent() {
       }));
       return;
     }
-    
+
     setFormData(prev => ({
       ...prev,
       [name]: name === 'age' || name === 'insuredAmount' || name === 'basicPremium' ||
@@ -254,16 +254,28 @@ function CotizacionPageContent() {
       }
 
       const result = await response.json();
-      
+
       if (result.success && result.extractedData) {
         // Auto-fill form with extracted data
+        // Filter out null/undefined values and convert them to appropriate defaults
+        const extracted = result.extractedData;
         setFormData(prev => ({
           ...prev,
-          ...result.extractedData,
-          // Keep existing values if extracted data doesn't have them
-          advisor: result.extractedData.advisor || prev.advisor,
+          prospectName: extracted.prospectName ?? prev.prospectName,
+          projectName: extracted.projectName ?? prev.projectName,
+          age: extracted.age ?? prev.age,
+          insuredAmount: extracted.insuredAmount ?? prev.insuredAmount,
+          basicPremium: extracted.basicPremium ?? prev.basicPremium,
+          paymentTerm: extracted.paymentTerm ?? prev.paymentTerm,
+          currency: extracted.currency ?? prev.currency,
+          effectiveValueYear14: extracted.effectiveValueYear14 ?? prev.effectiveValueYear14,
+          effectiveValueYear19: extracted.effectiveValueYear19 ?? prev.effectiveValueYear19,
+          effectiveValueYear24: extracted.effectiveValueYear24 ?? prev.effectiveValueYear24,
+          currentUDIValue: extracted.currentUDIValue ?? prev.currentUDIValue,
+          projectedDevaluation: extracted.projectedDevaluation ?? prev.projectedDevaluation,
+          advisor: extracted.advisor ?? prev.advisor,
         }));
-        
+
         // Switch to manual flow to show the filled form
         setFlow('manual');
         setPdfFile(null);
@@ -296,21 +308,19 @@ function CotizacionPageContent() {
         <div className="flex gap-4 border-b border-gray-300 dark:border-gray-600">
           <button
             onClick={() => setFlow('manual')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              flow === 'manual'
+            className={`px-6 py-3 font-medium transition-colors ${flow === 'manual'
                 ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
+              }`}
           >
             Entrada Manual
           </button>
           <button
             onClick={() => setFlow('pdf')}
-            className={`px-6 py-3 font-medium transition-colors ${
-              flow === 'pdf'
+            className={`px-6 py-3 font-medium transition-colors ${flow === 'pdf'
                 ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-            }`}
+              }`}
           >
             Subir PDF
           </button>
@@ -323,13 +333,12 @@ function CotizacionPageContent() {
           <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
             Subir PDF para Extracción Automática
           </h2>
-          
+
           <div
-            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${
-              isDraggingPdf
+            className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${isDraggingPdf
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                 : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700'
-            }`}
+              }`}
             onDrop={handlePdfDrop}
             onDragOver={(e) => {
               e.preventDefault();
@@ -397,236 +406,236 @@ function CotizacionPageContent() {
             Datos de Entrada
           </h2>
 
-        <form onSubmit={handleGenerate} className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Nombre del Prospecto
-              </label>
-              <input
-                type="text"
-                name="prospectName"
-                value={formData.prospectName}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Ej: XIME"
-              />
+          <form onSubmit={handleGenerate} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Nombre del Prospecto
+                </label>
+                <input
+                  type="text"
+                  name="prospectName"
+                  value={formData.prospectName}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Ej: XIME"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Nombre del Proyecto
+                </label>
+                <input
+                  type="text"
+                  name="projectName"
+                  value={formData.projectName}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Ej: ORVI 99 10-15"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Edad
+                </label>
+                <input
+                  type="number"
+                  name="age"
+                  value={formData.age}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  min="1"
+                  step="any"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Suma Asegurada
+                </label>
+                <input
+                  type="number"
+                  name="insuredAmount"
+                  value={formData.insuredAmount}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  min="0"
+                  step="any"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Prima Básica
+                </label>
+                <input
+                  type="number"
+                  name="basicPremium"
+                  value={formData.basicPremium}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  min="0"
+                  step="any"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Plazo de Pagos
+                </label>
+                <select
+                  name="paymentTerm"
+                  value={formData.paymentTerm}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={20}>20</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Moneda
+                </label>
+                <select
+                  name="currency"
+                  value={formData.currency}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="UDIS">UDIS</option>
+                  <option value="Dolares">Dolares</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {formData.currency === 'UDIS' ? 'Valor Actual UDI' : 'Valor Actual Dólar'}
+                </label>
+                <input
+                  type="number"
+                  name="currentUDIValue"
+                  value={formData.currentUDIValue}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  min="0"
+                  step="any"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {formData.currency === 'UDIS' ? 'Inflación Proyectada (%)' : 'Devaluación Proyectada (%)'}
+                </label>
+                <input
+                  type="number"
+                  name="projectedDevaluation"
+                  value={formData.projectedDevaluation}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  min="0"
+                  max="100"
+                  step="any"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Asesor
+                </label>
+                <input
+                  type="text"
+                  name="advisor"
+                  value={formData.advisor}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Nombre del asesor"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Nombre del Proyecto
-              </label>
-              <input
-                type="text"
-                name="projectName"
-                value={formData.projectName}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Ej: ORVI 99 10-15"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Edad
-              </label>
-              <input
-                type="number"
-                name="age"
-                value={formData.age}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                min="1"
-                step="any"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Suma Asegurada
-              </label>
-              <input
-                type="number"
-                name="insuredAmount"
-                value={formData.insuredAmount}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                min="0"
-                step="any"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Prima Básica
-              </label>
-              <input
-                type="number"
-                name="basicPremium"
-                value={formData.basicPremium}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                min="0"
-                step="any"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            {/* Plazo de Pagos Section */}
+            <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                 Plazo de Pagos
-              </label>
-              <select
-                name="paymentTerm"
-                value={formData.paymentTerm}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Valor Efectivo Año 14
+                    </label>
+                    <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
+                      14
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    name="effectiveValueYear14"
+                    value={formData.effectiveValueYear14}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min="0"
+                    step="any"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Valor Efectivo Año 19
+                    </label>
+                    <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
+                      19
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    name="effectiveValueYear19"
+                    value={formData.effectiveValueYear19}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min="0"
+                    step="any"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Valor Efectivo Año 24
+                    </label>
+                    <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
+                      24
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    name="effectiveValueYear24"
+                    value={formData.effectiveValueYear24}
+                    onChange={handleInputChange}
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min="0"
+                    step="any"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-4">
+              <button
+                type="submit"
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
-                <option value={5}>5</option>
-                <option value={10}>10</option>
-                <option value={15}>15</option>
-                <option value={20}>20</option>
-              </select>
+                Generar Proyección
+              </button>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Moneda
-              </label>
-              <select
-                name="currency"
-                value={formData.currency}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="UDIS">UDIS</option>
-                <option value="Dolares">Dolares</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {formData.currency === 'UDIS' ? 'Valor Actual UDI' : 'Valor Actual Dólar'}
-              </label>
-              <input
-                type="number"
-                name="currentUDIValue"
-                value={formData.currentUDIValue}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                min="0"
-                step="any"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {formData.currency === 'UDIS' ? 'Inflación Proyectada (%)' : 'Devaluación Proyectada (%)'}
-              </label>
-              <input
-                type="number"
-                name="projectedDevaluation"
-                value={formData.projectedDevaluation}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                min="0"
-                max="100"
-                step="any"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Asesor
-              </label>
-              <input
-                type="text"
-                name="advisor"
-                value={formData.advisor}
-                onChange={handleInputChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Nombre del asesor"
-              />
-            </div>
-          </div>
-
-          {/* Plazo de Pagos Section */}
-          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Plazo de Pagos
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Valor Efectivo Año 14
-                  </label>
-                  <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
-                    14
-                  </span>
-                </div>
-                <input
-                  type="number"
-                  name="effectiveValueYear14"
-                  value={formData.effectiveValueYear14}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  min="0"
-                  step="any"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Valor Efectivo Año 19
-                  </label>
-                  <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
-                    19
-                  </span>
-                </div>
-                <input
-                  type="number"
-                  name="effectiveValueYear19"
-                  value={formData.effectiveValueYear19}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  min="0"
-                  step="any"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Valor Efectivo Año 24
-                  </label>
-                  <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
-                    24
-                  </span>
-                </div>
-                <input
-                  type="number"
-                  name="effectiveValueYear24"
-                  value={formData.effectiveValueYear24}
-                  onChange={handleInputChange}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  min="0"
-                  step="any"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="flex justify-end pt-4">
-            <button
-              type="submit"
-              className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-            >
-              Generar Proyección
-            </button>
-          </div>
-        </form>
+          </form>
         </div>
       )}
 

@@ -21,7 +21,7 @@ function ProfilePageContent() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!profile) return;
 
     setSaving(true);
@@ -42,7 +42,7 @@ function ProfilePageContent() {
       }
 
       setMessage({ type: 'success', text: 'Nombre actualizado correctamente' });
-      
+
       // Reload the page after a short delay to refresh profile data
       setTimeout(() => {
         window.location.reload();
@@ -113,16 +113,14 @@ function ProfilePageContent() {
           </div>
 
           {message && (
-            <div className={`p-4 rounded-lg ${
-              message.type === 'success'
+            <div className={`p-4 rounded-lg ${message.type === 'success'
                 ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
                 : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-            }`}>
-              <p className={`text-sm ${
-                message.type === 'success'
+              }`}>
+              <p className={`text-sm ${message.type === 'success'
                   ? 'text-green-800 dark:text-green-200'
                   : 'text-red-800 dark:text-red-200'
-              }`}>
+                }`}>
                 {message.text}
               </p>
             </div>

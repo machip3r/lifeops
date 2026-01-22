@@ -67,13 +67,13 @@ export const colors = {
     lightSecondary: '#2a2f38', // Used for cards
     darkSecondary: '#2a2f38', // Used for cards
   },
-  
+
   // Navbar colors
   navbar: {
     background: '#242830', // Slightly lighter than background
     border: '#2a2f38',
   },
-  
+
   // Table colors
   table: {
     header: '#2a2f38',
@@ -89,7 +89,7 @@ export const colors = {
     lightSecondary: '#FBDBAC', // Cream for secondary text
     darkSecondary: '#FBDBAC', // Cream for secondary text
   },
-  
+
   // Card colors
   card: {
     background: '#5D6C7A',
