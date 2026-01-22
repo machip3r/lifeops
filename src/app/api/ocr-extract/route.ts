@@ -36,8 +36,8 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         model: 'mistral-ocr-latest',
         document: {
-          type: 'document_base64',
-          document_base64: base64Data,
+          type: 'document_url',
+          document_url: base64Data,
         },
         table_format: 'html',
         extract_header: true,
