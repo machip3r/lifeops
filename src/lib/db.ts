@@ -609,7 +609,7 @@ export const db = {
                         const existing = existingContractsMap.get(group.poliza);
                         if (existing) {
                             // Contract exists, use it
-                            warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Contract with poliza "${group.poliza}" already exists. Skipping contract creation, will only add new details.` });
+                            warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.poliza}" ya existe. Se omitirá la creación del contrato, se agregarán solo los detalles.` });
                             contract = existing;
                         } else {
                             // Create new contract
@@ -619,7 +619,7 @@ export const db = {
                                 contract_number: group.poliza,
                                 currency: group.moneda || null,
                                 exchange_rate: parseExchangeRate(group.tipoCambio),
-                                status: 'PENDING',
+                                status: 'ACTIVE',
                             });
                             isNewContract = true;
                             // Add to cache for potential future use
@@ -633,7 +633,7 @@ export const db = {
                             contract_number: null,
                             currency: group.moneda || null,
                             exchange_rate: parseExchangeRate(group.tipoCambio),
-                            status: 'PENDING',
+                            status: 'ACTIVE',
                         });
                         isNewContract = true;
                     }
@@ -675,36 +675,24 @@ export const db = {
                     const detailRecords: Array<{ record: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>; rowInfo: { rowIndex: number; data: string[] } }> = [];
 
                     // Prepare all details
-                    // Column mapping from HTML table:
-                    // 0: RECIBO (removed)
-                    // 1: PLAN
-                    // 2: FECHA EMISION
-                    // 3: PRODUCTO
-                    // 5: FECHA PAGO
-                    // 6: PRIMA PAGO
-                    // 7: FORMA DE PAGO
-                    // 11: COMISION/HONORARIOS
-                    // 13: % COMISION
-                    // 15: PRIMA COBRO
-                    // 18: ANTIGÜEDAD
-                    // 23: PRIMA META
+                    // detailData is 11 columns in order (from extractor): FECHA EMISION, FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, COMISION/HONORARIOS, % COMISION, PRIMA COBRO, ANTIGÜEDAD, PRIMA META, MOVIMIENTO, PRIMA COMISION
                     for (const rowInfo of group.rows) {
                         try {
                             const detailData = rowInfo.data;
 
                             const detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'> = {
                                 contract_id: contract.id,
-                                plan: mapColumn(detailData, 1), // PLAN
-                                product: mapColumn(detailData, 3), // PRODUCTO
-                                issue_date: parseDate(mapColumn(detailData, 2)), // FECHA EMISION
-                                payment_date: parseDate(mapColumn(detailData, 5)), // FECHA PAGO
-                                premium_payment: parseNumeric(mapColumn(detailData, 6)), // PRIMA PAGO
-                                payment_method: mapColumn(detailData, 7), // FORMA DE PAGO
-                                commission_honoraries: parseNumeric(mapColumn(detailData, 11)), // COMISION/HONORARIOS
-                                commission_percentage: parseNumeric(mapColumn(detailData, 13)), // % COMISION
-                                collection_premium: parseNumeric(mapColumn(detailData, 15)), // PRIMA COBRO
-                                seniority: mapColumn(detailData, 18), // ANTIGÜEDAD
-                                target_premium: parseNumeric(mapColumn(detailData, 23)), // PRIMA META
+                                issue_date: parseDate(mapColumn(detailData, 0)), // FECHA EMISION
+                                payment_date: parseDate(mapColumn(detailData, 1)), // FECHA PAGO
+                                premium_payment: parseNumeric(mapColumn(detailData, 2)), // PRIMA PAGO
+                                payment_method: mapColumn(detailData, 3), // FORMA DE PAGO
+                                commission_honoraries: parseNumeric(mapColumn(detailData, 4)), // COMISION/HONORARIOS
+                                commission_percentage: parseNumeric(mapColumn(detailData, 5)), // % COMISION
+                                collection_premium: parseNumeric(mapColumn(detailData, 6)), // PRIMA COBRO
+                                seniority: mapColumn(detailData, 7), // ANTIGÜEDAD
+                                target_premium: parseNumeric(mapColumn(detailData, 8)), // PRIMA META
+                                movement: mapColumn(detailData, 9), // MOVIMIENTO
+                                commission_premium: parseNumeric(mapColumn(detailData, 10)), // PRIMA COMISION
                             };
 
                             detailRecords.push({ record: detail, rowInfo });
@@ -717,8 +705,6 @@ export const db = {
                     const detailChecks = detailRecords.map((d, index) => ({
                         contractId: contract.id,
                         detail: {
-                            plan: d.record.plan,
-                            product: d.record.product,
                             issue_date: d.record.issue_date,
                             payment_date: d.record.payment_date,
                             premium_payment: d.record.premium_payment,
@@ -728,6 +714,8 @@ export const db = {
                             collection_premium: d.record.collection_premium,
                             seniority: d.record.seniority,
                             target_premium: d.record.target_premium,
+                            movement: d.record.movement,
+                            commission_premium: d.record.commission_premium,
                         } as Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'>,
                         row: d.rowInfo.rowIndex,
                         originalIndex: index,
@@ -1170,19 +1158,7 @@ export const db = {
                 .select('id')
                 .eq('contract_id', detail.contract_id);
 
-            // Add conditions for all fields (only the ones we're keeping)
-            if (detail.plan !== null && detail.plan !== undefined) {
-                query = query.eq('plan', detail.plan);
-            } else {
-                query = query.is('plan', null);
-            }
-
-            if (detail.product !== null && detail.product !== undefined) {
-                query = query.eq('product', detail.product);
-            } else {
-                query = query.is('product', null);
-            }
-
+            // Add conditions for all fields
             if (detail.issue_date !== null && detail.issue_date !== undefined) {
                 query = query.eq('issue_date', detail.issue_date);
             } else {
@@ -1235,6 +1211,18 @@ export const db = {
                 query = query.eq('target_premium', detail.target_premium);
             } else {
                 query = query.is('target_premium', null);
+            }
+
+            if (detail.movement !== null && detail.movement !== undefined) {
+                query = query.eq('movement', detail.movement);
+            } else {
+                query = query.is('movement', null);
+            }
+
+            if (detail.commission_premium !== null && detail.commission_premium !== undefined) {
+                query = query.eq('commission_premium', detail.commission_premium);
+            } else {
+                query = query.is('commission_premium', null);
             }
 
             const { data, error } = await query.limit(1).maybeSingle();
@@ -1293,8 +1281,6 @@ export const db = {
                         };
 
                         return (
-                            compareValues(existing.plan, detailWithContractId.plan) &&
-                            compareValues(existing.product, detailWithContractId.product) &&
                             compareValues(existing.issue_date, detailWithContractId.issue_date) &&
                             compareValues(existing.payment_date, detailWithContractId.payment_date) &&
                             compareValues(existing.premium_payment, detailWithContractId.premium_payment) &&
@@ -1303,7 +1289,9 @@ export const db = {
                             compareValues(existing.commission_percentage, detailWithContractId.commission_percentage) &&
                             compareValues(existing.collection_premium, detailWithContractId.collection_premium) &&
                             compareValues(existing.seniority, detailWithContractId.seniority) &&
-                            compareValues(existing.target_premium, detailWithContractId.target_premium)
+                            compareValues(existing.target_premium, detailWithContractId.target_premium) &&
+                            compareValues(existing.movement, detailWithContractId.movement) &&
+                            compareValues(existing.commission_premium, detailWithContractId.commission_premium)
                         );
                     });
 
@@ -1359,12 +1347,14 @@ export const db = {
         },
     },
 
-    // Dashboard/Statistics functions (all calculations done in SQL)
+    // Dashboard/Statistics functions (all calculations done in SQL via RPC)
     dashboard: {
-        // Get total prima pago and prima meta for an office (calculated in SQL via RPC)
-        getOfficeTotals: async (officeId: string): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
+        // Get total prima pago and prima meta for an office (optional date range on contract_detail.payment_date)
+        getOfficeTotals: async (officeId: string, startDate?: string | null, endDate?: string | null): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
             const { data, error } = await supabase.rpc('get_office_totals', {
                 office_id_param: officeId,
+                start_date: startDate || null,
+                end_date: endDate || null,
             });
 
             if (error) throw error;
@@ -1378,11 +1368,13 @@ export const db = {
             };
         },
 
-        // Get top consultants by sales for an office (calculated in SQL via RPC)
-        getTopConsultantsBySales: async (officeId: string, limit: number = 3): Promise<Array<{ consultant: Consultant; sales: number }>> => {
+        // Get top consultants by sales for an office (optional date range)
+        getTopConsultantsBySales: async (officeId: string, limit: number = 3, startDate?: string | null, endDate?: string | null): Promise<Array<{ consultant: Consultant; sales: number }>> => {
             const { data, error } = await supabase.rpc('get_top_consultants_by_sales', {
                 office_id_param: officeId,
                 limit_count: limit,
+                start_date: startDate || null,
+                end_date: endDate || null,
             });
 
             if (error) throw error;
@@ -1406,9 +1398,11 @@ export const db = {
         },
 
         // Get total prima pago and prima meta for a consultant (calculated in SQL via RPC)
-        getConsultantTotals: async (consultantId: string): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
+        getConsultantTotals: async (consultantId: string, startDate?: string | null, endDate?: string | null): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
             const { data, error } = await supabase.rpc('get_consultant_totals', {
                 consultant_id_param: consultantId,
+                start_date: startDate || null,
+                end_date: endDate || null,
             });
 
             if (error) throw error;
@@ -1422,10 +1416,28 @@ export const db = {
             };
         },
 
-        // Get office totals by contract type (VI and GM) - prima meta only
-        getOfficeTotalsByType: async (officeId: string): Promise<{ primaMetaVI: number; primaMetaGM: number }> => {
+        getOfficeConsultantsSales: async (officeId: string, startDate?: string | null, endDate?: string | null): Promise<Array<{ consultant_id: string; total_sales: number }>> => {
+            const { data, error } = await supabase.rpc('get_office_consultants_sales', {
+                office_id_param: officeId,
+                start_date: startDate || null,
+                end_date: endDate || null,
+            });
+
+            if (error) throw error;
+            if (!data || data.length === 0) return [];
+
+            return data.map((row: any) => ({
+                consultant_id: row.consultant_id,
+                total_sales: parseFloat(row.total_sales || '0') || 0,
+            }));
+        },
+
+        // Get office totals by contract type (VI and GM) - prima meta only (optional date range)
+        getOfficeTotalsByType: async (officeId: string, startDate?: string | null, endDate?: string | null): Promise<{ primaMetaVI: number; primaMetaGM: number }> => {
             const { data, error } = await supabase.rpc('get_office_totals_by_type', {
                 office_id_param: officeId,
+                start_date: startDate || null,
+                end_date: endDate || null,
             });
 
             if (error) throw error;
@@ -1440,9 +1452,11 @@ export const db = {
         },
 
         // Get consultant totals by contract type (VI and GM) - prima pago and prima meta
-        getConsultantTotalsByType: async (consultantId: string): Promise<{ primaPagoVI: number; primaPagoGM: number; primaMetaVI: number; primaMetaGM: number }> => {
+        getConsultantTotalsByType: async (consultantId: string, startDate?: string | null, endDate?: string | null): Promise<{ primaPagoVI: number; primaPagoGM: number; primaMetaVI: number; primaMetaGM: number }> => {
             const { data, error } = await supabase.rpc('get_consultant_totals_by_type', {
                 consultant_id_param: consultantId,
+                start_date: startDate || null,
+                end_date: endDate || null,
             });
 
             if (error) throw error;

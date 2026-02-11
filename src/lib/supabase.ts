@@ -81,17 +81,17 @@ export interface ContractChangeRequest {
 export interface ContractDetail {
     id: string;
     contract_id: string;
-    plan?: string | null; // PLAN
-    product?: string | null; // PRODUCTO
     issue_date?: string | null; // FECHA EMISION
     payment_date?: string | null; // FECHA PAGO
-    premium_payment?: number | null; // PRIMA PAGO (NUMERIC)
+    premium_payment?: number | null; // PRIMA PAGO
     payment_method?: string | null; // FORMA DE PAGO
-    commission_honoraries?: number | null; // COMISION/HONORARIOS (NUMERIC)
-    commission_percentage?: number | null; // % COMISION (NUMERIC)
-    collection_premium?: number | null; // PRIMA COBRO (NUMERIC)
+    commission_honoraries?: number | null; // COMISION/HONORARIOS
+    commission_percentage?: number | null; // % COMISION
+    collection_premium?: number | null; // PRIMA COBRO
     seniority?: string | null; // ANTIGÜEDAD
-    target_premium?: number | null; // PRIMA META (NUMERIC)
+    target_premium?: number | null; // PRIMA META
+    movement?: string | null; // MOVIMIENTO
+    commission_premium?: number | null; // PRIMA COMISION
     created_at?: string;
     updated_at?: string;
 }

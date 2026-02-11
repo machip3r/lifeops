@@ -203,26 +203,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         if (error) {
-            // Check if it's an email not confirmed error
-            // Check both error message and status code
+            // Only treat as "email not confirmed" when Supabase clearly says so.
+            // Do NOT use status 400 alone — wrong password also returns 400.
             const errorMessage = error.message.toLowerCase();
-            const errorCode = (error as any).code || '';
-            const errorStatus = (error as any).status;
+            const errorCode = String((error as any).code ?? '').toLowerCase();
 
-            // Log for debugging
-            console.log('Sign in error:', { message: error.message, code: errorCode, status: errorStatus });
+            const isInvalidCredentials =
+                errorMessage.includes('invalid') && (
+                    errorMessage.includes('credential') ||
+                    errorMessage.includes('login') ||
+                    errorMessage.includes('password')
+                );
 
+            const isEmailConfirmMessage =
+                errorMessage.includes('not confirmed') ||
+                errorMessage.includes('unconfirmed') ||
+                (errorMessage.includes('confirm') && !errorMessage.includes('invalid'));
             const isEmailNotConfirmed =
-                errorStatus === 400 ||
-                (errorMessage.includes('email') && (
-                    errorMessage.includes('confirm') ||
-                    errorMessage.includes('verified') ||
-                    errorMessage.includes('not confirmed') ||
-                    errorMessage.includes('unconfirmed')
-                )) ||
-                errorMessage.includes('signup_disabled') ||
-                errorCode === 'email_not_confirmed' ||
-                errorCode === 'signup_disabled';
+                !isInvalidCredentials &&
+                (errorCode === 'email_not_confirmed' ||
+                    errorCode === 'signup_disabled' ||
+                    errorMessage.includes('signup_disabled') ||
+                    (errorMessage.includes('email') && isEmailConfirmMessage));
 
             if (isEmailNotConfirmed) {
                 console.log('Email not confirmed detected, sending verification code...');

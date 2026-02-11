@@ -148,12 +148,10 @@ CREATE INDEX IF NOT EXISTS idx_contract_created_at ON contract (created_at DESC)
 -- 4.5. CONTRACT DETAILS TABLE
 -- ============================================
 -- Stores row-level details for contracts (multiple rows per contract)
--- Each row in the HTML table becomes a contract_detail record
+-- Only selected columns from the commission HTML: fecha emision, fecha pago, prima pago, forma pago, comision honorarios, comision %, prima cobro, antiguedad, prima meta, movimiento, prima comision
 CREATE TABLE IF NOT EXISTS contract_detail (
     id UUID DEFAULT gen_random_uuid () PRIMARY KEY,
     contract_id UUID NOT NULL REFERENCES contract (id) ON DELETE CASCADE,
-    plan TEXT, -- PLAN
-    product TEXT, -- PRODUCTO
     issue_date DATE, -- FECHA EMISION
     payment_date DATE, -- FECHA PAGO
     premium_payment NUMERIC, -- PRIMA PAGO
@@ -163,6 +161,8 @@ CREATE TABLE IF NOT EXISTS contract_detail (
     collection_premium NUMERIC, -- PRIMA COBRO
     seniority TEXT, -- ANTIGÜEDAD
     target_premium NUMERIC, -- PRIMA META
+    movement TEXT, -- MOVIMIENTO
+    commission_premium NUMERIC, -- PRIMA COMISION
     created_at TIMESTAMP
     WITH
         TIME ZONE DEFAULT NOW(),
@@ -464,6 +464,150 @@ GRANT
 EXECUTE ON FUNCTION public.mark_token_as_used (UUID) TO authenticated;
 
 GRANT EXECUTE ON FUNCTION public.mark_token_as_used (UUID) TO anon;
+
+-- ============================================
+-- 7.1. DASHBOARD RPCs (with optional date range on contract_detail.payment_date)
+-- ============================================
+CREATE OR REPLACE FUNCTION public.get_office_totals(
+    office_id_param uuid,
+    start_date date DEFAULT NULL,
+    end_date date DEFAULT NULL
+)
+RETURNS TABLE(total_prima_pago numeric, total_prima_meta numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT COALESCE(SUM(cd.premium_payment), 0)::numeric, COALESCE(SUM(cd.target_premium), 0)::numeric
+  FROM contract_detail cd
+  JOIN contract c ON c.id = cd.contract_id
+  JOIN consultant cons ON cons.id = c.consultant_id
+  WHERE cons.office_id = office_id_param
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_top_consultants_by_sales(
+    office_id_param uuid,
+    limit_count int DEFAULT 3,
+    start_date date DEFAULT NULL,
+    end_date date DEFAULT NULL
+)
+RETURNS TABLE(consultant_id uuid, consultant_name text, consultant_code text, consultant_email text, total_sales numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT cons.id, cons.name, cons.consultant_code, cons.email, COALESCE(SUM(cd.premium_payment), 0)::numeric
+  FROM contract_detail cd
+  JOIN contract c ON c.id = cd.contract_id
+  JOIN consultant cons ON cons.id = c.consultant_id
+  WHERE cons.office_id = office_id_param
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)))
+  GROUP BY cons.id, cons.name, cons.consultant_code, cons.email
+  ORDER BY 5 DESC
+  LIMIT limit_count;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_office_totals_by_type(
+    office_id_param uuid,
+    start_date date DEFAULT NULL,
+    end_date date DEFAULT NULL
+)
+RETURNS TABLE(prima_meta_vi numeric, prima_meta_gm numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT
+    COALESCE(SUM(cd.target_premium) FILTER (WHERE c.contract_number IS NOT NULL AND c.contract_number ILIKE 'VI%'), 0)::numeric,
+    COALESCE(SUM(cd.target_premium) FILTER (WHERE c.contract_number IS NOT NULL AND c.contract_number ILIKE 'GM%'), 0)::numeric
+  FROM contract_detail cd
+  JOIN contract c ON c.id = cd.contract_id
+  JOIN consultant cons ON cons.id = c.consultant_id
+  WHERE cons.office_id = office_id_param
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_office_consultants_sales(
+    office_id_param uuid,
+    start_date date DEFAULT NULL,
+    end_date date DEFAULT NULL
+)
+RETURNS TABLE(consultant_id uuid, total_sales numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT cons.id, COALESCE(SUM(cd.premium_payment), 0)::numeric
+  FROM consultant cons
+  LEFT JOIN contract c ON c.consultant_id = cons.id
+  LEFT JOIN contract_detail cd ON cd.contract_id = c.id
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)))
+  WHERE cons.office_id = office_id_param
+  GROUP BY cons.id;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_consultant_totals(
+    consultant_id_param uuid,
+    start_date date DEFAULT NULL,
+    end_date date DEFAULT NULL
+)
+RETURNS TABLE(total_prima_pago numeric, total_prima_meta numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT COALESCE(SUM(cd.premium_payment), 0)::numeric, COALESCE(SUM(cd.target_premium), 0)::numeric
+  FROM contract_detail cd
+  JOIN contract c ON c.id = cd.contract_id
+  WHERE c.consultant_id = consultant_id_param
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_consultant_totals_by_type(
+    consultant_id_param uuid,
+    start_date date DEFAULT NULL,
+    end_date date DEFAULT NULL
+)
+RETURNS TABLE(prima_pago_vi numeric, prima_pago_gm numeric, prima_meta_vi numeric, prima_meta_gm numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  SELECT
+    COALESCE(SUM(cd.premium_payment) FILTER (WHERE c.contract_number IS NOT NULL AND c.contract_number ILIKE 'VI%'), 0)::numeric,
+    COALESCE(SUM(cd.premium_payment) FILTER (WHERE c.contract_number IS NOT NULL AND c.contract_number ILIKE 'GM%'), 0)::numeric,
+    COALESCE(SUM(cd.target_premium) FILTER (WHERE c.contract_number IS NOT NULL AND c.contract_number ILIKE 'VI%'), 0)::numeric,
+    COALESCE(SUM(cd.target_premium) FILTER (WHERE c.contract_number IS NOT NULL AND c.contract_number ILIKE 'GM%'), 0)::numeric
+  FROM contract_detail cd
+  JOIN contract c ON c.id = cd.contract_id
+  WHERE c.consultant_id = consultant_id_param
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+$$;
+
+GRANT
+EXECUTE ON FUNCTION public.get_office_totals (uuid, date, date) TO authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.get_office_totals (uuid, date, date) TO anon;
+
+GRANT
+EXECUTE ON FUNCTION public.get_top_consultants_by_sales (uuid, int, date, date) TO authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.get_top_consultants_by_sales (uuid, int, date, date) TO anon;
+
+GRANT
+EXECUTE ON FUNCTION public.get_office_totals_by_type (uuid, date, date) TO authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.get_office_totals_by_type (uuid, date, date) TO anon;
+
+GRANT
+EXECUTE ON FUNCTION public.get_office_consultants_sales (uuid, date, date) TO authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.get_office_consultants_sales (uuid, date, date) TO anon;
+
+GRANT
+EXECUTE ON FUNCTION public.get_consultant_totals (uuid, date, date) TO authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.get_consultant_totals (uuid, date, date) TO anon;
+
+GRANT
+EXECUTE ON FUNCTION public.get_consultant_totals_by_type (uuid, date, date) TO authenticated;
+
+GRANT
+EXECUTE ON FUNCTION public.get_consultant_totals_by_type (uuid, date, date) TO anon;
 
 -- ============================================
 -- 8. ROW LEVEL SECURITY (RLS) POLICIES

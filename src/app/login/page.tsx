@@ -56,17 +56,11 @@ export default function LoginPage() {
           // Redirect immediately - session is set, profile will load in background
           router.push('/dashboard');
         } catch (signInError: any) {
-          // Check if email needs verification
-          const errorMessage = signInError?.message?.toLowerCase() || '';
+          // Only show verification flow when auth context explicitly set this (e.g. Supabase email not confirmed).
+          // Do not infer from generic error messages — wrong password must show as login error.
           const isVerificationNeeded =
-            signInError?.needsVerification ||
-            signInError?.message === 'EMAIL_NOT_CONFIRMED' ||
-            errorMessage.includes('email_not_confirmed') ||
-            (errorMessage.includes('email') && (
-              errorMessage.includes('confirm') ||
-              errorMessage.includes('verified') ||
-              errorMessage.includes('not confirmed')
-            ));
+            signInError?.needsVerification === true ||
+            signInError?.message === 'EMAIL_NOT_CONFIRMED';
 
           if (isVerificationNeeded) {
             setNeedsVerification(true);

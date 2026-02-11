@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Use class-based dark mode so it works consistently in all browsers (Chrome, Edge, Safari, etc.).
+   Default Tailwind v4 uses prefers-color-scheme which can behave differently in Edge. */
+@custom-variant dark (&&:where(.dark, .dark *));
+
 :root {
   --background: #1a1d24;
   --foreground: #FFFFFF;
@@ -10,6 +14,7 @@
   --table-header: #2a2f38;
   --table-row: #242830;
   --table-row-hover: #2f3540;
+  color-scheme: dark;
 }
 
 @theme inline {

@@ -7,11 +7,24 @@ import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 
+function getCurrentMonthStartEnd(): { start: string; end: string } {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+    return { start: `${y}-${m}-01`, end: `${y}-${m}-${String(lastDay).padStart(2, '0')}` };
+}
+
 function ConsultantDetailsPageContent() {
     const router = useRouter();
     const params = useParams();
     const consultantId = params.id as string;
     const { profile } = useAuth();
+    const { start: defaultStart, end: defaultEnd } = getCurrentMonthStartEnd();
+    const [dateStart, setDateStart] = useState(defaultStart);
+    const [dateEnd, setDateEnd] = useState(defaultEnd);
+    const [pendingDateStart, setPendingDateStart] = useState(defaultStart);
+    const [pendingDateEnd, setPendingDateEnd] = useState(defaultEnd);
     const [consultant, setConsultant] = useState<Consultant | null>(null);
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
@@ -36,8 +49,8 @@ function ConsultantDetailsPageContent() {
             const [consultantData, contractsData, totals, totalsByType] = await Promise.all([
                 db.consultant.getConsultantById(consultantId),
                 db.contract.getContractsByConsultant(consultantId),
-                db.dashboard.getConsultantTotals(consultantId),
-                db.dashboard.getConsultantTotalsByType(consultantId),
+                db.dashboard.getConsultantTotals(consultantId, dateStart, dateEnd),
+                db.dashboard.getConsultantTotalsByType(consultantId, dateStart, dateEnd),
             ]);
 
             if (!consultantData) {
@@ -55,7 +68,6 @@ function ConsultantDetailsPageContent() {
             setPrimaMetaVI(totalsByType.primaMetaVI);
             setPrimaMetaGM(totalsByType.primaMetaGM);
 
-            // Load all contract details for all contracts (for chart)
             const allDetails: ContractDetail[] = [];
             for (const contract of contractsData) {
                 const details = await db.contractDetail.getDetailsByContract(contract.id);
@@ -68,7 +80,7 @@ function ConsultantDetailsPageContent() {
         } finally {
             setLoading(false);
         }
-    }, [consultantId]);
+    }, [consultantId, dateStart, dateEnd]);
 
     useEffect(() => {
         if (consultantId) {
@@ -236,6 +248,52 @@ function ConsultantDetailsPageContent() {
                     <p className="text-sm text-green-800 dark:text-green-200">{success}</p>
                 </div>
             )}
+
+            {/* Date range filter — apply with button to avoid query on every change */}
+            <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Rango de fechas (totales por fecha de pago):</span>
+                <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Desde</span>
+                        <input
+                            type="date"
+                            value={pendingDateStart}
+                            onChange={(e) => setPendingDateStart(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </label>
+                    <label className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Hasta</span>
+                        <input
+                            type="date"
+                            value={pendingDateEnd}
+                            onChange={(e) => setPendingDateEnd(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </label>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const { start, end } = getCurrentMonthStartEnd();
+                            setPendingDateStart(start);
+                            setPendingDateEnd(end);
+                        }}
+                        className="px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    >
+                        Mes actual
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setDateStart(pendingDateStart);
+                            setDateEnd(pendingDateEnd);
+                        }}
+                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                    >
+                        Aplicar
+                    </button>
+                </div>
+            </div>
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">

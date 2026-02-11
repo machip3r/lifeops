@@ -8,10 +8,27 @@ import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import RequestFormDialog from '@/components/request-form-dialog';
 
+function getCurrentMonthStartEnd(): { start: string; end: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+  return {
+    start: `${y}-${m}-01`,
+    end: `${y}-${m}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
 function ConsultantsPageContent() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { start: defaultStart, end: defaultEnd } = getCurrentMonthStartEnd();
+  const [dateStart, setDateStart] = useState(defaultStart);
+  const [dateEnd, setDateEnd] = useState(defaultEnd);
+  const [pendingDateStart, setPendingDateStart] = useState(defaultStart);
+  const [pendingDateEnd, setPendingDateEnd] = useState(defaultEnd);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
+  const [salesByConsultant, setSalesByConsultant] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedConsultant, setSelectedConsultant] = useState<Consultant | null>(null);
@@ -30,11 +47,15 @@ function ConsultantsPageContent() {
         return;
       }
 
-      const data = await db.consultant.getConsultantsByOffice(profile.id);
+      const [data, sales] = await Promise.all([
+        db.consultant.getConsultantsByOffice(profile.id),
+        db.dashboard.getOfficeConsultantsSales(profile.id, dateStart, dateEnd),
+      ]);
 
-      // Show all consultants (ACTIVE, PENDING, INACTIVE)
-      // Previously was filtering to only ACTIVE, which excluded PENDING consultants
       setConsultants(data);
+      const map: Record<string, number> = {};
+      sales.forEach((s) => { map[s.consultant_id] = s.total_sales; });
+      setSalesByConsultant(map);
       setLoadError('');
     } catch (error) {
       console.error('Error loading consultants:', error);
@@ -42,7 +63,7 @@ function ConsultantsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, dateStart, dateEnd]);
 
   useEffect(() => {
     if (profile?.role === 'promotory' && profile.id) {
@@ -124,13 +145,13 @@ function ConsultantsPageContent() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Consultores
+            Asesores
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Gestiona tus consultores y sus solicitudes
+            Gestiona tus asesores. Ventas filtradas por fecha de pago (período).
           </p>
         </div>
         <button
@@ -147,6 +168,52 @@ function ConsultantsPageContent() {
         >
           + Invitar Consultor
         </button>
+      </div>
+
+      {/* Date range filter — apply with button to avoid query on every change */}
+      <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Rango de fechas (ventas por fecha de pago):</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Desde</span>
+            <input
+              type="date"
+              value={pendingDateStart}
+              onChange={(e) => setPendingDateStart(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Hasta</span>
+            <input
+              type="date"
+              value={pendingDateEnd}
+              onChange={(e) => setPendingDateEnd(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              const { start, end } = getCurrentMonthStartEnd();
+              setPendingDateStart(start);
+              setPendingDateEnd(end);
+            }}
+            className="px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            Mes actual
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDateStart(pendingDateStart);
+              setDateEnd(pendingDateEnd);
+            }}
+            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          >
+            Aplicar
+          </button>
+        </div>
       </div>
 
       {loadError && (
@@ -173,6 +240,9 @@ function ConsultantsPageContent() {
                 Estado
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Ventas (período)
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Fecha de Invitación
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -183,7 +253,7 @@ function ConsultantsPageContent() {
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             {consultants.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                <td colSpan={7} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                   No hay consultores registrados. Invita uno para comenzar.
                 </td>
               </tr>
@@ -212,6 +282,9 @@ function ConsultantsPageContent() {
                       }`}>
                       {consultant.status === 'ACTIVE' ? 'Activo' : consultant.status === 'PENDING' ? 'Pendiente' : 'Inactivo'}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                    ${(salesByConsultant[consultant.id] ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                     {consultant.created_at

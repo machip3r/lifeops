@@ -60,17 +60,17 @@ export async function POST(request: NextRequest) {
     if (ocrResult.pages && Array.isArray(ocrResult.pages)) {
       const pageTexts = ocrResult.pages.map((page: any) => {
         const parts: string[] = [];
-        
+
         // Add markdown text
         if (page.markdown) {
           parts.push(page.markdown);
         }
-        
+
         // Add plain text
         if (page.text) {
           parts.push(page.text);
         }
-        
+
         // Add table HTML content
         if (page.tables && Array.isArray(page.tables)) {
           page.tables.forEach((table: any, index: number) => {
@@ -81,10 +81,10 @@ export async function POST(request: NextRequest) {
             }
           });
         }
-        
+
         return parts.join('\n\n');
       });
-      
+
       fullText = pageTexts.join('\n\n--- PÁGINA SIGUIENTE ---\n\n');
     }
 
@@ -179,12 +179,15 @@ INSTRUCCIONES CRÍTICAS:
       } else if (cleanedText.startsWith('```')) {
         cleanedText = cleanedText.replace(/^```\s*/, '').replace(/\s*```$/, '');
       }
-      
+
       extractedData = JSON.parse(cleanedText);
-      
+
       // Validate and clean the extracted data
-      if (extractedData.projectedDevaluation && typeof extractedData.projectedDevaluation === 'string') {
-        extractedData.projectedDevaluation = parseFloat(extractedData.projectedDevaluation.replace('%', '').trim()) || null;
+      // Handle case where projectedDevaluation might come as a string from JSON
+      const projectedDeval = (extractedData as any).projectedDevaluation;
+      if (projectedDeval && typeof projectedDeval === 'string') {
+        const parsed = parseFloat(projectedDeval.replace('%', '').trim());
+        extractedData.projectedDevaluation = isNaN(parsed) ? undefined : parsed;
       }
     } catch (parseError) {
       console.error('Failed to parse JSON from completions:', parseError);
@@ -227,7 +230,7 @@ function parseProjectionData(text: string): Partial<FormData> {
     /prospecto[\s:]+([A-ZÁÉÍÓÚÑ\s]{2,})/i,
     /nombre[\s:]+([A-ZÁÉÍÓÚÑ\s]{2,})/i,
   ];
-  
+
   // Search in both main text and table text
   const searchText = text + ' ' + allTableText;
 
@@ -270,7 +273,7 @@ function parseProjectionData(text: string): Partial<FormData> {
       }
     }
   }
-  
+
   // Try to extract age from table (first row, age column)
   if (!data.age && allTableText) {
     const ageInTable = allTableText.match(/\b(\d{1,2})\s+(?:año|edad)/i);

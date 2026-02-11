@@ -6,9 +6,25 @@ import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { Consultant } from '@/lib/supabase';
 
+function getCurrentMonthStartEnd(): { start: string; end: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+  return {
+    start: `${y}-${m}-01`,
+    end: `${y}-${m}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
+
 export default function DashboardPage() {
   const { profile, loading } = useAuth();
   const router = useRouter();
+  const { start: defaultStart, end: defaultEnd } = getCurrentMonthStartEnd();
+  const [dateStart, setDateStart] = useState(defaultStart);
+  const [dateEnd, setDateEnd] = useState(defaultEnd);
+  const [pendingDateStart, setPendingDateStart] = useState(defaultStart);
+  const [pendingDateEnd, setPendingDateEnd] = useState(defaultEnd);
   const [topConsultants, setTopConsultants] = useState<Array<{ consultant: Consultant; sales: number }>>([]);
   const [totalPrimaPago, setTotalPrimaPago] = useState(0);
   const [totalPrimaMeta, setTotalPrimaMeta] = useState(0);
@@ -25,11 +41,10 @@ export default function DashboardPage() {
     try {
       setStatsLoading(true);
 
-      // Get totals and top consultants using SQL functions (all calculations done server-side)
       const [totals, topConsultants, totalsByType] = await Promise.all([
-        db.dashboard.getOfficeTotals(profile.id),
-        db.dashboard.getTopConsultantsBySales(profile.id, 3),
-        db.dashboard.getOfficeTotalsByType(profile.id),
+        db.dashboard.getOfficeTotals(profile.id, dateStart, dateEnd),
+        db.dashboard.getTopConsultantsBySales(profile.id, 3, dateStart, dateEnd),
+        db.dashboard.getOfficeTotalsByType(profile.id, dateStart, dateEnd),
       ]);
 
       setTotalPrimaPago(totals.totalPrimaPago);
@@ -42,7 +57,7 @@ export default function DashboardPage() {
     } finally {
       setStatsLoading(false);
     }
-  }, [profile?.id, profile?.role]);
+  }, [profile?.id, profile?.role, dateStart, dateEnd]);
 
   useEffect(() => {
     if (!loading && profile) {
@@ -73,9 +88,55 @@ export default function DashboardPage() {
       <h1 className="text-4xl font-bold text-white mb-2">
         Vista General
       </h1>
-      <p className="text-[#FBDBAC] mb-8">
-        Bienvenido a tu vista general de LifeOps. Gestiona todas tus operaciones desde aquí.
+      <p className="text-[#FBDBAC] mb-4">
+        Bienvenido a tu vista general de LifeOps. Los datos se filtran por fecha de pago (prima).
       </p>
+
+      {/* Date range filter — apply with button to avoid query on every change */}
+      <div className="flex flex-wrap items-center gap-4 mb-8 p-4 bg-[#2a2f38] rounded-lg border border-[#3a4049]">
+        <span className="text-sm font-medium text-[#FBDBAC]">Rango de fechas (fecha de pago):</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-300">Desde</span>
+            <input
+              type="date"
+              value={pendingDateStart}
+              onChange={(e) => setPendingDateStart(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-[#242830] border border-[#3a4049] text-white text-sm focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
+            />
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-300">Hasta</span>
+            <input
+              type="date"
+              value={pendingDateEnd}
+              onChange={(e) => setPendingDateEnd(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-[#242830] border border-[#3a4049] text-white text-sm focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              const { start, end } = getCurrentMonthStartEnd();
+              setPendingDateStart(start);
+              setPendingDateEnd(end);
+            }}
+            className="px-3 py-2 text-sm font-medium text-[#FBDBAC] hover:text-white hover:bg-[#3a4049] rounded-lg transition-colors"
+          >
+            Mes actual
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setDateStart(pendingDateStart);
+              setDateEnd(pendingDateEnd);
+            }}
+            className="px-4 py-2 text-sm font-medium text-[#242830] bg-[#FBDBAC] hover:bg-[#f5d08c] rounded-lg transition-colors"
+          >
+            Aplicar
+          </button>
+        </div>
+      </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">

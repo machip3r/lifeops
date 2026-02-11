@@ -95,7 +95,15 @@ export default function DashboardLayout({
   ];
 
   const navItems = profile.role === 'promotory' ? promotoryNavItems : consultantNavItems;
-  const currentNavItem = navItems.find(item => pathname === item.href) || navItems[0];
+  // Match exact path or nested routes (e.g. /dashboard/contracts/123 → "Pólizas"). Use longest match so /dashboard doesn't match /dashboard/contracts.
+  const currentNavItem = (() => {
+    const exact = navItems.find(item => pathname === item.href);
+    if (exact) return exact;
+    const nested = navItems
+      .filter(item => pathname.startsWith(item.href + '/'))
+      .sort((a, b) => b.href.length - a.href.length)[0];
+    return nested || navItems[0];
+  })();
   const isProfilePage = pathname === '/dashboard/profile';
 
   return (
@@ -122,9 +130,8 @@ export default function DashboardLayout({
               <div ref={menuRef} className="relative">
                 <button
                   onClick={() => setMenuOpen(!menuOpen)}
-                  className={`flex items-center space-x-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors ${
-                    isProfilePage ? 'p-2' : 'px-4 py-2 text-sm font-medium'
-                  }`}
+                  className={`flex items-center space-x-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors ${isProfilePage ? 'p-2' : 'px-4 py-2 text-sm font-medium'
+                    }`}
                 >
                   <svg
                     className="w-5 h-5"
@@ -141,7 +148,7 @@ export default function DashboardLayout({
                 </button>
 
                 {menuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50">
+                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#2a2f38] rounded-lg shadow-lg border border-gray-200 dark:border-[#3a4049] py-1 z-50">
                     {navItems.map((item) => {
                       const isActive = pathname === item.href;
                       return (
@@ -150,8 +157,8 @@ export default function DashboardLayout({
                           href={item.href}
                           onClick={() => setMenuOpen(false)}
                           className={`block px-4 py-2 text-sm transition-colors ${isActive
-                              ? 'bg-[#FBDBAC]/20 text-[#FBDBAC] font-medium'
-                              : 'text-white hover:bg-[#2f3540]'
+                            ? 'bg-[#FBDBAC]/20 text-[#5D6C7A] dark:text-[#FBDBAC] font-medium'
+                            : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-[#2f3540]'
                             }`}
                         >
                           {item.label}
