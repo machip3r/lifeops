@@ -39,6 +39,8 @@ function ConsultantsPageContent() {
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
   const [loadError, setLoadError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE' | 'PENDING'>('ALL');
 
   const loadConsultants = useCallback(async () => {
     try {
@@ -59,7 +61,7 @@ function ConsultantsPageContent() {
       setLoadError('');
     } catch (error) {
       console.error('Error loading consultants:', error);
-      setLoadError('Error al cargar los consultores. Por favor recarga la página.');
+      setLoadError('Error al cargar los asesores. Por favor recarga la página.');
     } finally {
       setLoading(false);
     }
@@ -101,7 +103,7 @@ function ConsultantsPageContent() {
         throw new Error(data.error || 'Error al enviar la invitación');
       }
 
-      setInviteSuccess(`Invitación enviada exitosamente a ${inviteEmail}. El consultor recibirá un correo electrónico con el enlace de registro.`);
+      setInviteSuccess(`Invitación enviada exitosamente a ${inviteEmail}. El asesor recibirá un correo electrónico con el enlace de registro.`);
 
       // Reset form
       setInviteEmail('');
@@ -117,7 +119,7 @@ function ConsultantsPageContent() {
       }, 2000);
     } catch (error: any) {
       console.error('Error inviting consultant:', error);
-      setInviteError(error.message || 'Error al invitar al consultor. Por favor intenta de nuevo.');
+      setInviteError(error.message || 'Error al invitar al asesor. Por favor intenta de nuevo.');
     } finally {
       setIsInviting(false);
     }
@@ -138,7 +140,7 @@ function ConsultantsPageContent() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Cargando consultores...</p>
+        <p className="text-gray-600 dark:text-gray-400">Cargando asesores...</p>
       </div>
     );
   }
@@ -166,54 +168,8 @@ function ConsultantsPageContent() {
           }}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
         >
-          + Invitar Consultor
+          + Invitar Asesor
         </button>
-      </div>
-
-      {/* Date range filter — apply with button to avoid query on every change */}
-      <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Rango de fechas (ventas por fecha de pago):</span>
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2">
-            <span className="text-sm text-gray-500 dark:text-gray-400">Desde</span>
-            <input
-              type="date"
-              value={pendingDateStart}
-              onChange={(e) => setPendingDateStart(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </label>
-          <label className="flex items-center gap-2">
-            <span className="text-sm text-gray-500 dark:text-gray-400">Hasta</span>
-            <input
-              type="date"
-              value={pendingDateEnd}
-              onChange={(e) => setPendingDateEnd(e.target.value)}
-              className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => {
-              const { start, end } = getCurrentMonthStartEnd();
-              setPendingDateStart(start);
-              setPendingDateEnd(end);
-            }}
-            className="px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            Mes actual
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setDateStart(pendingDateStart);
-              setDateEnd(pendingDateEnd);
-            }}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-          >
-            Aplicar
-          </button>
-        </div>
       </div>
 
       {loadError && (
@@ -224,6 +180,35 @@ function ConsultantsPageContent() {
 
       {/* Consultants List */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Buscar
+            </label>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Nombre, código o correo..."
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div className="min-w-[160px]">
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Estado
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="ALL">Todos</option>
+              <option value="ACTIVE">Activo</option>
+              <option value="PENDING">Pendiente</option>
+              <option value="INACTIVE">Inactivo</option>
+            </select>
+          </div>
+        </div>
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
@@ -251,14 +236,36 @@ function ConsultantsPageContent() {
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {consultants.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                  No hay consultores registrados. Invita uno para comenzar.
-                </td>
-              </tr>
-            ) : (
-              consultants.map((consultant) => (
+            {(() => {
+              const searchLower = search.trim().toLowerCase();
+              const filtered = consultants.filter((consultant) => {
+                if (statusFilter !== 'ALL' && consultant.status !== statusFilter) {
+                  return false;
+                }
+                if (!searchLower) return true;
+                const name = consultant.name?.toLowerCase() || '';
+                const email = consultant.email?.toLowerCase() || '';
+                const code = consultant.consultant_code?.toLowerCase() || '';
+                return (
+                  name.includes(searchLower) ||
+                  email.includes(searchLower) ||
+                  code.includes(searchLower)
+                );
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                      {consultants.length === 0
+                        ? 'No hay asesores registrados. Invita uno para comenzar.'
+                        : 'No hay asesores que coincidan con los filtros.'}
+                    </td>
+                  </tr>
+                );
+              }
+
+              return filtered.map((consultant) => (
                 <tr
                   key={consultant.id || `temp-${consultant.name}`}
                   onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
@@ -308,8 +315,8 @@ function ConsultantsPageContent() {
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
+              ));
+            })()}
           </tbody>
         </table>
       </div>
@@ -321,7 +328,7 @@ function ConsultantsPageContent() {
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {selectedConsultant ? 'Nueva Solicitud' : 'Invitar Consultor'}
+                  {selectedConsultant ? 'Nueva Solicitud' : 'Invitar Asesor'}
                 </h2>
                 <button
                   onClick={closeDialog}
@@ -338,10 +345,11 @@ function ConsultantsPageContent() {
               ) : (
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Nombre del Consultor *
+                    <label htmlFor="invite-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Nombre del Asesor *
                     </label>
                     <input
+                      id="invite-name"
                       type="text"
                       value={inviteName}
                       onChange={(e) => setInviteName(e.target.value)}
@@ -350,10 +358,11 @@ function ConsultantsPageContent() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="invite-email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Correo Electrónico *
                     </label>
                     <input
+                      id="invite-email"
                       type="email"
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
@@ -362,15 +371,16 @@ function ConsultantsPageContent() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                      Código del Consultor *
+                    <label htmlFor="invite-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Código del Asesor *
                     </label>
                     <input
+                      id="invite-code"
                       type="text"
                       value={inviteCode}
                       onChange={(e) => setInviteCode(e.target.value)}
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      placeholder="Código único del consultor"
+                      placeholder="Código único del asesor"
                     />
                   </div>
                   {inviteError && (

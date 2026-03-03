@@ -60,7 +60,7 @@ function ContractChangeRequestPageContent() {
       setContract(contractData);
     } catch (error) {
       console.error('Error loading contract:', error);
-      setErrorMessage('Error al cargar el contrato');
+      setErrorMessage('Error al cargar la póliza');
     } finally {
       setLoading(false);
     }
@@ -70,11 +70,9 @@ function ContractChangeRequestPageContent() {
     try {
       let clientsData: Client[];
       if (profile?.role === 'consultant' && profile.id) {
-        // Consultants can only see clients they have contracts with
         clientsData = await db.client.getClientsByConsultant(profile.id);
       } else {
-        // Promotory users can see all clients
-        clientsData = await db.client.getAllClients();
+        clientsData = await db.client.getAllClients(profile?.role === 'promotory' ? profile?.id : undefined);
       }
       setClients(clientsData);
     } catch (error) {
@@ -146,7 +144,7 @@ function ContractChangeRequestPageContent() {
           Solicitar Cambio de Contrato
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Completa la información para solicitar un cambio en el contrato
+          Completa la información para solicitar un cambio en la póliza
         </p>
       </div>
 
@@ -209,11 +207,12 @@ function ContractChangeRequestPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="change-client-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Nombre Completo del Cliente
               </label>
               <input
                 type="text"
+                id="change-client-name"
                 value={selectedClient?.name || 'N/A'}
                 disabled
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
@@ -221,11 +220,12 @@ function ContractChangeRequestPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="change-project-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Nombre del Proyecto
               </label>
               <input
                 type="text"
+                id="change-project-name"
                 value={contract.project_name || 'N/A'}
                 disabled
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
@@ -233,11 +233,12 @@ function ContractChangeRequestPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="change-insured-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Suma Asegurada
               </label>
               <input
                 type="text"
+                id="change-insured-amount"
                 value={contract.insured_amount || 'N/A'}
                 disabled
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
@@ -245,11 +246,12 @@ function ContractChangeRequestPageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="change-currency" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Moneda
               </label>
               <input
                 type="text"
+                id="change-currency"
                 value={contract.currency || 'N/A'}
                 disabled
                 className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400"
@@ -313,7 +315,7 @@ function ContractChangeRequestPageContent() {
 
           {/* Files Upload */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Subir Archivos
             </label>
             <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">

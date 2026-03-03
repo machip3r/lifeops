@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Client, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -21,16 +21,19 @@ function ClientsPageContent() {
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const [search, setSearch] = useState('');
+    const [registeredFrom, setRegisteredFrom] = useState('');
+    const [registeredTo, setRegisteredTo] = useState('');
+    const [minContracts, setMinContracts] = useState('');
 
     const loadClients = useCallback(async () => {
         try {
             let data: Client[];
             if (profile?.role === 'consultant' && profile.id) {
-                // Consultants can only see clients they have contracts with
                 data = await db.client.getClientsByConsultant(profile.id);
             } else {
-                // Promotory users can see all clients
-                data = await db.client.getAllClients();
+                // Promotory users see clients for their office
+                data = await db.client.getAllClients(profile?.role === 'promotory' ? profile?.id : undefined);
             }
             setClients(data);
         } catch (error) {
@@ -98,10 +101,11 @@ function ClientsPageContent() {
                     birth_date: formData.date_of_birth || null,
                 });
             } else {
-                // Create
+                const officeId = profile?.role === 'promotory' ? profile?.id : profile?.office_id;
                 await db.client.createClient(
                     formData.name,
-                    formData.date_of_birth || undefined
+                    formData.date_of_birth || undefined,
+                    officeId ?? undefined
                 );
             }
 
@@ -167,6 +171,38 @@ function ClientsPageContent() {
         }
     };
 
+    const filteredClients = useMemo(() => {
+        const searchLower = search.trim().toLowerCase();
+        const minContractsNumber = minContracts ? parseInt(minContracts, 10) || 0 : 0;
+
+        return clients.filter((client) => {
+            if (searchLower && !client.name.toLowerCase().includes(searchLower)) {
+                return false;
+            }
+
+            const createdAt = client.created_at ? new Date(client.created_at) : null;
+            if (createdAt && (registeredFrom || registeredTo)) {
+                if (registeredFrom) {
+                    const from = new Date(registeredFrom);
+                    from.setHours(0, 0, 0, 0);
+                    if (createdAt < from) return false;
+                }
+                if (registeredTo) {
+                    const to = new Date(registeredTo);
+                    to.setHours(23, 59, 59, 999);
+                    if (createdAt > to) return false;
+                }
+            }
+
+            const contractCount = getContractCount(client.id);
+            if (minContractsNumber > 0 && contractCount < minContractsNumber) {
+                return false;
+            }
+
+            return true;
+        });
+    }, [clients, contracts, search, registeredFrom, registeredTo, minContracts]);
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
@@ -194,6 +230,71 @@ function ClientsPageContent() {
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                 >
                     + Nuevo Cliente
+                </button>
+            </div>
+
+            {/* Filters */}
+            <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-wrap gap-4 items-end">
+                <div className="flex-1 min-w-[200px]">
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                        Buscar
+                    </label>
+                    <input
+                        type="text"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="Nombre del cliente..."
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                </div>
+                <div className="flex flex-wrap gap-3 items-end">
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Registro desde
+                        </label>
+                        <input
+                            type="date"
+                            value={registeredFrom}
+                            onChange={(e) => setRegisteredFrom(e.target.value)}
+                            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Registro hasta
+                        </label>
+                        <input
+                            type="date"
+                            value={registeredTo}
+                            onChange={(e) => setRegisteredTo(e.target.value)}
+                            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                            Mínimo de pólizas
+                        </label>
+                        <input
+                            type="number"
+                            min={0}
+                            value={minContracts}
+                            onChange={(e) => setMinContracts(e.target.value)}
+                            placeholder="0"
+                            className="w-24 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                    </div>
+                </div>
+                <button
+                    type="button"
+                    onClick={() => {
+                        setSearch('');
+                        setRegisteredFrom('');
+                        setRegisteredTo('');
+                        setMinContracts('');
+                    }}
+                    className="ml-auto px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                >
+                    Limpiar filtros
                 </button>
             </div>
 
@@ -308,7 +409,7 @@ function ClientsPageContent() {
                                     Edad
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Contratos
+                                    Pólizas
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Fecha de Registro
@@ -319,7 +420,13 @@ function ClientsPageContent() {
                             </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {clients.map((client) => {
+                            {filteredClients.length === 0 ? (
+                                <tr>
+                                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                                        No hay clientes que coincidan con los filtros.
+                                    </td>
+                                </tr>
+                            ) : filteredClients.map((client) => {
                                 const age = calculateAge(client.birth_date);
                                 return (
                                     <tr

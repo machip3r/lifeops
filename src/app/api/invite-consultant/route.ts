@@ -73,10 +73,10 @@ export async function POST(request: NextRequest) {
                 Hola <strong>${consultantName}</strong>,
               </p>
               <p style="color: #4b5563;">
-                Has sido invitado por <strong>${officeData.name || 'una oficina'}</strong> para unirte a LifeOps como consultor.
+                Has sido invitado por <strong>${officeData.name || 'una oficina'}</strong> para unirte a LifeOps como asesor.
               </p>
               <p style="color: #4b5563;">
-                Tu código de consultor es: <strong>${consultantCode}</strong>
+                Tu código de asesor es: <strong>${consultantCode}</strong>
               </p>
               <div style="text-align: center; margin: 30px 0;">
                 <a href="${inviteUrl}"

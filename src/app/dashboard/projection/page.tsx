@@ -335,6 +335,8 @@ function CotizacionPageContent() {
           </h2>
 
           <div
+            role="button"
+            tabIndex={0}
             className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${isDraggingPdf
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                 : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700'
@@ -346,6 +348,7 @@ function CotizacionPageContent() {
             }}
             onDragLeave={() => setIsDraggingPdf(false)}
             onClick={() => pdfInputRef.current?.click()}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') pdfInputRef.current?.click(); }}
           >
             <input
               ref={pdfInputRef}
@@ -409,10 +412,11 @@ function CotizacionPageContent() {
           <form onSubmit={handleGenerate} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="prospect-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Nombre del Prospecto
                 </label>
                 <input
+                  id="prospect-name"
                   type="text"
                   name="prospectName"
                   value={formData.prospectName}
@@ -423,10 +427,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="project-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Nombre del Proyecto
                 </label>
                 <input
+                  id="project-name"
                   type="text"
                   name="projectName"
                   value={formData.projectName}
@@ -437,10 +442,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="age" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Edad
                 </label>
                 <input
+                  id="age"
                   type="number"
                   name="age"
                   value={formData.age}
@@ -452,10 +458,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="insured-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Suma Asegurada
                 </label>
                 <input
+                  id="insured-amount"
                   type="number"
                   name="insuredAmount"
                   value={formData.insuredAmount}
@@ -467,10 +474,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="basic-premium" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Prima Básica
                 </label>
                 <input
+                  id="basic-premium"
                   type="number"
                   name="basicPremium"
                   value={formData.basicPremium}
@@ -482,10 +490,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="payment-term" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Plazo de Pagos
                 </label>
                 <select
+                  id="payment-term"
                   name="paymentTerm"
                   value={formData.paymentTerm}
                   onChange={handleInputChange}
@@ -499,10 +508,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="currency" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Moneda
                 </label>
                 <select
+                  id="currency"
                   name="currency"
                   value={formData.currency}
                   onChange={handleInputChange}
@@ -514,10 +524,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="current-udi-value" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {formData.currency === 'UDIS' ? 'Valor Actual UDI' : 'Valor Actual Dólar'}
                 </label>
                 <input
+                  id="current-udi-value"
                   type="number"
                   name="currentUDIValue"
                   value={formData.currentUDIValue}
@@ -529,10 +540,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="projected-devaluation" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   {formData.currency === 'UDIS' ? 'Inflación Proyectada (%)' : 'Devaluación Proyectada (%)'}
                 </label>
                 <input
+                  id="projected-devaluation"
                   type="number"
                   name="projectedDevaluation"
                   value={formData.projectedDevaluation}
@@ -545,10 +557,11 @@ function CotizacionPageContent() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="advisor" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Asesor
                 </label>
                 <input
+                  id="advisor"
                   type="text"
                   name="advisor"
                   value={formData.advisor}
@@ -567,7 +580,7 @@ function CotizacionPageContent() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label htmlFor="effective-value-year-14" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Valor Efectivo Año 14
                     </label>
                     <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
@@ -575,6 +588,7 @@ function CotizacionPageContent() {
                     </span>
                   </div>
                   <input
+                    id="effective-value-year-14"
                     type="number"
                     name="effectiveValueYear14"
                     value={formData.effectiveValueYear14}
@@ -587,7 +601,7 @@ function CotizacionPageContent() {
 
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label htmlFor="effective-value-year-19" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Valor Efectivo Año 19
                     </label>
                     <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
@@ -595,6 +609,7 @@ function CotizacionPageContent() {
                     </span>
                   </div>
                   <input
+                    id="effective-value-year-19"
                     type="number"
                     name="effectiveValueYear19"
                     value={formData.effectiveValueYear19}
@@ -607,7 +622,7 @@ function CotizacionPageContent() {
 
                 <div>
                   <div className="flex items-center gap-2 mb-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <label htmlFor="effective-value-year-24" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Valor Efectivo Año 24
                     </label>
                     <span className="px-2 py-1 bg-blue-600 text-white text-xs font-semibold rounded">
@@ -615,6 +630,7 @@ function CotizacionPageContent() {
                     </span>
                   </div>
                   <input
+                    id="effective-value-year-24"
                     type="number"
                     name="effectiveValueYear24"
                     value={formData.effectiveValueYear24}

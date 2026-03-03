@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Consultant, Contract, ContractDetail } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
+import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
 
 function getCurrentMonthStartEnd(): { start: string; end: string } {
     const now = new Date();
@@ -26,7 +27,7 @@ function ConsultantDetailsPageContent() {
     const [pendingDateStart, setPendingDateStart] = useState(defaultStart);
     const [pendingDateEnd, setPendingDateEnd] = useState(defaultEnd);
     const [consultant, setConsultant] = useState<Consultant | null>(null);
-    const [contracts, setContracts] = useState<Contract[]>([]);
+    const [contracts, setContracts] = useState<Array<Contract & { client_name?: string }>>([]);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
     const [totalPrimaPago, setTotalPrimaPago] = useState(0);
     const [totalPrimaMeta, setTotalPrimaMeta] = useState(0);
@@ -42,19 +43,47 @@ function ConsultantDetailsPageContent() {
     const [isSendingInvite, setIsSendingInvite] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [seniorityFilter, setSeniorityFilter] = useState<string>('');
+    const [filters, setFilters] = useState<ContractsFilterState>({
+        search: '',
+        currency: '',
+        paymentMethod: '',
+        captureDateFrom: '',
+        captureDateTo: '',
+    });
+
+    const availableCurrencies = useMemo(
+        () => Array.from(new Set(contracts.map(c => c.currency).filter((c): c is string => !!c))),
+        [contracts]
+    );
+
+    const availablePaymentMethods = useMemo(
+        () => Array.from(new Set(contracts.map(c => c.payment_method).filter((m): m is string => !!m))),
+        [contracts]
+    );
+
+    const filteredContracts = useMemo(
+        () => filterContracts(contracts as any, filters),
+        [contracts, filters]
+    );
+
+    const seniorityOptions = useMemo(
+        () => Array.from(new Set(contractDetails.map(d => d.seniority).filter((s): s is string => !!s))).sort(),
+        [contractDetails]
+    );
 
     const loadConsultantData = useCallback(async () => {
         try {
             setLoading(true);
             const [consultantData, contractsData, totals, totalsByType] = await Promise.all([
                 db.consultant.getConsultantById(consultantId),
-                db.contract.getContractsByConsultant(consultantId),
-                db.dashboard.getConsultantTotals(consultantId, dateStart, dateEnd),
-                db.dashboard.getConsultantTotalsByType(consultantId, dateStart, dateEnd),
+                db.contract.getContractsWithClients(consultantId),
+                db.dashboard.getConsultantTotals(consultantId, dateStart, dateEnd, seniorityFilter || null),
+                db.dashboard.getConsultantTotalsByType(consultantId, dateStart, dateEnd, seniorityFilter || null),
             ]);
 
             if (!consultantData) {
-                throw new Error('Consultor no encontrado');
+                throw new Error('Asesor no encontrado');
             }
 
             setConsultant(consultantData);
@@ -76,11 +105,11 @@ function ConsultantDetailsPageContent() {
             setContractDetails(allDetails);
         } catch (error: any) {
             console.error('Error loading consultant data:', error);
-            setError(error.message || 'Error al cargar los datos del consultor');
+            setError(error.message || 'Error al cargar los datos del asesor');
         } finally {
             setLoading(false);
         }
-    }, [consultantId, dateStart, dateEnd]);
+    }, [consultantId, dateStart, dateEnd, seniorityFilter]);
 
     useEffect(() => {
         if (consultantId) {
@@ -209,7 +238,7 @@ function ConsultantDetailsPageContent() {
         return (
             <div className="flex items-center justify-center min-h-screen">
                 <div className="text-center">
-                    <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">Consultor no encontrado</p>
+                    <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">Asesor no encontrado</p>
                     <button
                         onClick={() => router.push('/dashboard/consultants')}
                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -249,9 +278,9 @@ function ConsultantDetailsPageContent() {
                 </div>
             )}
 
-            {/* Date range filter — apply with button to avoid query on every change */}
+            {/* Date range + seniority filter — apply with button to avoid query on every change */}
             <div className="flex flex-wrap items-center gap-4 mb-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Rango de fechas (totales por fecha de pago):</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filtros de totales (fecha de pago y antigüedad):</span>
                 <div className="flex flex-wrap items-center gap-3">
                     <label className="flex items-center gap-2">
                         <span className="text-sm text-gray-500 dark:text-gray-400">Desde</span>
@@ -270,6 +299,21 @@ function ConsultantDetailsPageContent() {
                             onChange={(e) => setPendingDateEnd(e.target.value)}
                             className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
+                    </label>
+                    <label className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">Antigüedad</span>
+                        <select
+                            value={seniorityFilter}
+                            onChange={(e) => setSeniorityFilter(e.target.value)}
+                            className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[140px]"
+                        >
+                            <option value="">Todas</option>
+                            {seniorityOptions.map((value) => (
+                                <option key={value} value={value}>
+                                    {value}
+                                </option>
+                            ))}
+                        </select>
                     </label>
                     <button
                         type="button"
@@ -375,10 +419,11 @@ function ConsultantDetailsPageContent() {
                 {isEditing ? (
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            <label htmlFor="consultant-edit-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Nombre
                             </label>
                             <input
+                                id="consultant-edit-name"
                                 type="text"
                                 value={editName}
                                 onChange={(e) => setEditName(e.target.value)}
@@ -386,10 +431,11 @@ function ConsultantDetailsPageContent() {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            <label htmlFor="consultant-edit-email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Correo Electrónico
                             </label>
                             <input
+                                id="consultant-edit-email"
                                 type="email"
                                 value={editEmail}
                                 onChange={(e) => setEditEmail(e.target.value)}
@@ -420,19 +466,19 @@ function ConsultantDetailsPageContent() {
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         <div>
-                            <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Nombre</label>
+                            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Nombre</span>
                             <p className="text-sm text-gray-900 dark:text-white">{consultant.name}</p>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Correo Electrónico</label>
+                            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Correo Electrónico</span>
                             <p className="text-sm text-gray-900 dark:text-white">{consultant.email || 'No establecido'}</p>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Código</label>
+                            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Código</span>
                             <p className="text-sm text-gray-900 dark:text-white">{consultant.consultant_code || 'No establecido'}</p>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Estado</label>
+                            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Estado</span>
                             <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${consultant.status === 'ACTIVE'
                                 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                                 : consultant.status === 'PENDING'
@@ -443,7 +489,7 @@ function ConsultantDetailsPageContent() {
                             </span>
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Registro</label>
+                            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Registro</span>
                             <p className="text-sm text-gray-900 dark:text-white">
                                 {consultant.created_at
                                     ? new Date(consultant.created_at).toLocaleDateString('es-MX')
@@ -476,8 +522,8 @@ function ConsultantDetailsPageContent() {
                     <div className="mt-6">
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Ventas por Mes</h3>
                         <div className="space-y-3">
-                            {chartData.map((item, index) => (
-                                <div key={index} className="flex items-center">
+                            {chartData.map((item) => (
+                                <div key={item.month} className="flex items-center">
                                     <div className="w-24 text-sm text-gray-600 dark:text-gray-400">
                                         {item.month}
                                     </div>
@@ -504,16 +550,25 @@ function ConsultantDetailsPageContent() {
 
             {/* Contracts List */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
-                <div className="p-6">
+                <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-                        Pólizas ({contracts.length})
+                        Pólizas ({filteredContracts.length} de {contracts.length})
                     </h2>
+                    <ContractsFilters
+                        filters={filters}
+                        onChange={setFilters}
+                        availableCurrencies={availableCurrencies}
+                        availablePaymentMethods={availablePaymentMethods}
+                    />
                 </div>
                 {contracts.length > 0 ? (
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                             <thead className="bg-gray-50 dark:bg-gray-700">
                                 <tr>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                        Cliente
+                                    </th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                         Número de Póliza
                                     </th>
@@ -538,12 +593,15 @@ function ConsultantDetailsPageContent() {
                                 </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                {contracts.map((contract) => (
+                                {filteredContracts.map((contract: any) => (
                                     <tr
                                         key={contract.id}
                                         onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
                                         className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
                                     >
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                            {contract.client_name || 'N/A'}
+                                        </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                                             {contract.contract_number || 'N/A'}
                                         </td>

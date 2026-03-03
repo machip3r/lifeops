@@ -84,7 +84,7 @@ function ContractFilesPageContent() {
         {files.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
-              No hay archivos asociados a este contrato
+              No hay archivos asociados a esta póliza
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-500">
               La funcionalidad de carga y visualización de archivos se implementará próximamente

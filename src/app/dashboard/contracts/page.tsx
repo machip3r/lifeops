@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Contract, Client } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
+import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
 
 function ContractsPageContent() {
     const router = useRouter();
@@ -13,6 +14,13 @@ function ContractsPageContent() {
     const [contracts, setContracts] = useState<Array<Contract & { client_name?: string }>>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
+    const [filters, setFilters] = useState<ContractsFilterState>({
+        search: '',
+        currency: '',
+        paymentMethod: '',
+        captureDateFrom: '',
+        captureDateTo: '',
+    });
 
     const loadContracts = useCallback(async () => {
         try {
@@ -59,16 +67,31 @@ function ContractsPageContent() {
     };
 
     const handleDelete = async (id: string) => {
-        if (!confirm('¿Estás seguro de que quieres eliminar este contrato?')) return;
+        if (!confirm('¿Estás seguro de que quieres eliminar esta póliza?')) return;
 
         try {
             await db.contract.deleteContract(id);
             loadContracts();
         } catch (error) {
             console.error('Error deleting contract:', error);
-            alert('Error al eliminar el contrato');
+            alert('Error al eliminar la póliza');
         }
     };
+
+    const availableCurrencies = useMemo(
+        () => Array.from(new Set(contracts.map(c => c.currency).filter((c): c is string => !!c))),
+        [contracts]
+    );
+
+    const availablePaymentMethods = useMemo(
+        () => Array.from(new Set(contracts.map(c => c.payment_method).filter((m): m is string => !!m))),
+        [contracts]
+    );
+
+    const filteredContracts = useMemo(
+        () => filterContracts(contracts, filters),
+        [contracts, filters]
+    );
 
     if (loading) {
         return (
@@ -83,19 +106,19 @@ function ContractsPageContent() {
             <div className="flex justify-between items-center mb-8">
                 <div>
                     <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-                        Contratos
+                        Pólizas
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400">
                         {profile?.role === 'promotory'
-                            ? 'Gestiona los contratos de tus consultores'
-                            : 'Gestiona tus contratos'}
+                            ? 'Gestiona las pólizas de tus asesores'
+                            : 'Gestiona tus pólizas'}
                     </p>
                 </div>
                 <button
                     onClick={() => router.push('/dashboard/contracts/new')}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                 >
-                    + {profile?.role === 'promotory' ? 'Registrar Emisión' : 'Emitir Contrato'}
+                    + {profile?.role === 'promotory' ? 'Registrar Emisión' : 'Emitir Póliza'}
                 </button>
             </div>
 
@@ -103,17 +126,25 @@ function ContractsPageContent() {
             {contracts.length === 0 ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
                     <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
-                        Aún no hay contratos registrados
+                        Aún no hay pólizas registradas
                     </p>
                     <button
                         onClick={() => router.push('/dashboard/contracts/new')}
                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                     >
-                        Crear Primer Contrato
+                        Crear Primera Póliza
                     </button>
                 </div>
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-x-auto">
+                    <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                        <ContractsFilters
+                            filters={filters}
+                            onChange={setFilters}
+                            availableCurrencies={availableCurrencies}
+                            availablePaymentMethods={availablePaymentMethods}
+                        />
+                    </div>
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
@@ -121,7 +152,7 @@ function ContractsPageContent() {
                                     Cliente
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Número de Contrato
+                                    Número de Póliza
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Nombre del Proyecto
@@ -153,7 +184,7 @@ function ContractsPageContent() {
                             </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {contracts.map((contract) => (
+                            {filteredContracts.map((contract) => (
                                 <tr
                                     key={contract.id}
                                     onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}

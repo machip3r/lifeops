@@ -38,6 +38,7 @@ export interface Consultant {
 
 export interface Client {
     id: string;
+    office_id?: string | null;
     name: string;
     birth_date?: string | null;
     created_at?: string;
@@ -155,18 +156,3 @@ export interface Policy {
     updated_at?: string;
 }
 
-// Legacy interface for backward compatibility (will be removed)
-export interface PolicySubmission {
-    id?: string;
-    consultant_name?: string;
-    consultant_email?: string;
-    request_type: 'emit_policy' | 'change_policy' | 'correct_folio';
-    policy_number?: string;
-    folio_number?: string;
-    description?: string;
-    file_url?: string;
-    file_name?: string;
-    status?: 'pending' | 'in_progress' | 'completed' | 'rejected';
-    created_at?: string;
-    updated_at?: string;
-}

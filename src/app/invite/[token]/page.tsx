@@ -133,7 +133,7 @@ export default function InvitePage() {
                 // If consultant creation fails, we can't delete the auth user from client
                 // The user will need to contact support or try to sign in
                 console.error('Error creating consultant profile:', consultantError);
-                throw new Error('Error al crear el perfil de consultor. Por favor, contacta al soporte.');
+                throw new Error('Error al crear el perfil de asesor. Por favor, contacta al soporte.');
             }
 
             // Mark token as used
@@ -227,7 +227,7 @@ export default function InvitePage() {
                                 <strong>Email:</strong> {tokenData.metadata.consultant_email}
                             </p>
                             <p className="text-sm text-blue-800 dark:text-blue-200 mt-1">
-                                <strong>Código de Consultor:</strong> {tokenData.metadata.consultant_code}
+                                <strong>Código de Asesor:</strong> {tokenData.metadata.consultant_code}
                             </p>
                         </div>
                     )}

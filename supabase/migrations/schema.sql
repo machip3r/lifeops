@@ -71,6 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_consultant_auth_user_id ON consultant (auth_user_
 -- ============================================
 CREATE TABLE IF NOT EXISTS client (
     id UUID DEFAULT gen_random_uuid () PRIMARY KEY,
+    office_id UUID REFERENCES office(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     birth_date DATE,
     created_at TIMESTAMP
@@ -83,6 +84,7 @@ CREATE TABLE IF NOT EXISTS client (
 
 -- Indexes for client
 CREATE INDEX IF NOT EXISTS idx_client_name ON client (name);
+CREATE INDEX IF NOT EXISTS idx_client_office_id ON client (office_id);
 
 -- ============================================
 -- 4. TOKEN TABLE
@@ -542,7 +544,8 @@ $$;
 CREATE OR REPLACE FUNCTION public.get_consultant_totals(
     consultant_id_param uuid,
     start_date date DEFAULT NULL,
-    end_date date DEFAULT NULL
+    end_date date DEFAULT NULL,
+    seniority_param text DEFAULT NULL
 )
 RETURNS TABLE(total_prima_pago numeric, total_prima_meta numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
@@ -551,13 +554,15 @@ AS $$
   FROM contract_detail cd
   JOIN contract c ON c.id = cd.contract_id
   WHERE c.consultant_id = consultant_id_param
-    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)))
+    AND (seniority_param IS NULL OR cd.seniority = seniority_param);
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_consultant_totals_by_type(
     consultant_id_param uuid,
     start_date date DEFAULT NULL,
-    end_date date DEFAULT NULL
+    end_date date DEFAULT NULL,
+    seniority_param text DEFAULT NULL
 )
 RETURNS TABLE(prima_pago_vi numeric, prima_pago_gm numeric, prima_meta_vi numeric, prima_meta_gm numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
@@ -570,7 +575,8 @@ AS $$
   FROM contract_detail cd
   JOIN contract c ON c.id = cd.contract_id
   WHERE c.consultant_id = consultant_id_param
-    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)))
+    AND (seniority_param IS NULL OR cd.seniority = seniority_param);
 $$;
 
 GRANT
@@ -598,16 +604,16 @@ GRANT
 EXECUTE ON FUNCTION public.get_office_consultants_sales (uuid, date, date) TO anon;
 
 GRANT
-EXECUTE ON FUNCTION public.get_consultant_totals (uuid, date, date) TO authenticated;
+EXECUTE ON FUNCTION public.get_consultant_totals (uuid, date, date, text) TO authenticated;
 
 GRANT
-EXECUTE ON FUNCTION public.get_consultant_totals (uuid, date, date) TO anon;
+EXECUTE ON FUNCTION public.get_consultant_totals (uuid, date, date, text) TO anon;
 
 GRANT
-EXECUTE ON FUNCTION public.get_consultant_totals_by_type (uuid, date, date) TO authenticated;
+EXECUTE ON FUNCTION public.get_consultant_totals_by_type (uuid, date, date, text) TO authenticated;
 
 GRANT
-EXECUTE ON FUNCTION public.get_consultant_totals_by_type (uuid, date, date) TO anon;
+EXECUTE ON FUNCTION public.get_consultant_totals_by_type (uuid, date, date, text) TO anon;
 
 -- ============================================
 -- 8. ROW LEVEL SECURITY (RLS) POLICIES
@@ -745,22 +751,38 @@ DROP POLICY IF EXISTS "Authenticated users can update clients" ON client;
 
 DROP POLICY IF EXISTS "Authenticated users can delete clients" ON client;
 
--- Allow all authenticated users (consultants) to manage clients
+-- Offices see clients for their office; consultants see clients from their contracts
 CREATE POLICY "Authenticated users can view clients" ON client FOR
-SELECT TO authenticated USING (true);
+SELECT TO authenticated
+USING (
+    office_id IN (SELECT id FROM office WHERE id = auth.uid())
+    OR id IN (SELECT client_id FROM contract WHERE consultant_id = auth.uid() AND client_id IS NOT NULL)
+);
 
+-- Offices and consultants can insert clients for their office
 CREATE POLICY "Authenticated users can insert clients" ON client FOR
 INSERT
     TO authenticated
 WITH
-    CHECK (true);
+    CHECK (
+        office_id IN (SELECT id FROM office WHERE id = auth.uid())
+        OR office_id IN (SELECT office_id FROM consultant WHERE id = auth.uid())
+    );
 
 CREATE POLICY "Authenticated users can update clients" ON client FOR
-UPDATE TO authenticated USING (true)
+UPDATE TO authenticated
+USING (
+    office_id IN (SELECT id FROM office WHERE id = auth.uid())
+    OR id IN (SELECT client_id FROM contract WHERE consultant_id = auth.uid() AND client_id IS NOT NULL)
+)
 WITH
     CHECK (true);
 
-CREATE POLICY "Authenticated users can delete clients" ON client FOR DELETE TO authenticated USING (true);
+CREATE POLICY "Authenticated users can delete clients" ON client FOR DELETE TO authenticated
+USING (
+    office_id IN (SELECT id FROM office WHERE id = auth.uid())
+    OR id IN (SELECT client_id FROM contract WHERE consultant_id = auth.uid() AND client_id IS NOT NULL)
+);
 
 -- Enable RLS on contract
 ALTER TABLE contract ENABLE ROW LEVEL SECURITY;

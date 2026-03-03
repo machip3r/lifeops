@@ -64,7 +64,8 @@ function NewContractPageContent() {
             // Previously was filtering to only ACTIVE, which excluded PENDING consultants
             setConsultants(consultantsData);
 
-            const clientsData = await db.client.getAllClients();
+            const officeId = profile?.role === 'promotory' ? profile?.id : profile?.office_id;
+            const clientsData = await db.client.getAllClients(officeId);
             setClients(clientsData);
         } catch (error) {
             console.error('Error loading data:', error);
@@ -78,11 +79,9 @@ function NewContractPageContent() {
         try {
             let clientsData: Client[];
             if (profile?.role === 'consultant' && profile.id) {
-                // Consultants can only see clients they have contracts with
                 clientsData = await db.client.getClientsByConsultant(profile.id);
             } else {
-                // Promotory users can see all clients
-                clientsData = await db.client.getAllClients();
+                clientsData = await db.client.getAllClients(profile?.role === 'promotory' ? profile?.id : undefined);
             }
             setClients(clientsData);
         } catch (error) {
@@ -109,7 +108,8 @@ function NewContractPageContent() {
                 throw new Error('El nombre del cliente es requerido');
             }
 
-            const newClient = await db.client.createClient(newClientData.name, newClientData.birth_date || undefined);
+            const officeId = profile?.role === 'promotory' ? profile?.id : profile?.office_id;
+            const newClient = await db.client.createClient(newClientData.name, newClientData.birth_date || undefined, officeId ?? undefined);
             setClients(prev => [...prev, newClient]);
             setFormData(prev => ({ ...prev, client_id: newClient.id }));
             setShowNewClientForm(false);
@@ -121,13 +121,13 @@ function NewContractPageContent() {
 
     const handleNext = () => {
         if (currentStep < STEPS.length - 1) {
-            setCurrentStep(currentStep + 1);
+            setCurrentStep(prev => prev + 1);
         }
     };
 
     const handleBack = () => {
         if (currentStep > 0) {
-            setCurrentStep(currentStep - 1);
+            setCurrentStep(prev => prev - 1);
         }
     };
 
@@ -143,7 +143,7 @@ function NewContractPageContent() {
 
             const consultantId = profile.role === 'consultant' ? profile.id : formData.consultant_id;
             if (!consultantId) {
-                throw new Error('No se pudo identificar el consultor');
+                throw new Error('No se pudo identificar el asesor');
             }
 
             if (!formData.client_id) {
@@ -170,7 +170,7 @@ function NewContractPageContent() {
             router.push('/dashboard/contracts');
         } catch (error: any) {
             console.error('Error creating contract:', error);
-            setErrorMessage(error.message || 'Error al crear el contrato. Por favor, inténtalo de nuevo.');
+            setErrorMessage(error.message || 'Error al crear la póliza. Por favor, inténtalo de nuevo.');
         } finally {
             setIsSubmitting(false);
         }
@@ -250,7 +250,7 @@ function NewContractPageContent() {
                             onChange={handleInputChange}
                             required
                             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            placeholder="Ingresa el número de contrato"
+                            placeholder="Ingresa el número de póliza"
                         />
                     </div>
                     <div>
@@ -487,7 +487,7 @@ function NewContractPageContent() {
                         Archivos
                     </h2>
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             Subir Archivos
                         </label>
                         <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">
@@ -534,7 +534,7 @@ function NewContractPageContent() {
                     {profile?.role === 'promotory' ? 'Registrar Emisión' : 'Emitir Contrato'}
                 </h1>
                 <p className="text-gray-600 dark:text-gray-400">
-                    Completa los siguientes pasos para crear un nuevo contrato
+                    Completa los siguientes pasos para crear un nueva póliza
                 </p>
             </div>
 

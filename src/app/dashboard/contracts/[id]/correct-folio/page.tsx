@@ -40,7 +40,7 @@ function CorrectFolioPageContent() {
       setContract(contractData);
     } catch (error) {
       console.error('Error loading contract:', error);
-      setErrorMessage('Error al cargar el contrato');
+      setErrorMessage('Error al cargar la póliza');
     } finally {
       setLoading(false);
     }
@@ -113,7 +113,7 @@ function CorrectFolioPageContent() {
           Corregir Folio
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Solicita la corrección del folio del contrato
+          Solicita la corrección del folio de la póliza
         </p>
       </div>
 
@@ -166,7 +166,7 @@ function CorrectFolioPageContent() {
 
           {/* Files Upload */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label htmlFor="file-upload" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Subir Archivos
             </label>
             <div className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">

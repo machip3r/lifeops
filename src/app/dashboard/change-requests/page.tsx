@@ -80,7 +80,7 @@ function ChangeRequestsPageContent() {
                     </h1>
                     <p className="text-gray-600 dark:text-gray-400">
                         {profile?.role === 'promotory'
-                            ? 'Gestiona las solicitudes de cambio de tus consultores'
+                            ? 'Gestiona las solicitudes de cambio de tus asesores'
                             : 'Gestiona tus solicitudes de cambio'}
                     </p>
                 </div>
@@ -112,7 +112,7 @@ function ChangeRequestsPageContent() {
                                     Folio
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Contrato
+                                    Póliza
                                 </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Descripción

@@ -81,7 +81,7 @@ export default function DashboardLayout({
     { href: '/dashboard', label: 'Vista General' },
     { href: '/dashboard/extractor', label: 'Subir Comisiones' },
     { href: '/dashboard/contracts', label: 'Pólizas' },
-    { href: '/dashboard/clients', label: 'Contratantes' },
+    { href: '/dashboard/clients', label: 'Clientes' },
     { href: '/dashboard/consultants', label: 'Asesores' },
     { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
     { href: '/dashboard/projection', label: 'Proyección' },
@@ -90,7 +90,7 @@ export default function DashboardLayout({
   const consultantNavItems = [
     { href: '/dashboard/contracts', label: 'Pólizas' },
     { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
-    { href: '/dashboard/clients', label: 'Contratantes' },
+    { href: '/dashboard/clients', label: 'Clientes' },
     { href: '/dashboard/projection', label: 'Proyección' },
   ];
 

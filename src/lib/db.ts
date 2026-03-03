@@ -149,6 +149,32 @@ export const db = {
         },
 
         updateConsultant: async (id: string, updates: Partial<Consultant>): Promise<void> => {
+            // If email is being updated, also update the auth user's email
+            if (updates.email !== undefined) {
+                // Get the consultant to check if they have an auth_user_id
+                const { data: consultant, error: fetchError } = await supabase
+                    .from('consultant')
+                    .select('auth_user_id')
+                    .eq('id', id)
+                    .single();
+
+                if (fetchError) throw fetchError;
+
+                // If consultant has an auth_user_id, update the auth user's email
+                if (consultant?.auth_user_id) {
+                    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+                        consultant.auth_user_id,
+                        { email: updates.email || undefined }
+                    );
+
+                    if (authError) {
+                        console.error('Error updating auth user email:', authError);
+                        throw new Error(`Error al actualizar el correo en el sistema de autenticación: ${authError.message}`);
+                    }
+                }
+            }
+
+            // Update the consultant table
             const { error } = await supabase
                 .from('consultant')
                 .update(updates)
@@ -460,16 +486,63 @@ export const db = {
             const warnings: Array<{ row: number; message: string }> = [];
             let successCount = 0;
 
+            // Normalize header names to a canonical form (uppercase, no accents, no spaces/punctuation)
+            const normalizeHeader = (h?: string | null): string =>
+                (h || '')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .toUpperCase()
+                    .replace(/[^A-Z0-9]/g, '');
+
+            const headerIndex = new Map<string, number>();
+            if (headers && headers.length > 0) {
+                headers.forEach((h, idx) => {
+                    headerIndex.set(normalizeHeader(h), idx);
+                });
+            }
+
+            const getIndex = (candidates: string[], fallback: number): number => {
+                for (const name of candidates) {
+                    const idx = headerIndex.get(normalizeHeader(name));
+                    if (idx !== undefined) return idx;
+                }
+                return fallback;
+            };
+
+            // Indices for contract-level columns
+            const idxCliente = getIndex(['CLIENTE'], 0);
+            const idxPoliza = getIndex(['POLIZA'], 1);
+            const idxMoneda = getIndex(['MONEDA'], 3);
+            const idxTipoCambio = getIndex(['TIPO CAMBIO'], 4);
+            const idxAsesor = getIndex(['ASESOR'], 5); // Consultant code
+
+            // Indices for detail columns (by header name)
+            const idxFechaEmision = getIndex(['FECHA EMISION'], 8);
+            const idxFechaPago = getIndex(['FECHA PAGO'], 11);
+            const idxPrimaPago = getIndex(['PRIMA PAGO', 'PRIMA PAGO 1'], 12);
+            const idxFormaPago = getIndex(['FORMA DE PAGO'], 14);
+            const idxComisionHonor = getIndex(['COMISION/HONORARIOS', 'COMISION HONORARIOS'], 15);
+            const idxPctComision = getIndex(['% COMISION', 'PORCENTAJE COMISION'], 16);
+            const idxMovimiento = getIndex(['MOVIMIENTO'], 18);
+            const idxPrimaCobro = getIndex(['PRIMA COBRO'], 19);
+            const idxAntiguedad = getIndex(['ANTIGÜEDAD', 'ANTIGUEDAD'], 20);
+            const idxPrimaMeta = getIndex(['PRIMA META'], 21);
+            const idxPrimaComision = getIndex(['PRIMA COMISION'], 13);
+
+            const getCell = (row: string[], index: number): string => {
+                if (index < 0 || index >= row.length) return '';
+                const value = row[index]?.trim();
+                return value || '';
+            };
+
             // Group rows by contract (Cliente + Poliza + Asesor)
-            // First 5 columns are: Cliente, Poliza, Moneda, Tipo Cambio, Asesor
-            // Rest are detail columns
             type ContractGroup = {
                 cliente: string;
                 poliza: string;
                 moneda: string;
                 tipoCambio: string;
                 asesor: string;
-                rows: Array<{ rowIndex: number; data: string[] }>;
+                rows: Array<{ rowIndex: number; row: string[] }>;
             };
 
             const contractGroups = new Map<string, ContractGroup>();
@@ -478,16 +551,11 @@ export const db = {
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 try {
-                    if (row.length < 5) {
-                        errors.push({ row: i + 1, error: 'Row does not have enough columns' });
-                        continue;
-                    }
-
-                    const cliente = row[0]?.trim();
-                    const poliza = row[1]?.trim();
-                    const moneda = row[2]?.trim();
-                    const tipoCambio = row[3]?.trim();
-                    const asesor = row[4]?.trim(); // This is the consultant_code
+                    const cliente = getCell(row, idxCliente);
+                    const poliza = getCell(row, idxPoliza);
+                    const moneda = getCell(row, idxMoneda);
+                    const tipoCambio = getCell(row, idxTipoCambio);
+                    const asesor = getCell(row, idxAsesor); // This is the consultant_code
 
                     if (!cliente || !asesor) {
                         errors.push({ row: i + 1, error: 'Missing Cliente or Asesor (Consultant Code)' });
@@ -501,17 +569,16 @@ export const db = {
                         contractGroups.set(contractKey, {
                             cliente,
                             poliza,
-                            moneda,
-                            tipoCambio,
+                            moneda: moneda || '',
+                            tipoCambio: tipoCambio || '',
                             asesor,
                             rows: [],
                         });
                     }
 
-                    // Add this row to the contract group (skip first 5 columns as they're contract-level)
                     contractGroups.get(contractKey)!.rows.push({
                         rowIndex: i + 1,
-                        data: row.slice(5), // All columns after the first 5 are detail columns
+                        row,
                     });
                 } catch (error: any) {
                     errors.push({ row: i + 1, error: error.message || 'Error grouping row' });
@@ -558,7 +625,7 @@ export const db = {
 
             // Pre-fetch clients in batch (single query for all clients)
             const uniqueClientes = [...new Set(Array.from(contractGroups.values()).map(g => g.cliente))];
-            const clientCache = await db.client.findOrCreateClientsByName(uniqueClientes);
+            const clientCache = await db.client.findOrCreateClientsByName(uniqueClientes, officeId);
 
             // Helper functions (defined here so they can be used in the loop)
             // Parse exchange rate - tipo cambio
@@ -609,7 +676,7 @@ export const db = {
                         const existing = existingContractsMap.get(group.poliza);
                         if (existing) {
                             // Contract exists, use it
-                            warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.poliza}" ya existe. Se omitirá la creación del contrato, se agregarán solo los detalles.` });
+                            warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.poliza}" ya existe. Se omitirá la creación de la póliza, se agregarán solo los detalles.` });
                             contract = existing;
                         } else {
                             // Create new contract
@@ -671,28 +738,54 @@ export const db = {
                         return isNaN(parsed) ? null : parsed;
                     };
 
-                    // Prepare all detail records first, then batch check for duplicates
-                    const detailRecords: Array<{ record: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>; rowInfo: { rowIndex: number; data: string[] } }> = [];
+                    // Normalize payment method (FORMA DE PAGO) to catalog values
+                    const normalizePaymentMethod = (value: string | null): string | null => {
+                        if (!value) return null;
+                        // Remove anything in parentheses so values like "Semestral (2)" still normalize correctly
+                        const raw = value.trim().toLowerCase().replace(/\([^)]*\)/g, '').trim();
+                        switch (raw) {
+                            case '1':
+                            case '01':
+                            case 'anual':
+                                return 'Anual';
+                            case '2':
+                            case '02':
+                            case 'semestral':
+                                return 'Semestral';
+                            case '4':
+                            case '04':
+                            case 'trimestral':
+                                return 'Trimestral';
+                            case '5':
+                            case '05':
+                            case 'mensual':
+                                return 'Mensual';
+                            default:
+                                return value.trim();
+                        }
+                    };
 
-                    // Prepare all details
-                    // detailData is 11 columns in order (from extractor): FECHA EMISION, FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, COMISION/HONORARIOS, % COMISION, PRIMA COBRO, ANTIGÜEDAD, PRIMA META, MOVIMIENTO, PRIMA COMISION
+                    // Prepare all detail records first, then batch check for duplicates
+                    const detailRecords: Array<{ record: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>; rowInfo: { rowIndex: number; row: string[] } }> = [];
+
+                    // Prepare all details - map by header names instead of fixed indices
                     for (const rowInfo of group.rows) {
                         try {
-                            const detailData = rowInfo.data;
+                            const row = rowInfo.row;
 
                             const detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'> = {
                                 contract_id: contract.id,
-                                issue_date: parseDate(mapColumn(detailData, 0)), // FECHA EMISION
-                                payment_date: parseDate(mapColumn(detailData, 1)), // FECHA PAGO
-                                premium_payment: parseNumeric(mapColumn(detailData, 2)), // PRIMA PAGO
-                                payment_method: mapColumn(detailData, 3), // FORMA DE PAGO
-                                commission_honoraries: parseNumeric(mapColumn(detailData, 4)), // COMISION/HONORARIOS
-                                commission_percentage: parseNumeric(mapColumn(detailData, 5)), // % COMISION
-                                collection_premium: parseNumeric(mapColumn(detailData, 6)), // PRIMA COBRO
-                                seniority: mapColumn(detailData, 7), // ANTIGÜEDAD
-                                target_premium: parseNumeric(mapColumn(detailData, 8)), // PRIMA META
-                                movement: mapColumn(detailData, 9), // MOVIMIENTO
-                                commission_premium: parseNumeric(mapColumn(detailData, 10)), // PRIMA COMISION
+                                issue_date: parseDate(getCell(row, idxFechaEmision)), // FECHA EMISION
+                                payment_date: parseDate(getCell(row, idxFechaPago)), // FECHA PAGO
+                                premium_payment: parseNumeric(getCell(row, idxPrimaPago)), // PRIMA PAGO
+                                payment_method: normalizePaymentMethod(getCell(row, idxFormaPago)), // FORMA DE PAGO
+                                commission_honoraries: parseNumeric(getCell(row, idxComisionHonor)), // COMISION/HONORARIOS
+                                commission_percentage: parseNumeric(getCell(row, idxPctComision)), // % COMISION
+                                collection_premium: parseNumeric(getCell(row, idxPrimaCobro)), // PRIMA COBRO
+                                seniority: getCell(row, idxAntiguedad), // ANTIGÜEDAD
+                                target_premium: parseNumeric(getCell(row, idxPrimaMeta)), // PRIMA META
+                                movement: getCell(row, idxMovimiento), // MOVIMIENTO
+                                commission_premium: parseNumeric(getCell(row, idxPrimaComision)), // PRIMA COMISION
                             };
 
                             detailRecords.push({ record: detail, rowInfo });
@@ -897,12 +990,12 @@ export const db = {
 
     // Client functions
     client: {
-        getAllClients: async (): Promise<Client[]> => {
-            const { data, error } = await supabase
-                .from('client')
-                .select('*')
-                .order('created_at', { ascending: false });
-
+        getAllClients: async (officeId?: string): Promise<Client[]> => {
+            let query = supabase.from('client').select('*').order('created_at', { ascending: false });
+            if (officeId) {
+                query = query.eq('office_id', officeId);
+            }
+            const { data, error } = await query;
             if (error) throw error;
             return data || [];
         },
@@ -944,12 +1037,13 @@ export const db = {
             return data;
         },
 
-        createClient: async (name: string, birthDate?: string): Promise<Client> => {
+        createClient: async (name: string, birthDate?: string, officeId?: string | null): Promise<Client> => {
             const { data, error } = await supabase
                 .from('client')
                 .insert({
                     name,
                     birth_date: birthDate || null,
+                    office_id: officeId ?? null,
                 })
                 .select()
                 .single();
@@ -982,16 +1076,12 @@ export const db = {
             if (error) throw error;
         },
 
-        findOrCreateClientByName: async (name: string): Promise<Client> => {
-            // First try to find existing client by name (case-insensitive)
-            const { data: existing, error: searchError } = await supabase
-                .from('client')
-                .select('*')
-                .ilike('name', name.trim())
-                .limit(1)
-                .maybeSingle();
+        findOrCreateClientByName: async (name: string, officeId?: string | null): Promise<Client> => {
+            let query = supabase.from('client').select('*').ilike('name', name.trim()).limit(1);
+            if (officeId) query = query.eq('office_id', officeId);
+            const { data: existing, error: searchError } = await query.maybeSingle();
 
-            if (searchError && searchError.code !== 'PGRST116') { // PGRST116 = no rows returned
+            if (searchError && searchError.code !== 'PGRST116') {
                 throw searchError;
             }
 
@@ -999,8 +1089,7 @@ export const db = {
                 return existing;
             }
 
-            // Create new client
-            return await db.client.createClient(name.trim());
+            return await db.client.createClient(name.trim(), undefined, officeId);
         },
 
         checkClientExists: async (name: string): Promise<boolean> => {
@@ -1015,25 +1104,22 @@ export const db = {
             return !!data;
         },
 
-        findOrCreateClientsByName: async (names: string[]): Promise<Map<string, Client>> => {
-            // Batch find or create multiple clients
+        findOrCreateClientsByName: async (names: string[], officeId?: string | null): Promise<Map<string, Client>> => {
             const clientMap = new Map<string, Client>();
             const uniqueNames = [...new Set(names.map(n => n.trim()))];
 
             if (uniqueNames.length === 0) return clientMap;
 
-            // Find all existing clients in one query using OR conditions
+            let query = supabase.from('client').select('*');
             const orConditions = uniqueNames.map(name => `name.ilike.${name}`).join(',');
-            const { data: existingClients, error: searchError } = await supabase
-                .from('client')
-                .select('*')
-                .or(orConditions);
+            query = query.or(orConditions);
+            if (officeId) query = query.eq('office_id', officeId);
+            const { data: existingClients, error: searchError } = await query;
 
             if (searchError && searchError.code !== 'PGRST116') {
                 throw searchError;
             }
 
-            // Map existing clients by lowercase name
             const existingMap = new Map<string, Client>();
             if (existingClients) {
                 existingClients.forEach((client: Client) => {
@@ -1043,7 +1129,6 @@ export const db = {
                 });
             }
 
-            // Create missing clients in batch
             const namesToCreate = uniqueNames.filter(name => {
                 const key = name.toLowerCase();
                 return !existingMap.has(key);
@@ -1051,8 +1136,9 @@ export const db = {
 
             if (namesToCreate.length > 0) {
                 const clientsToCreate = namesToCreate.map(name => ({
-                    name: name,
+                    name,
                     birth_date: null,
+                    office_id: officeId ?? null,
                 }));
 
                 const { data: newClients, error: createError } = await supabase
@@ -1398,11 +1484,12 @@ export const db = {
         },
 
         // Get total prima pago and prima meta for a consultant (calculated in SQL via RPC)
-        getConsultantTotals: async (consultantId: string, startDate?: string | null, endDate?: string | null): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
+        getConsultantTotals: async (consultantId: string, startDate?: string | null, endDate?: string | null, seniority?: string | null): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
             const { data, error } = await supabase.rpc('get_consultant_totals', {
                 consultant_id_param: consultantId,
                 start_date: startDate || null,
                 end_date: endDate || null,
+                seniority_param: seniority || null,
             });
 
             if (error) throw error;
@@ -1452,11 +1539,12 @@ export const db = {
         },
 
         // Get consultant totals by contract type (VI and GM) - prima pago and prima meta
-        getConsultantTotalsByType: async (consultantId: string, startDate?: string | null, endDate?: string | null): Promise<{ primaPagoVI: number; primaPagoGM: number; primaMetaVI: number; primaMetaGM: number }> => {
+        getConsultantTotalsByType: async (consultantId: string, startDate?: string | null, endDate?: string | null, seniority?: string | null): Promise<{ primaPagoVI: number; primaPagoGM: number; primaMetaVI: number; primaMetaGM: number }> => {
             const { data, error } = await supabase.rpc('get_consultant_totals_by_type', {
                 consultant_id_param: consultantId,
                 start_date: startDate || null,
                 end_date: endDate || null,
+                seniority_param: seniority || null,
             });
 
             if (error) throw error;

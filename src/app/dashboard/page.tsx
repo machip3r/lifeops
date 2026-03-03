@@ -190,8 +190,11 @@ export default function DashboardPage() {
             {topConsultants.map((item, index) => (
               <div
                 key={item.consultant.id}
+                role="button"
+                tabIndex={0}
                 className="flex items-center justify-between p-3 bg-[#242830] rounded-lg hover:bg-[#2f3540] cursor-pointer transition-colors border border-[#3a4049]"
                 onClick={() => router.push(`/dashboard/consultants/${item.consultant.id}`)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') router.push(`/dashboard/consultants/${item.consultant.id}`); }}
               >
                 <div className="flex items-center space-x-3">
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-[#FBDBAC] text-black font-bold text-sm">

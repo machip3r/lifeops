@@ -140,7 +140,7 @@ function PoliciesPageContent() {
 
     // Check if change_type is not one of the predefined options
     const predefinedOptions = [
-      'Cambio Agente, Forma de pago, Domicilio, Contratante, etc.',
+      'Cambio Agente, Forma de pago, Domicilio, Cliente, etc.',
       'Disminución de SA',
       'Inclusión/exclusión de coberturas',
       'Corrección de Nombre, Sexo, Fecha de nacimiento, etc.',
@@ -185,7 +185,7 @@ function PoliciesPageContent() {
             Contratos
           </h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Gestiona tus contratos y procedimientos
+            Gestiona tus pólizas y procedimientos
           </p>
         </div>
         <button
@@ -218,11 +218,12 @@ function PoliciesPageContent() {
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Request Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="policy-request-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Tipo de Solicitud *
                 </label>
                 <div className="grid grid-cols-3 gap-4">
                   <button
+                    id="policy-request-type"
                     type="button"
                     onClick={() => handleRequestTypeChange('EMIT')}
                     className={`px-4 py-3 rounded-lg border-2 transition-colors ${formData.request_type === 'EMIT'
@@ -258,10 +259,11 @@ function PoliciesPageContent() {
               {/* Common Fields */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Código del Consultor
+                  <label htmlFor="policy-consultant-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Código del Asesor
                   </label>
                   <input
+                    id="policy-consultant-code"
                     type="text"
                     name="consultant_code"
                     value={formData.consultant_code || ''}
@@ -270,10 +272,11 @@ function PoliciesPageContent() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label htmlFor="policy-contract-number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Número de Folio
                   </label>
                   <input
+                    id="policy-contract-number"
                     type="text"
                     name="contract_number"
                     value={formData.contract_number || ''}
@@ -288,10 +291,11 @@ function PoliciesPageContent() {
                 <>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-contract-status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Estado del Contrato
                       </label>
                       <select
+                        id="policy-contract-status"
                         name="contract_number_status"
                         value={formData.contract_number_status || ''}
                         onChange={handleInputChange}
@@ -307,10 +311,11 @@ function PoliciesPageContent() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-capture-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Fecha de Captura
                       </label>
                       <input
+                        id="policy-capture-date"
                         type="date"
                         name="capture_date"
                         value={formData.capture_date || ''}
@@ -321,10 +326,11 @@ function PoliciesPageContent() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-emit-client-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Nombre Completo del Cliente
                     </label>
                     <input
+                      id="policy-emit-client-name"
                       type="text"
                       name="client_full_name"
                       value={formData.client_full_name || ''}
@@ -334,10 +340,11 @@ function PoliciesPageContent() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-project-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Nombre del Proyecto
                     </label>
                     <input
+                      id="policy-project-name"
                       type="text"
                       name="project_name"
                       value={formData.project_name || ''}
@@ -348,10 +355,11 @@ function PoliciesPageContent() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-insured-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Suma Asegurada
                       </label>
                       <input
+                        id="policy-insured-amount"
                         type="text"
                         name="insured_amount"
                         value={formData.insured_amount || ''}
@@ -361,10 +369,11 @@ function PoliciesPageContent() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-annual-premium" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Prima Anual
                       </label>
                       <input
+                        id="policy-annual-premium"
                         type="text"
                         name="annual_premium"
                         value={formData.annual_premium || ''}
@@ -376,10 +385,11 @@ function PoliciesPageContent() {
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-payment-method" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Método de Pago
                       </label>
                       <select
+                        id="policy-payment-method"
                         name="payment_method"
                         value={formData.payment_method || ''}
                         onChange={handleInputChange}
@@ -393,10 +403,11 @@ function PoliciesPageContent() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-currency" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Moneda
                       </label>
                       <select
+                        id="policy-currency"
                         name="currency"
                         value={formData.currency || ''}
                         onChange={handleInputChange}
@@ -409,10 +420,11 @@ function PoliciesPageContent() {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-collection-channel" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Canal de Pago
                       </label>
                       <select
+                        id="policy-collection-channel"
                         name="collection_channel"
                         value={formData.collection_channel || ''}
                         onChange={handleInputChange}
@@ -431,10 +443,11 @@ function PoliciesPageContent() {
               {formData.request_type === 'CHANGE' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Número de Contrato *
                     </label>
                     <input
+                      id="policy-number"
                       type="text"
                       name="policy_number"
                       value={formData.policy_number || ''}
@@ -445,10 +458,11 @@ function PoliciesPageContent() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-change-client-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Nombre Completo del Cliente
                     </label>
                     <input
+                      id="policy-change-client-name"
                       type="text"
                       name="client_full_name"
                       value={formData.client_full_name || ''}
@@ -458,10 +472,11 @@ function PoliciesPageContent() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-change-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Cambio o trámite que deseas hacer
                     </label>
                     <select
+                      id="policy-change-type"
                       name="change_type"
                       value={formData.change_type || ''}
                       onChange={(e) => {
@@ -474,8 +489,8 @@ function PoliciesPageContent() {
                       className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                     >
                       <option value="">Selecciona un tipo de cambio</option>
-                      <option value="Cambio Agente, Forma de pago, Domicilio, Contratante, etc.">
-                        Cambio Agente, Forma de pago, Domicilio, Contratante, etc.
+                      <option value="Cambio Agente, Forma de pago, Domicilio, Cliente, etc.">
+                        Cambio Agente, Forma de pago, Domicilio, Cliente, etc.
                       </option>
                       <option value="Disminución de SA">Disminución de SA</option>
                       <option value="Inclusión/exclusión de coberturas">
@@ -496,10 +511,11 @@ function PoliciesPageContent() {
 
                   {formData.change_type === 'Otro' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-other-change-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Especifica el tipo de cambio
                       </label>
                       <input
+                        id="policy-other-change-type"
                         type="text"
                         value={otherChangeType}
                         onChange={(e) => {
@@ -513,10 +529,11 @@ function PoliciesPageContent() {
                   )}
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-change-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Descripción y Motivo
                     </label>
                     <textarea
+                      id="policy-change-description"
                       name="change_description"
                       value={formData.change_description || ''}
                       onChange={handleInputChange}
@@ -527,10 +544,11 @@ function PoliciesPageContent() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-bank" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Banco
                       </label>
                       <input
+                        id="policy-bank"
                         type="text"
                         name="bank"
                         value={formData.bank || ''}
@@ -539,10 +557,11 @@ function PoliciesPageContent() {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      <label htmlFor="policy-token-clabe" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         TOKEN/CLABE
                       </label>
                       <input
+                        id="policy-token-clabe"
                         type="text"
                         name="token_clabe"
                         value={formData.token_clabe || ''}
@@ -558,10 +577,11 @@ function PoliciesPageContent() {
               {formData.request_type === 'CORRECT' && (
                 <>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-folio-to-correct" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Número de Folio a Corregir *
                     </label>
                     <input
+                      id="policy-folio-to-correct"
                       type="text"
                       name="folio_to_correct"
                       value={formData.folio_to_correct || ''}
@@ -572,10 +592,11 @@ function PoliciesPageContent() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    <label htmlFor="policy-correction-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Descripción de los cambios
                     </label>
                     <textarea
+                      id="policy-correction-description"
                       name="correction_description"
                       value={formData.correction_description || ''}
                       onChange={handleInputChange}
@@ -588,10 +609,11 @@ function PoliciesPageContent() {
 
               {/* File Upload */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="policy-document-file" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Documento adjunto (opcional)
                 </label>
                 <input
+                  id="policy-document-file"
                   type="file"
                   onChange={handleFileChange}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -603,10 +625,11 @@ function PoliciesPageContent() {
 
               {/* Status */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="policy-status" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Estado
                 </label>
                 <select
+                  id="policy-status"
                   name="status"
                   value={formData.status || 'pending'}
                   onChange={handleInputChange}
@@ -624,10 +647,11 @@ function PoliciesPageContent() {
 
               {/* Notes */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="policy-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Notas Adicionales
                 </label>
                 <textarea
+                  id="policy-notes"
                   name="notes"
                   value={formData.notes || ''}
                   onChange={handleInputChange}
@@ -663,7 +687,7 @@ function PoliciesPageContent() {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
         {policies.length === 0 ? (
           <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-            No hay contratos registrados. Crea tu primer contrato
+            No hay pólizas registrados. Crea tu primer póliza
           </div>
         ) : (
           <div className="overflow-x-auto">

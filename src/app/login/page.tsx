@@ -206,7 +206,7 @@ export default function LoginPage() {
                 <>
                   <div>
                     <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">
-                      Los consultores deben ser invitados por una oficina. Solo se pueden crear cuentas de oficina aquí.
+                      Los asesores deben ser invitados por una oficina. Solo se pueden crear cuentas de oficina aquí.
                     </p>
                   </div>
                   <div>

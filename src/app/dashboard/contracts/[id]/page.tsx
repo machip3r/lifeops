@@ -186,19 +186,19 @@ function ContractDetailsPageContent() {
                 <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Información del Contrato</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Cliente</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Cliente</span>
                         <p className="text-sm text-gray-900 dark:text-white">{client?.name || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Consultor</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Asesor</span>
                         <p className="text-sm text-gray-900 dark:text-white">{consultant?.name || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Número de Contrato</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Número de Contrato</span>
                         <p className="text-sm text-gray-900 dark:text-white">{contract.contract_number || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo de Contrato</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo de Contrato</span>
                         <p className="text-sm text-gray-900 dark:text-white">
                             {contractType
                                 ? (contractType === 'inicial' ? 'Inicial' : 'Renovación')
@@ -206,27 +206,27 @@ function ContractDetailsPageContent() {
                         </p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Nombre del Proyecto</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Nombre del Proyecto</span>
                         <p className="text-sm text-gray-900 dark:text-white">{contract.project_name || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Suma Asegurada</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Suma Asegurada</span>
                         <p className="text-sm text-gray-900 dark:text-white">{contract.insured_amount || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Prima Anual</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Prima Anual</span>
                         <p className="text-sm text-gray-900 dark:text-white">{contract.annual_premium || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Método de Pago</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Método de Pago</span>
                         <p className="text-sm text-gray-900 dark:text-white">{contract.payment_method || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Moneda</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Moneda</span>
                         <p className="text-sm text-gray-900 dark:text-white">{contract.currency || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo de Cambio</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo de Cambio</span>
                         <p className="text-sm text-gray-900 dark:text-white">
                             {contract.exchange_rate != null
                                 ? contract.exchange_rate.toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
@@ -234,7 +234,7 @@ function ContractDetailsPageContent() {
                         </p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Valor del Contrato</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Valor del Contrato</span>
                         <p className="text-sm font-bold text-gray-900 dark:text-white">
                             ${contractValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
@@ -243,15 +243,15 @@ function ContractDetailsPageContent() {
                         </p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Canal de Pago</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Canal de Pago</span>
                         <p className="text-sm text-gray-900 dark:text-white">{contract.payment_channel || 'N/A'}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Captura</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Captura</span>
                         <p className="text-sm text-gray-900 dark:text-white">{formatDate(contract.capture_date)}</p>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Estado</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Estado</span>
                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'PENDING'
                             ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                             : contract.status === 'APPROVED'
@@ -262,7 +262,7 @@ function ContractDetailsPageContent() {
                         </span>
                     </div>
                     <div>
-                        <label className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Creación</label>
+                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Creación</span>
                         <p className="text-sm text-gray-900 dark:text-white">{formatDate(contract.created_at)}</p>
                     </div>
                 </div>
@@ -348,7 +348,7 @@ function ContractDetailsPageContent() {
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
                     <p className="text-gray-600 dark:text-gray-400 text-lg">
-                        No se encontraron detalles del contrato para este contrato
+                        No se encontraron detalles de la póliza para esta póliza
                     </p>
                 </div>
             )}

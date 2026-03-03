@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
@@ -23,7 +23,7 @@ interface TableData {
 }
 
 interface MissingConsultant {
-  consultantCode: string; // This is the asesor field (row[4] in combined row)
+  consultantCode: string; // This is the asesor field (row[5] in combined row: Cliente, Poliza, TIPO POLIZA, Moneda, Tipo Cambio, Asesor)
   name: string;
   email: string;
   password: string;
@@ -66,24 +66,34 @@ const EditableCell = memo(function EditableCell({
   cellIndex: number;
   isEditable: boolean;
   updateCell: (ti: number, ri: number, ci: number, v: string) => void;
-  onFocusEmpty: () => void;
+  onFocusEmpty: (ti: number, ri: number, ci: number) => void;
   onBlurEmpty: () => void;
 }) {
   const [localValue, setLocalValue] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (value !== localValue && document.activeElement !== inputRef.current) {
+  // Sync from parent value when it changes and input is not focused
+  // Using useLayoutEffect for DOM synchronization (acceptable for input value sync)
+  useLayoutEffect(() => {
+    if (!isFocused && value !== localValue) {
       setLocalValue(value);
     }
-  }, [value]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, isFocused]); // localValue intentionally excluded to avoid infinite loop
 
   const handleBlur = useCallback(() => {
+    setIsFocused(false);
     if (localValue !== value) {
       updateCell(tableIndex, rowIndex, cellIndex, localValue);
     }
     onBlurEmpty();
   }, [localValue, value, tableIndex, rowIndex, cellIndex, updateCell, onBlurEmpty]);
+
+  const handleFocus = useCallback(() => {
+    setIsFocused(true);
+    onFocusEmpty(tableIndex, rowIndex, cellIndex);
+  }, [onFocusEmpty, tableIndex, rowIndex, cellIndex]);
 
   if (!isEditable) {
     return (
@@ -100,7 +110,7 @@ const EditableCell = memo(function EditableCell({
       value={localValue}
       onChange={(e) => setLocalValue(e.target.value)}
       onFocus={() => {
-        if (String(value).trim() === '') onFocusEmpty();
+        if (String(value).trim() === '') handleFocus();
       }}
       onBlur={handleBlur}
       className="w-full min-w-16 px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -318,27 +328,112 @@ function ExtractorPageContent() {
       return [];
     }
 
-    // Only include allowed columns (metadata + 11 detail columns)
+    // Helper function to determine TIPO POLIZA from poliza number
+    const getTipoPoliza = (poliza: string | null | undefined): string => {
+      if (!poliza) return '';
+      const polizaUpper = poliza.trim().toUpperCase();
+      if (polizaUpper.startsWith('VI')) return 'VI';
+      if (polizaUpper.startsWith('GM')) return 'GMM';
+      return '';
+    };
+
+    const normalizeFormaPagoDisplay = (raw: string): string => {
+      const trimmed = raw.trim();
+      if (!trimmed) return '';
+      const lower = trimmed.toLowerCase();
+
+      let label: string | null = null;
+      if (lower === '1' || lower === '01' || lower === 'anual') {
+        label = 'Anual';
+      } else if (lower === '2' || lower === '02' || lower === 'semestral') {
+        label = 'Semestral';
+      } else if (lower === '4' || lower === '04' || lower === 'trimestral') {
+        label = 'Trimestral';
+      } else if (lower === '5' || lower === '05' || lower === 'mensual') {
+        label = 'Mensual';
+      }
+
+      if (!label) return trimmed;
+      // Show normalized label plus original value when they differ
+      return trimmed.toLowerCase() === label.toLowerCase() ? label : `${label} (${trimmed})`;
+    };
+
+    // Only include allowed columns (metadata + TIPO POLIZA + 11 detail columns)
     const combinedHeaders = [
       'Cliente',
       'Poliza',
+      'Ramo',
       'Moneda',
       'Tipo Cambio',
       'Asesor',
-      ...ALLOWED_DETAIL_COLUMNS.map((c) => c.header),
+      'Nombre Asesor',
+      'Reclutador',
+      'FECHA EMISION',
+      'MES EMISION',
+      'AÑO EMISION',
+      'FECHA PAGO',
+      'PRIMA PAGO 1',
+      'PRIMA COMISION',
+      'FORMA DE PAGO',
+      'COMISION/HONORARIOS',
+      '% COMISION',
+      'MOVIMIENTO',
+      'PRIMA COBRO',
+      'ANTIGÜEDAD',
+      'PRIMA META',
     ];
 
     const combinedRows: string[][] = [];
     allSections.forEach((section) => {
       section.rows.forEach((row) => {
         const allowedCells = ALLOWED_DETAIL_COLUMNS.map((c) => (row[c.index] ?? '').trim());
+        const poliza = section.metadata.poliza || '';
+
+        const fechaEmision = allowedCells[0] || '';
+        let mesEmision = '';
+        let anioEmision = '';
+        if (fechaEmision) {
+          const parts = fechaEmision.split('/');
+          if (parts.length === 3) {
+            mesEmision = parts[1]?.padStart(2, '0') || '';
+            anioEmision = parts[2] || '';
+          }
+        }
+
+        const fechaPago = allowedCells[1] || '';
+        const primaPago1 = allowedCells[2] || '';
+        const formaPagoRaw = allowedCells[3] || '';
+        const formaPago = normalizeFormaPagoDisplay(formaPagoRaw);
+        const comisionHonorarios = allowedCells[4] || '';
+        const porcentajeComision = allowedCells[5] || '';
+        const primaCobro = allowedCells[6] || '';
+        const antiguedad = allowedCells[7] || '';
+        const primaMeta = allowedCells[8] || '';
+        const movimiento = allowedCells[9] || '';
+        const primaComision = allowedCells[10] || '';
+
         combinedRows.push([
           section.metadata.contratante || '',
-          section.metadata.poliza || '',
+          poliza,
+          getTipoPoliza(poliza),
           section.metadata.moneda || '',
           section.metadata.tipoCambio || '',
           section.metadata.asesor || '',
-          ...allowedCells,
+          '', // Nombre Asesor (editable)
+          '', // Reclutador (editable)
+          fechaEmision,
+          mesEmision,
+          anioEmision,
+          fechaPago,
+          primaPago1,
+          primaComision,
+          formaPago,
+          comisionHonorarios,
+          porcentajeComision,
+          movimiento,
+          primaCobro,
+          antiguedad,
+          primaMeta,
         ]);
       });
     });
@@ -462,11 +557,28 @@ function ExtractorPageContent() {
     });
   }, []);
 
+  const handleFocusEmpty = useCallback((ti: number, ri: number, ci: number) => {
+    setFocusedEmptyCell({ tableIndex: ti, rowIndex: ri, cellIndex: ci });
+  }, []);
+
+  const handleBlurEmpty = useCallback(() => {
+    setFocusedEmptyCell(null);
+  }, []);
+
   const addFiles = async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
-    const htmlFiles = fileArray.filter(f => f.type === 'text/html' || f.name.toLowerCase().endsWith('.html') || f.name.toLowerCase().endsWith('.htm'));
+    const htmlFiles = fileArray.filter((f) => {
+      const name = f.name.toLowerCase();
+      return (
+        f.type === 'text/html' ||
+        name.endsWith('.html') ||
+        name.endsWith('.htm') ||
+        name.endsWith('.mhtml') ||
+        name.endsWith('.mht')
+      );
+    });
     if (htmlFiles.length === 0) {
-      alert('Por favor selecciona archivos HTML (.html o .htm)');
+      alert('Por favor selecciona archivos HTML o MHTML (.html, .htm, .mhtml, .mht)');
       return;
     }
     try {
@@ -539,15 +651,9 @@ function ExtractorPageContent() {
         return;
       }
 
-      // Sort by client name (first column - Cliente), using locale for proper ñ and accents
-      const sortedRows = [...allRows].sort((a, b) => {
-        const clientA = (a[0] ?? '').trim();
-        const clientB = (b[0] ?? '').trim();
-        return clientA.localeCompare(clientB, 'es', { sensitivity: 'base' });
-      });
-
+      // Preserve original row order from the uploaded files
       setFileName(uploadedFiles.map(f => f.name.replace(/\.[^/.]+$/, '')).join('_'));
-      setTables([{ headers: combinedHeaders, rows: sortedRows, metadata: undefined, sectionName: 'combined' }]);
+      setTables([{ headers: combinedHeaders, rows: allRows, metadata: undefined, sectionName: 'combined' }]);
     } catch (err) {
       console.error(err);
       alert('Error al extraer datos. Revisa que los archivos sean HTML válidos.');
@@ -556,13 +662,39 @@ function ExtractorPageContent() {
     }
   };
 
+  /** Fetch existing auth user ids for the given emails (to avoid duplicate user creation). */
+  const getExistingAuthUserIdsByEmails = useCallback(async (emails: string[]): Promise<Map<string, string>> => {
+    const emailSet = new Set(emails.map((e) => e.toLowerCase()));
+    const result = new Map<string, string>();
+    if (emailSet.size === 0) return result;
+    const perPage = 1000;
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
+      if (error) {
+        console.warn('Error listing auth users for duplicate check:', error);
+        break;
+      }
+      const users = data?.users ?? [];
+      for (const user of users) {
+        if (user.email && emailSet.has(user.email.toLowerCase())) {
+          result.set(user.email.toLowerCase(), user.id);
+        }
+      }
+      if (users.length < perPage) hasMore = false;
+      else page += 1;
+    }
+    return result;
+  }, []);
+
   const checkMissingConsultants = async (rows: string[][], officeId: string): Promise<string[]> => {
     const consultantCodes = new Set<string>();
 
-    // Extract unique consultant codes (asesor) from rows (column index 4: Asesor)
+    // Extract unique consultant codes (asesor) from rows (column index 5: Asesor; 0–2 Cliente, Poliza, TIPO POLIZA; 3 Moneda; 4 Tipo Cambio)
     rows.forEach(row => {
-      if (row.length >= 5 && row[4]?.trim()) {
-        consultantCodes.add(row[4].trim());
+      if (row.length >= 6 && row[5]?.trim()) {
+        consultantCodes.add(row[5].trim());
       }
     });
 
@@ -605,13 +737,13 @@ function ExtractorPageContent() {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      if (row.length < 16) continue; // 5 metadata + 11 detail columns
+      if (row.length < 17) continue; // 6 metadata (Cliente, Poliza, TIPO POLIZA, Moneda, Tipo Cambio, Asesor) + 11 detail columns
 
       const cliente = row[0]?.trim();
       const poliza = row[1]?.trim();
-      const moneda = row[2]?.trim();
-      const tipoCambio = row[3]?.trim();
-      const asesor = row[4]?.trim();
+      const moneda = row[3]?.trim();
+      const tipoCambio = row[4]?.trim();
+      const asesor = row[5]?.trim();
 
       if (!cliente || !asesor) continue;
 
@@ -628,7 +760,7 @@ function ExtractorPageContent() {
       }
       contractGroups.get(contractKey)!.rows.push({
         rowIndex: i + 1,
-        data: row.slice(5),
+        data: row.slice(6),
       });
     }
 
@@ -677,6 +809,31 @@ function ExtractorPageContent() {
       return isNaN(parsed) ? null : parsed;
     };
 
+    const normalizePaymentMethod = (value: string | null): string | null => {
+      if (!value) return null;
+      const raw = value.trim().toLowerCase();
+      switch (raw) {
+        case '1':
+        case '01':
+        case 'anual':
+          return 'Anual';
+        case '2':
+        case '02':
+        case 'semestral':
+          return 'Semestral';
+        case '4':
+        case '04':
+        case 'trimestral':
+          return 'Trimestral';
+        case '5':
+        case '05':
+        case 'mensual':
+          return 'Mensual';
+        default:
+          return value.trim();
+      }
+    };
+
     // detailData is 11 columns in order: FECHA EMISION, FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, COMISION/HONORARIOS, % COMISION, PRIMA COBRO, ANTIGÜEDAD, PRIMA META, MOVIMIENTO, PRIMA COMISION
     const detailChecks: Array<{ contractId: string; detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'>; contract: string; row: number }> = [];
 
@@ -691,7 +848,7 @@ function ExtractorPageContent() {
                 issue_date: parseDate(mapColumn(detailData, 0)),
                 payment_date: parseDate(mapColumn(detailData, 1)),
                 premium_payment: parseNumeric(mapColumn(detailData, 2)),
-                payment_method: mapColumn(detailData, 3),
+                payment_method: normalizePaymentMethod(mapColumn(detailData, 3)),
                 commission_honoraries: parseNumeric(mapColumn(detailData, 4)),
                 commission_percentage: parseNumeric(mapColumn(detailData, 5)),
                 collection_premium: parseNumeric(mapColumn(detailData, 6)),
@@ -750,22 +907,83 @@ function ExtractorPageContent() {
       return;
     }
 
+    setIsImporting(true);
+
     // Check for missing consultants first
     const missing = await checkMissingConsultants(tables[0].rows, officeId);
 
     if (missing.length > 0) {
-      // Create consultants list - consultant_code is the asesor (row[3])
-      const consultantsToCreate: MissingConsultant[] = missing.map((consultantCode, index) => {
-        return {
-          consultantCode, // This is the asesor field (consultant code)
-          name: consultantCode, // Use consultant code as name by default (can be edited)
-          email: `braulinusmac+a${index + 1}@gmail.com`, // Default test email
-          password: 'Hola123!!', // Default test password
-        };
-      });
-      setMissingConsultants(consultantsToCreate);
-      setShowConsultantDialog(true);
-      return;
+      // Auto-create consultants with default emails (bypass dialog temporarily)
+      try {
+        const defaultEmails = missing.map((code) => `braulinusmac+${code}@gmail.com`);
+        const existingAuthByEmail = await getExistingAuthUserIdsByEmails(defaultEmails);
+
+        for (const consultantCode of missing) {
+          const defaultEmail = `braulinusmac+${consultantCode}@gmail.com`;
+          const defaultPassword = 'Hola123!!';
+          const emailLower = defaultEmail.toLowerCase();
+          let authUserId: string | null = existingAuthByEmail.get(emailLower) ?? null;
+
+          if (!authUserId) {
+            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+              email: defaultEmail,
+              password: defaultPassword,
+              email_confirm: true,
+            });
+
+            if (authError) {
+              console.error(`Error al crear usuario para ${consultantCode}:`, authError);
+              continue;
+            }
+
+            if (!authData?.user) {
+              console.error(`Error: No se pudo crear usuario para ${consultantCode}`);
+              continue;
+            }
+
+            authUserId = authData.user.id;
+          } else {
+            // User already exists (e.g. from another office); check if already a consultant for this office
+            const { data: existingConsultant } = await supabaseAdmin
+              .from('consultant')
+              .select('id')
+              .eq('id', authUserId)
+              .eq('office_id', officeId)
+              .maybeSingle();
+
+            if (existingConsultant) {
+              continue; // Already consultant in this office, skip
+            }
+            // Existing user but no consultant row for this office: consultant.id = auth user id is unique, so we can't add same id for another office. Skip.
+            const { data: anyConsultant } = await supabaseAdmin
+              .from('consultant')
+              .select('id')
+              .eq('id', authUserId)
+              .maybeSingle();
+            if (anyConsultant) {
+              continue; // Already consultant elsewhere, skip
+            }
+          }
+
+          const { error: consultantError } = await supabaseAdmin
+            .from('consultant')
+            .insert({
+              id: authUserId,
+              office_id: officeId,
+              name: consultantCode,
+              email: defaultEmail,
+              consultant_code: consultantCode,
+              auth_user_id: authUserId,
+              status: 'PENDING',
+            });
+
+          if (consultantError) {
+            console.error(`Error al crear asesor ${consultantCode}:`, consultantError);
+          }
+        }
+      } catch (error: any) {
+        console.error('Error auto-creating consultants:', error);
+      }
     }
 
     // Check for duplicates
@@ -778,13 +996,15 @@ function ExtractorPageContent() {
       if (duplicateData.details.length > 0) {
         setDuplicates(duplicateData);
         setShowDuplicateDialog(true);
+        setIsImporting(false);
         return;
       }
 
-      // No duplicates, proceed with import
+      // No duplicates, proceed with import (performImport keeps setIsImporting in sync)
       await performImport(officeId);
     } catch (error: any) {
       setIsCheckingDuplicates(false);
+      setIsImporting(false);
       setImportResult({
         success: 0,
         errors: [{ row: 0, error: error.message || 'Error al verificar duplicados' }],
@@ -818,38 +1038,57 @@ function ExtractorPageContent() {
         }
       }
 
-      // Create auth users and consultants
+      const emails = missingConsultants.map((c) => c.email);
+      const existingAuthByEmail = await getExistingAuthUserIdsByEmails(emails);
+
       for (const consultant of missingConsultants) {
-        // Create auth user using admin client
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-          email: consultant.email,
-          password: consultant.password,
-          email_confirm: true, // Auto-confirm email
-        });
+        const emailLower = consultant.email.toLowerCase();
+        let authUserId: string | null = existingAuthByEmail.get(emailLower) ?? null;
 
-        if (authError) {
-          throw new Error(`Error al crear usuario para ${consultant.consultantCode}: ${authError.message}`);
+        if (!authUserId) {
+          const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+            email: consultant.email,
+            password: consultant.password,
+            email_confirm: true,
+          });
+
+          if (authError) {
+            throw new Error(`Error al crear usuario para ${consultant.consultantCode}: ${authError.message}`);
+          }
+
+          if (!authData.user) {
+            throw new Error(`Error al crear usuario para ${consultant.consultantCode}`);
+          }
+
+          authUserId = authData.user.id;
+        } else {
+          const { data: existingConsultant } = await supabaseAdmin
+            .from('consultant')
+            .select('id')
+            .eq('id', authUserId)
+            .maybeSingle();
+
+          if (existingConsultant) {
+            throw new Error(
+              `El correo ${consultant.email} ya está registrado como asesor. Use otro correo para ${consultant.consultantCode}.`
+            );
+          }
         }
 
-        if (!authData.user) {
-          throw new Error(`Error al crear usuario para ${consultant.consultantCode}`);
-        }
-
-        // Create consultant with auth user ID
         const { error: consultantError } = await supabaseAdmin
           .from('consultant')
           .insert({
-            id: authData.user.id, // Use auth user ID as consultant ID
+            id: authUserId,
             office_id: officeId,
-            name: consultant.name, // Consultant name
+            name: consultant.name,
             email: consultant.email,
-            consultant_code: consultant.consultantCode, // This is the asesor (consultant code)
-            auth_user_id: authData.user.id,
+            consultant_code: consultant.consultantCode,
+            auth_user_id: authUserId,
             status: 'PENDING',
           });
 
         if (consultantError) {
-          throw new Error(`Error al crear consultor ${consultant.consultantCode}: ${consultantError.message}`);
+          throw new Error(`Error al crear asesor ${consultant.consultantCode}: ${consultantError.message}`);
         }
       }
 
@@ -884,7 +1123,7 @@ function ExtractorPageContent() {
       console.error('Error creating consultants:', error);
       setImportResult({
         success: 0,
-        errors: [{ row: 0, error: error.message || 'Error al crear consultores' }],
+        errors: [{ row: 0, error: error.message || 'Error al crear asesores' }],
         warnings: []
       });
     } finally {
@@ -948,6 +1187,8 @@ function ExtractorPageContent() {
 
       {/* File Drop Zone */}
       <div
+        role="button"
+        tabIndex={0}
         className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${isDragging
           ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
           : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
@@ -959,11 +1200,12 @@ function ExtractorPageContent() {
         }}
         onDragLeave={() => setIsDragging(false)}
         onClick={() => fileInputRef.current?.click()}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
       >
         <input
           ref={fileInputRef}
           type="file"
-          accept=".html,.htm"
+          accept=".html,.htm,.mhtml,.mht"
           multiple
           onChange={handleFileInput}
           className="hidden"
@@ -987,7 +1229,7 @@ function ExtractorPageContent() {
               Arrastra uno o más archivos HTML aquí, o haz clic para seleccionar
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-              Soporta archivos .html y .htm (varios a la vez)
+              Soporta archivos .html, .htm, .mhtml y .mht (varios a la vez)
             </p>
           </div>
         </div>
@@ -1003,7 +1245,7 @@ function ExtractorPageContent() {
               </span>
               {uploadedFiles.map((f, i) => (
                 <span
-                  key={`${f.name}-${i}`}
+                  key={f.name}
                   className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                 >
                   {f.name}
@@ -1101,8 +1343,8 @@ function ExtractorPageContent() {
                   </p>
                   <div className="text-sm text-blue-700 dark:text-blue-300 max-h-60 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1">
-                      {importResult.warnings.slice(0, 50).map((warning, idx) => (
-                        <li key={idx}>Fila {warning.row}: {warning.message}</li>
+                      {importResult.warnings.slice(0, 50).map((warning) => (
+                        <li key={warning.row}>Fila {warning.row}: {warning.message}</li>
                       ))}
                       {importResult.warnings.length > 50 && (
                         <li>... y {importResult.warnings.length - 50} advertencias más</li>
@@ -1122,15 +1364,15 @@ function ExtractorPageContent() {
                   : 'text-yellow-800 dark:text-yellow-200'
                   }`}>
                   {importResult.errors.length === 0
-                    ? `✅ ¡Se importaron exitosamente ${importResult.success} contrato(s)!`
+                    ? `✅ ¡Se importaron exitosamente ${importResult.success} póliza(s)!`
                     : `⚠️ Importación completada: ${importResult.success} importados, ${importResult.errors.length} error(es)`
                   }
                 </h3>
                 {importResult.errors.length > 0 && (
                   <div className="text-sm text-yellow-700 dark:text-yellow-300 max-h-60 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1">
-                      {importResult.errors.slice(0, 50).map((error, idx) => (
-                        <li key={idx}>Fila {error.row}: {error.error}</li>
+                      {importResult.errors.slice(0, 50).map((error) => (
+                        <li key={error.row}>Fila {error.row}: {error.error}</li>
                       ))}
                       {importResult.errors.length > 50 && (
                         <li>... y {importResult.errors.length - 50} errores más</li>
@@ -1144,7 +1386,7 @@ function ExtractorPageContent() {
 
           {tables.map((table, index) => (
             <div
-              key={index}
+              key={table.sectionName ?? 'table'}
               className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6"
             >
               <div className="overflow-x-auto">
@@ -1153,7 +1395,7 @@ function ExtractorPageContent() {
                     <tr>
                       {table.headers.map((header, headerIndex) => (
                         <th
-                          key={headerIndex}
+                          key={`${header}-${headerIndex}`}
                           className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
                         >
                           {header}
@@ -1164,7 +1406,7 @@ function ExtractorPageContent() {
                   <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {table.rows.map((row, rowIndex) => (
                       <tr
-                        key={rowIndex}
+                        key={`row-${rowIndex}`}
                         className="hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
                         {row.map((cell, cellIndex) => {
@@ -1176,7 +1418,7 @@ function ExtractorPageContent() {
                             focusedEmptyCell?.cellIndex === cellIndex;
                           const isEditable = allCellsEditable || isEmpty || isFocusedEmpty;
                           return (
-                            <td key={cellIndex} className="px-1 py-1">
+                            <td key={`${String(cell ?? '')}-${cellIndex}`} className="px-1 py-1">
                               <EditableCell
                                 value={value}
                                 tableIndex={index}
@@ -1184,10 +1426,8 @@ function ExtractorPageContent() {
                                 cellIndex={cellIndex}
                                 isEditable={isEditable}
                                 updateCell={updateCell}
-                                onFocusEmpty={() =>
-                                  setFocusedEmptyCell({ tableIndex: index, rowIndex, cellIndex })
-                                }
-                                onBlurEmpty={() => setFocusedEmptyCell(null)}
+                                onFocusEmpty={handleFocusEmpty}
+                                onBlurEmpty={handleBlurEmpty}
                               />
                             </td>
                           );
@@ -1242,8 +1482,8 @@ function ExtractorPageContent() {
                   </h3>
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 max-h-40 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800 dark:text-yellow-200">
-                      {duplicates.details.map((detail, idx) => (
-                        <li key={idx}>
+                      {duplicates.details.map((detail) => (
+                        <li key={detail.row}>
                           Fila {detail.row}: Contrato &quot;{detail.contract}&quot; - Ticket &quot;{detail.ticket}&quot;
                         </li>
                       ))}
@@ -1280,24 +1520,25 @@ function ExtractorPageContent() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                Crear Consultores Faltantes
+                Crear Asesores Faltantes
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Los siguientes consultores no se encontraron en la base de datos. Por favor proporciona correo electrónico y contraseña para crearlos:
+                Los siguientes asesores no se encontraron en la base de datos. Por favor proporciona correo electrónico y contraseña para crearlos:
               </p>
 
               <div className="space-y-4 mb-6">
                 {missingConsultants.map((consultant, index) => (
-                  <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div key={consultant.consultantCode} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                     <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
-                      Código del Consultor: {consultant.consultantCode}
+                      Código del Asesor: {consultant.consultantCode}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Nombre del Consultor
+                        <label htmlFor={`consultant-name-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Nombre del Asesor
                         </label>
                         <input
+                          id={`consultant-name-${index}`}
                           type="text"
                           value={consultant.name}
                           onChange={(e) => {
@@ -1306,14 +1547,15 @@ function ExtractorPageContent() {
                             setMissingConsultants(updated);
                           }}
                           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="Nombre del consultor"
+                          placeholder="Nombre del asesor"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <label htmlFor={`consultant-email-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Correo Electrónico *
                         </label>
                         <input
+                          id={`consultant-email-${index}`}
                           type="email"
                           value={consultant.email}
                           onChange={(e) => {
@@ -1322,14 +1564,15 @@ function ExtractorPageContent() {
                             setMissingConsultants(updated);
                           }}
                           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="consultor@ejemplo.com"
+                          placeholder="asesor@ejemplo.com"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        <label htmlFor={`consultant-password-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Contraseña * (mín. 8 caracteres)
                         </label>
                         <input
+                          id={`consultant-password-${index}`}
                           type="password"
                           value={consultant.password}
                           onChange={(e) => {
@@ -1343,10 +1586,11 @@ function ExtractorPageContent() {
                       </div>
                     </div>
                     <div className="mt-3">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Código del Consultor (Asesor) - Solo Lectura
+                      <label htmlFor={`consultant-code-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Código del Asesor (Asesor) - Solo Lectura
                       </label>
                       <input
+                        id={`consultant-code-${index}`}
                         type="text"
                         value={consultant.consultantCode}
                         disabled
@@ -1373,7 +1617,7 @@ function ExtractorPageContent() {
                   disabled={isCreatingConsultants}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isCreatingConsultants ? 'Creando...' : 'Crear Consultores e Importar'}
+                  {isCreatingConsultants ? 'Creando...' : 'Crear Asesores e Importar'}
                 </button>
               </div>
             </div>
@@ -1383,8 +1627,8 @@ function ExtractorPageContent() {
 
       {/* Info Dialog */}
       {showInfoDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowInfoDialog(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+        <div role="dialog" aria-modal="true" className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setShowInfoDialog(false)} onKeyDown={(e) => { if (e.key === 'Escape') setShowInfoDialog(false); }}>
+          <div role="document" className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
                 ¿Cómo obtener el archivo HTML?
