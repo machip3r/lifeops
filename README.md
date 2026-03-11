@@ -355,6 +355,37 @@ Open [http://localhost:3000](http://localhost:3000)
    - Default password: `Hola123!!`
    - These should be changed for production
 
+6. **Dashboard & Cobranza Features (current state)**:
+   - Overview dashboard (`/dashboard`) with:
+     - Date basis selector (fecha de pago vs fecha de emisión).
+     - Date range picker (Shadcn Calendar, pending state + Aplicar).
+     - Filters: antigüedad (min/max years), ramo (VI / GM / todos), forma de pago, and asesores multi‑select.
+     - Summary section showing total prima pago, total prima meta, and prima meta split by VI/GM with inner borders only (no card chrome).
+   - Cobranza (`/dashboard/collections`):
+     - Computes next payment date per contract from `payment_date` + `payment_method` (Mensual/Trimestral/Semestral/Anual).
+     - Shows upcoming amounts due (using `premium_payment` of the latest detail row).
+     - Simple filter for “fin de mes actual” vs “fin del próximo mes”.
+   - All of this is backed by SQL RPCs that accept common filter parameters:
+     `start_date`, `end_date`, `date_basis`, `seniority_min`, `seniority_max`, `consultant_ids`, `contract_type_filter`, `payment_method_filter`.
+
+7. **Constraints for new development**:
+   - **Schema / RPC changes**:
+     - Always update `supabase/migrations/schema.sql` **and** create a dedicated, self‑contained `.sql` file under `supabase/` (e.g. `dashboard_filters_*.sql`, `fix_*.sql`) for each change so it can be run directly in the Supabase SQL editor.
+     - SQL files must include only the statements needed for that change (typically one or more `CREATE OR REPLACE FUNCTION`, `ALTER TABLE`, or `CREATE POLICY` blocks).
+   - **Filters contract**:
+     - Any new dashboard metric or aggregation should reuse the existing filter parameters and pattern (date basis + date range + seniority + ramo + forma de pago + consultants).
+     - Prefer adding/extending RPCs over doing heavy aggregations on the client.
+   - **RLS & roles**:
+     - Promotory users see/manage all data for their office and its consultants.
+     - Consultants only see their own contracts, clients, and related data.
+     - New tables must copy this pattern when RLS is enabled.
+   - **UI/UX & language**:
+     - Dashboard UI is dark with golden accent (`#FBDBAC`) and gradient titles via `dashboard-page-title`.
+     - All dashboard copy is in Spanish; code (file names, types, SQL) stays in English.
+     - Filters use Shadcn components and “pending + Aplicar” behaviour (no auto‑query on every keystroke).
+   - **Feedback & errors**:
+     - Use `ToastProvider` + `useToast` for user‑facing notifications; avoid `alert()` in new code.
+
 ## Troubleshooting
 
 ### Common Issues
@@ -370,3 +401,32 @@ Open [http://localhost:3000](http://localhost:3000)
 3. **RLS policy errors**:
    - Ensure user has correct role (promotory vs consultant)
    - Check that `office_id` matches for consultant access
+
+## Reusable Assistant Prompt for This Project
+
+When starting a new AI chat for this repo, you can paste the following prompt so the assistant respects the project’s conventions:
+
+```text
+You are working in the LifeOps project (Next.js + Supabase) for an insurance office dashboard.
+
+Critical rules:
+- All user‑facing UI text in the dashboard is in Spanish; file names, types, and SQL identifiers stay in English.
+- The overview dashboard (`/dashboard`) already has a rich filter system:
+  - Date basis (`payment` vs `issue`)
+  - Date range (Shadcn Calendar, pending state + Aplicar)
+  - Seniority range (years), Ramo (VI / GM), Forma de pago, and Asesores multi‑select
+- All overview stats must use the existing SQL RPCs (`get_office_totals`, `get_top_consultants_by_sales`, `get_office_totals_by_type`, `get_office_consultants_sales`) via `db.dashboard.*`, or new RPCs that follow the same parameter contract.
+- There is a Cobranza page (`/dashboard/collections`) that computes next payment dates based on `payment_date` + `payment_method` (Mensual/Trimestral/Semestral/Anual) and shows upcoming amounts due.
+
+Database & migrations:
+- Database schema lives in `supabase/migrations/schema.sql`.
+- For **every** schema change or RPC signature change you propose, you MUST:
+  1) Show the exact SQL,
+  2) And put it into a **separate, self‑contained `.sql` file** path under `supabase/` that I can run in the Supabase SQL editor (no manual editing of `schema.sql` only).
+
+Other constraints:
+- Respect existing RLS patterns: promotory users see office‑wide data; consultants see only their own data.
+- Use the toast system (`ToastProvider` + `useToast`) for user‑facing errors/success; never use `alert()`.
+- Keep the dark UI with the golden gradient titles (`dashboard-page-title`) and clean, inline filter layouts.
+- Prefer pushing aggregations and filters into SQL RPCs instead of doing heavy work on the client.
+```

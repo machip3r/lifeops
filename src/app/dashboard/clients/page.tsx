@@ -213,15 +213,15 @@ function ClientsPageContent() {
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-                        Clientes
-                    </h1>
-                    <p className="text-gray-600 dark:text-gray-400">
-                        Gestiona tus clientes registrados
-                    </p>
-                </div>
+            <div className="text-center mb-6">
+                <h1 className="dashboard-page-title text-4xl font-bold mb-2">
+                    Clientes
+                </h1>
+                <p className="text-gray-600 dark:text-gray-400">
+                    Gestiona tus clientes registrados
+                </p>
+            </div>
+            <div className="flex justify-end mb-8">
                 <button
                     onClick={() => {
                         setShowForm(true);

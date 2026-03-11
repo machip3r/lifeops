@@ -73,26 +73,26 @@ function ChangeRequestsPageContent() {
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-                        Solicitudes de Cambio
-                    </h1>
-                    <p className="text-gray-600 dark:text-gray-400">
-                        {profile?.role === 'promotory'
-                            ? 'Gestiona las solicitudes de cambio de tus asesores'
-                            : 'Gestiona tus solicitudes de cambio'}
-                    </p>
-                </div>
-                {profile?.role === 'consultant' && (
+            <div className="text-center mb-6">
+                <h1 className="dashboard-page-title text-4xl font-bold mb-2">
+                    Solicitudes de Cambio
+                </h1>
+                <p className="text-gray-600 dark:text-gray-400">
+                    {profile?.role === 'promotory'
+                        ? 'Gestiona las solicitudes de cambio de tus asesores'
+                        : 'Gestiona tus solicitudes de cambio'}
+                </p>
+            </div>
+            {profile?.role === 'consultant' && (
+                <div className="flex justify-end mb-8">
                     <button
                         onClick={() => router.push('/dashboard/policies/new')}
                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                     >
                         + Nueva Solicitud
                     </button>
-                )}
-            </div>
+                </div>
+            )}
 
             {changeRequests.length === 0 ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">

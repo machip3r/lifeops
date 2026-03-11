@@ -154,11 +154,11 @@ function ContractDetailsPageContent() {
                 <div>
                     <button
                         onClick={() => router.push('/dashboard/contracts')}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-4"
+                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-2 inline-flex items-center"
                     >
                         ← Volver a Contratos
                     </button>
-                    <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+                    <h1 className="dashboard-page-title text-4xl font-bold mb-1">
                         Detalles del Contrato
                     </h1>
                     {contract.contract_number && (
@@ -252,13 +252,11 @@ function ContractDetailsPageContent() {
                     </div>
                     <div>
                         <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Estado</span>
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'PENDING'
-                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                            : contract.status === 'APPROVED'
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'ACTIVE'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                             }`}>
-                            {contract.status}
+                            {contract.status === 'ACTIVE' ? 'Activa' : 'Inactiva'}
                         </span>
                     </div>
                     <div>

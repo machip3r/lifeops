@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { assets } from '../theme/assets';
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect } from 'react';
 import GlobalSearch from '@/components/global-search';
+import { ToastProvider } from '@/components/toast';
 
 export default function DashboardLayout({
   children,
@@ -15,31 +16,11 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { profile, loading, session, signOut } = useAuth();
   const router = useRouter();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    // Only redirect if we have no session (not logged in)
-    // Don't redirect if we have a session but profile is still loading
     if (!loading && !session) {
       router.push('/login');
     }
-
-    // If loading is complete, we have a session, but no profile after a delay,
-    // the user might not have a profile - but don't auto-signout, let them see an error
-    // This is handled by the profile check below
-  }, [profile, loading, session, router]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [loading, session, router]);
 
   // Show loading state only on initial load
   if (loading) {
@@ -81,6 +62,7 @@ export default function DashboardLayout({
     { href: '/dashboard', label: 'Vista General' },
     { href: '/dashboard/extractor', label: 'Subir Comisiones' },
     { href: '/dashboard/contracts', label: 'Pólizas' },
+    { href: '/dashboard/collections', label: 'Cobranza' },
     { href: '/dashboard/clients', label: 'Clientes' },
     { href: '/dashboard/consultants', label: 'Asesores' },
     { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
@@ -89,49 +71,41 @@ export default function DashboardLayout({
 
   const consultantNavItems = [
     { href: '/dashboard/contracts', label: 'Pólizas' },
+    { href: '/dashboard/collections', label: 'Cobranza' },
     { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
     { href: '/dashboard/clients', label: 'Clientes' },
     { href: '/dashboard/projection', label: 'Proyección' },
   ];
 
   const navItems = profile.role === 'promotory' ? promotoryNavItems : consultantNavItems;
-  // Match exact path or nested routes (e.g. /dashboard/contracts/123 → "Pólizas"). Use longest match so /dashboard doesn't match /dashboard/contracts.
-  const currentNavItem = (() => {
-    const exact = navItems.find(item => pathname === item.href);
-    if (exact) return exact;
-    const nested = navItems
-      .filter(item => pathname.startsWith(item.href + '/'))
-      .sort((a, b) => b.href.length - a.href.length)[0];
-    return nested || navItems[0];
-  })();
-  const isProfilePage = pathname === '/dashboard/profile';
 
   return (
-    <div className="min-h-screen bg-[#1a1d24]">
-      {/* Navigation Bar */}
-      <nav className="bg-[#242830] shadow-md border-b border-[#2a2f38]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            {/* Logo */}
-            <div className="flex items-center">
-              <Link href="/" className="text-2xl font-bold text-white">
-                {assets.brand.name}
-              </Link>
-            </div>
+    <ToastProvider>
+      <div className="min-h-screen dashboard-gradient-bg">
+        {/* Navigation Bar */}
+        <nav className="bg-[#242830] shadow-md border-b border-[#2a2f38]">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              {/* Logo */}
+              <div className="flex items-center">
+                <Link href="/" className="text-2xl text-white">
+                  {assets.brand.name.split('O')[0]}
+                  <strong>Ops</strong>
+                </Link>
+              </div>
 
-            {/* Search */}
-            <div className="flex items-center flex-1 mx-4 max-w-md">
-              <GlobalSearch />
-            </div>
+              {/* Search */}
+              <div className="flex items-center flex-1 mx-4 max-w-md">
+                <GlobalSearch />
+              </div>
 
-            {/* Right side: Menu, Profile, Logout */}
-            <div className="flex items-center space-x-3">
-              {/* Navigation Menu Dropdown */}
-              <div ref={menuRef} className="relative">
-                <button
-                  onClick={() => setMenuOpen(!menuOpen)}
-                  className={`flex items-center space-x-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors ${isProfilePage ? 'p-2' : 'px-4 py-2 text-sm font-medium'
-                    }`}
+              {/* Right side: Profile, Logout */}
+              <div className="flex items-center space-x-3">
+                {/* Profile Icon */}
+                <Link
+                  href="/dashboard/profile"
+                  className="p-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors"
+                  title="Perfil"
                 >
                   <svg
                     className="w-5 h-5"
@@ -142,80 +116,60 @@ export default function DashboardLayout({
                     viewBox="0 0 24 24"
                     stroke="currentColor"
                   >
-                    <path d="M4 6h16M4 12h16M4 18h16" />
+                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  {!isProfilePage && <span className="hidden sm:inline">{currentNavItem.label}</span>}
+                </Link>
+
+                {/* Logout Icon */}
+                <button
+                  onClick={signOut}
+                  className="p-2 rounded-lg text-red-400 hover:bg-red-900/20 transition-colors"
+                  title="Cerrar Sesión"
+                >
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
                 </button>
-
-                {menuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#2a2f38] rounded-lg shadow-lg border border-gray-200 dark:border-[#3a4049] py-1 z-50">
-                    {navItems.map((item) => {
-                      const isActive = pathname === item.href;
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          onClick={() => setMenuOpen(false)}
-                          className={`block px-4 py-2 text-sm transition-colors ${isActive
-                            ? 'bg-[#FBDBAC]/20 text-[#5D6C7A] dark:text-[#FBDBAC] font-medium'
-                            : 'text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-[#2f3540]'
-                            }`}
-                        >
-                          {item.label}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
+            </div>
 
-              {/* Profile Icon */}
-              <Link
-                href="/dashboard/profile"
-                className="p-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors"
-                title="Perfil"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </Link>
-
-              {/* Logout Icon */}
-              <button
-                onClick={signOut}
-                className="p-2 rounded-lg text-red-400 hover:bg-red-900/20 transition-colors"
-                title="Cerrar Sesión"
-              >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-              </button>
+            {/* Single row navbar: active page has bottom border */}
+            <div className="flex items-center justify-evenly gap-10 border-t border-[#2a2f38]">
+              {navItems.map((item) => {
+                const isActive =
+                  pathname === item.href ||
+                  (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`py-3 text-sm font-medium border-b-2 transition-colors ${isActive
+                      ? 'border-[#FBDBAC] text-white'
+                      : 'border-transparent text-gray-400 hover:text-gray-200'
+                      }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
             </div>
           </div>
-        </div>
-      </nav>
+        </nav>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {children}
-      </main>
-    </div>
+        {/* Main Content */}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {children}
+        </main>
+      </div>
+    </ToastProvider>
   );
 }
 

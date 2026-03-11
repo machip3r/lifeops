@@ -147,15 +147,15 @@ function ConsultantsPageContent() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Asesores
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Gestiona tus asesores. Ventas filtradas por fecha de pago (período).
-          </p>
-        </div>
+      <div className="text-center mb-6">
+        <h1 className="dashboard-page-title text-4xl font-bold mb-2">
+          Asesores
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          Gestiona tus asesores. Ventas filtradas por fecha de pago (período).
+        </p>
+      </div>
+      <div className="flex justify-end mb-6">
         <button
           onClick={() => {
             setInviteEmail('');

@@ -468,12 +468,18 @@ EXECUTE ON FUNCTION public.mark_token_as_used (UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mark_token_as_used (UUID) TO anon;
 
 -- ============================================
--- 7.1. DASHBOARD RPCs (with optional date range on contract_detail.payment_date)
+-- 7.1. DASHBOARD RPCs (with optional date range on contract_detail.payment_date or issue_date)
 -- ============================================
 CREATE OR REPLACE FUNCTION public.get_office_totals(
     office_id_param uuid,
     start_date date DEFAULT NULL,
-    end_date date DEFAULT NULL
+    end_date date DEFAULT NULL,
+    date_basis text DEFAULT 'payment',
+    seniority_min numeric DEFAULT NULL,
+    seniority_max numeric DEFAULT NULL,
+    consultant_ids uuid[] DEFAULT NULL,
+    contract_type_filter text DEFAULT NULL,
+    payment_method_filter text DEFAULT NULL
 )
 RETURNS TABLE(total_prima_pago numeric, total_prima_meta numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
@@ -483,14 +489,37 @@ AS $$
   JOIN contract c ON c.id = cd.contract_id
   JOIN consultant cons ON cons.id = c.consultant_id
   WHERE cons.office_id = office_id_param
-    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+    AND (
+      (start_date IS NULL AND end_date IS NULL)
+      OR (
+        (start_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) >= start_date)
+        AND (end_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) <= end_date)
+      )
+    )
+    AND (
+      (seniority_min IS NULL AND seniority_max IS NULL)
+      OR (
+        (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) IS NOT NULL
+        AND (seniority_min IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) >= seniority_min)
+        AND (seniority_max IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) <= seniority_max)
+      )
+    )
+    AND (consultant_ids IS NULL OR cons.id = ANY(consultant_ids))
+    AND (contract_type_filter IS NULL OR (contract_type_filter = 'VI' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'VI%') OR (contract_type_filter = 'GM' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'GM%'))
+    AND (payment_method_filter IS NULL OR cd.payment_method = payment_method_filter);
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_top_consultants_by_sales(
     office_id_param uuid,
     limit_count int DEFAULT 3,
     start_date date DEFAULT NULL,
-    end_date date DEFAULT NULL
+    end_date date DEFAULT NULL,
+    date_basis text DEFAULT 'payment',
+    seniority_min numeric DEFAULT NULL,
+    seniority_max numeric DEFAULT NULL,
+    consultant_ids uuid[] DEFAULT NULL,
+    contract_type_filter text DEFAULT NULL,
+    payment_method_filter text DEFAULT NULL
 )
 RETURNS TABLE(consultant_id uuid, consultant_name text, consultant_code text, consultant_email text, total_sales numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
@@ -500,7 +529,24 @@ AS $$
   JOIN contract c ON c.id = cd.contract_id
   JOIN consultant cons ON cons.id = c.consultant_id
   WHERE cons.office_id = office_id_param
-    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)))
+    AND (
+      (start_date IS NULL AND end_date IS NULL)
+      OR (
+        (start_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) >= start_date)
+        AND (end_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) <= end_date)
+      )
+    )
+    AND (
+      (seniority_min IS NULL AND seniority_max IS NULL)
+      OR (
+        (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) IS NOT NULL
+        AND (seniority_min IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) >= seniority_min)
+        AND (seniority_max IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) <= seniority_max)
+      )
+    )
+    AND (consultant_ids IS NULL OR cons.id = ANY(consultant_ids))
+    AND (contract_type_filter IS NULL OR (contract_type_filter = 'VI' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'VI%') OR (contract_type_filter = 'GM' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'GM%'))
+    AND (payment_method_filter IS NULL OR cd.payment_method = payment_method_filter)
   GROUP BY cons.id, cons.name, cons.consultant_code, cons.email
   ORDER BY 5 DESC
   LIMIT limit_count;
@@ -509,7 +555,13 @@ $$;
 CREATE OR REPLACE FUNCTION public.get_office_totals_by_type(
     office_id_param uuid,
     start_date date DEFAULT NULL,
-    end_date date DEFAULT NULL
+    end_date date DEFAULT NULL,
+    date_basis text DEFAULT 'payment',
+    seniority_min numeric DEFAULT NULL,
+    seniority_max numeric DEFAULT NULL,
+    consultant_ids uuid[] DEFAULT NULL,
+    contract_type_filter text DEFAULT NULL,
+    payment_method_filter text DEFAULT NULL
 )
 RETURNS TABLE(prima_meta_vi numeric, prima_meta_gm numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
@@ -521,13 +573,36 @@ AS $$
   JOIN contract c ON c.id = cd.contract_id
   JOIN consultant cons ON cons.id = c.consultant_id
   WHERE cons.office_id = office_id_param
-    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)));
+    AND (
+      (start_date IS NULL AND end_date IS NULL)
+      OR (
+        (start_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) >= start_date)
+        AND (end_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) <= end_date)
+      )
+    )
+    AND (
+      (seniority_min IS NULL AND seniority_max IS NULL)
+      OR (
+        (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) IS NOT NULL
+        AND (seniority_min IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) >= seniority_min)
+        AND (seniority_max IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) <= seniority_max)
+      )
+    )
+    AND (consultant_ids IS NULL OR cons.id = ANY(consultant_ids))
+    AND (contract_type_filter IS NULL OR (contract_type_filter = 'VI' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'VI%') OR (contract_type_filter = 'GM' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'GM%'))
+    AND (payment_method_filter IS NULL OR cd.payment_method = payment_method_filter);
 $$;
 
 CREATE OR REPLACE FUNCTION public.get_office_consultants_sales(
     office_id_param uuid,
     start_date date DEFAULT NULL,
-    end_date date DEFAULT NULL
+    end_date date DEFAULT NULL,
+    date_basis text DEFAULT 'payment',
+    seniority_min numeric DEFAULT NULL,
+    seniority_max numeric DEFAULT NULL,
+    consultant_ids uuid[] DEFAULT NULL,
+    contract_type_filter text DEFAULT NULL,
+    payment_method_filter text DEFAULT NULL
 )
 RETURNS TABLE(consultant_id uuid, total_sales numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
@@ -536,8 +611,25 @@ AS $$
   FROM consultant cons
   LEFT JOIN contract c ON c.consultant_id = cons.id
   LEFT JOIN contract_detail cd ON cd.contract_id = c.id
-    AND ((start_date IS NULL AND end_date IS NULL) OR ((start_date IS NULL OR cd.payment_date >= start_date) AND (end_date IS NULL OR cd.payment_date <= end_date)))
+    AND (
+      (start_date IS NULL AND end_date IS NULL)
+      OR (
+        (start_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) >= start_date)
+        AND (end_date IS NULL OR (CASE WHEN date_basis = 'issue' THEN cd.issue_date ELSE cd.payment_date END) <= end_date)
+      )
+    )
+    AND (
+      (seniority_min IS NULL AND seniority_max IS NULL)
+      OR (
+        (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) IS NOT NULL
+        AND (seniority_min IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) >= seniority_min)
+        AND (seniority_max IS NULL OR (NULLIF(regexp_replace(trim(COALESCE(cd.seniority, '')), '[^0-9.]', '', 'g'), '')::numeric) <= seniority_max)
+      )
+    )
+    AND (contract_type_filter IS NULL OR (contract_type_filter = 'VI' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'VI%') OR (contract_type_filter = 'GM' AND c.contract_number IS NOT NULL AND c.contract_number ILIKE 'GM%'))
+    AND (payment_method_filter IS NULL OR cd.payment_method = payment_method_filter)
   WHERE cons.office_id = office_id_param
+    AND (consultant_ids IS NULL OR cons.id = ANY(consultant_ids))
   GROUP BY cons.id;
 $$;
 
@@ -580,28 +672,28 @@ AS $$
 $$;
 
 GRANT
-EXECUTE ON FUNCTION public.get_office_totals (uuid, date, date) TO authenticated;
+EXECUTE ON FUNCTION public.get_office_totals (uuid, date, date, text, numeric, numeric, uuid[], text, text) TO authenticated;
 
 GRANT
-EXECUTE ON FUNCTION public.get_office_totals (uuid, date, date) TO anon;
+EXECUTE ON FUNCTION public.get_office_totals (uuid, date, date, text, numeric, numeric, uuid[], text, text) TO anon;
 
 GRANT
-EXECUTE ON FUNCTION public.get_top_consultants_by_sales (uuid, int, date, date) TO authenticated;
+EXECUTE ON FUNCTION public.get_top_consultants_by_sales (uuid, integer, date, date, text, numeric, numeric, uuid[], text, text) TO authenticated;
 
 GRANT
-EXECUTE ON FUNCTION public.get_top_consultants_by_sales (uuid, int, date, date) TO anon;
+EXECUTE ON FUNCTION public.get_top_consultants_by_sales (uuid, integer, date, date, text, numeric, numeric, uuid[], text, text) TO anon;
 
 GRANT
-EXECUTE ON FUNCTION public.get_office_totals_by_type (uuid, date, date) TO authenticated;
+EXECUTE ON FUNCTION public.get_office_totals_by_type (uuid, date, date, text, numeric, numeric, uuid[], text, text) TO authenticated;
 
 GRANT
-EXECUTE ON FUNCTION public.get_office_totals_by_type (uuid, date, date) TO anon;
+EXECUTE ON FUNCTION public.get_office_totals_by_type (uuid, date, date, text, numeric, numeric, uuid[], text, text) TO anon;
 
 GRANT
-EXECUTE ON FUNCTION public.get_office_consultants_sales (uuid, date, date) TO authenticated;
+EXECUTE ON FUNCTION public.get_office_consultants_sales (uuid, date, date, text, numeric, numeric, uuid[], text, text) TO authenticated;
 
 GRANT
-EXECUTE ON FUNCTION public.get_office_consultants_sales (uuid, date, date) TO anon;
+EXECUTE ON FUNCTION public.get_office_consultants_sales (uuid, date, date, text, numeric, numeric, uuid[], text, text) TO anon;
 
 GRANT
 EXECUTE ON FUNCTION public.get_consultant_totals (uuid, date, date, text) TO authenticated;
@@ -652,6 +744,7 @@ DROP POLICY IF EXISTS "Consultants can insert own profile" ON consultant;
 DROP POLICY IF EXISTS "Offices can view their consultants" ON consultant;
 
 DROP POLICY IF EXISTS "Offices can insert consultants" ON consultant;
+DROP POLICY IF EXISTS "Offices can update their consultants" ON consultant;
 
 CREATE POLICY "Consultants can view own profile" ON consultant FOR
 SELECT TO authenticated USING (auth.uid () = id);
@@ -687,6 +780,11 @@ WITH
                 id = auth.uid ()
         )
     );
+
+CREATE POLICY "Offices can update their consultants" ON consultant FOR
+UPDATE TO authenticated USING (
+    office_id = auth.uid ()
+);
 
 -- Enable RLS on token
 ALTER TABLE token ENABLE ROW LEVEL SECURITY;

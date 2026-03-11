@@ -103,17 +103,17 @@ function ContractsPageContent() {
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-8">
-                <div>
-                    <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-                        Pólizas
-                    </h1>
-                    <p className="text-gray-600 dark:text-gray-400">
-                        {profile?.role === 'promotory'
-                            ? 'Gestiona las pólizas de tus asesores'
-                            : 'Gestiona tus pólizas'}
-                    </p>
-                </div>
+            <div className="text-center mb-6">
+                <h1 className="dashboard-page-title text-4xl font-bold mb-2">
+                    Pólizas
+                </h1>
+                <p className="text-gray-600 dark:text-gray-400">
+                    {profile?.role === 'promotory'
+                        ? 'Gestiona las pólizas de tus asesores'
+                        : 'Gestiona tus pólizas'}
+                </p>
+            </div>
+            <div className="flex justify-end mb-8">
                 <button
                     onClick={() => router.push('/dashboard/contracts/new')}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
@@ -242,11 +242,11 @@ function ContractsPageContent() {
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'PENDING'
                                             ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                                            : contract.status === 'APPROVED'
+                                            : contract.status === 'ACTIVE'
                                                 ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                                                 : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
                                             }`}>
-                                            {contract.status}
+                                            {contract.status === 'ACTIVE' ? 'Activa' : 'Inactiva'}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>

@@ -1184,6 +1184,38 @@ export const db = {
             return data || [];
         },
 
+        /** For Cobranza: details with contract number and client name. RLS filters by office/consultant. */
+        getDetailsWithContractAndClient: async (): Promise<Array<ContractDetail & { contract_number?: string | null; client_name?: string | null }>> => {
+            const { data, error } = await supabase
+                .from('contract_detail')
+                .select(`
+                    id,
+                    contract_id,
+                    payment_date,
+                    premium_payment,
+                    payment_method,
+                    contract:contract_id(
+                        contract_number,
+                        client:client_id(name)
+                    )
+                `)
+                .order('payment_date', { ascending: false, nullsFirst: false });
+
+            if (error) throw error;
+            if (!data) return [];
+
+            return data.map((row: any) => {
+                const { contract, ...detail } = row;
+                const contractNumber = contract?.contract_number ?? null;
+                const clientName = contract?.client?.name ?? null;
+                return {
+                    ...detail,
+                    contract_number: contractNumber,
+                    client_name: clientName,
+                } as ContractDetail & { contract_number?: string | null; client_name?: string | null };
+            });
+        },
+
         checkDetailExists: async (contractId: string, ticketNumber: string | null): Promise<boolean> => {
             if (!ticketNumber) return false;
             const { data, error } = await supabase
@@ -1435,12 +1467,28 @@ export const db = {
 
     // Dashboard/Statistics functions (all calculations done in SQL via RPC)
     dashboard: {
-        // Get total prima pago and prima meta for an office (optional date range on contract_detail.payment_date)
-        getOfficeTotals: async (officeId: string, startDate?: string | null, endDate?: string | null): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
+        // Get total prima pago and prima meta for an office (optional filters: date range, seniority range, consultants, ramo, forma pago)
+        getOfficeTotals: async (
+            officeId: string,
+            startDate?: string | null,
+            endDate?: string | null,
+            dateBasis: 'payment' | 'issue' = 'payment',
+            seniorityMin?: number | null,
+            seniorityMax?: number | null,
+            consultantIds?: string[] | null,
+            contractTypeFilter?: 'VI' | 'GM' | null,
+            paymentMethodFilter?: string | null
+        ): Promise<{ totalPrimaPago: number; totalPrimaMeta: number }> => {
             const { data, error } = await supabase.rpc('get_office_totals', {
                 office_id_param: officeId,
                 start_date: startDate || null,
                 end_date: endDate || null,
+                date_basis: dateBasis,
+                seniority_min: seniorityMin ?? null,
+                seniority_max: seniorityMax ?? null,
+                consultant_ids: consultantIds || null,
+                contract_type_filter: contractTypeFilter ?? null,
+                payment_method_filter: paymentMethodFilter || null,
             });
 
             if (error) throw error;
@@ -1454,13 +1502,30 @@ export const db = {
             };
         },
 
-        // Get top consultants by sales for an office (optional date range)
-        getTopConsultantsBySales: async (officeId: string, limit: number = 3, startDate?: string | null, endDate?: string | null): Promise<Array<{ consultant: Consultant; sales: number }>> => {
+        // Get top consultants by sales for an office (optional filters: date range, seniority range, consultants, ramo, forma pago)
+        getTopConsultantsBySales: async (
+            officeId: string,
+            limit: number = 3,
+            startDate?: string | null,
+            endDate?: string | null,
+            dateBasis: 'payment' | 'issue' = 'payment',
+            seniorityMin?: number | null,
+            seniorityMax?: number | null,
+            consultantIds?: string[] | null,
+            contractTypeFilter?: 'VI' | 'GM' | null,
+            paymentMethodFilter?: string | null
+        ): Promise<Array<{ consultant: Consultant; sales: number }>> => {
             const { data, error } = await supabase.rpc('get_top_consultants_by_sales', {
                 office_id_param: officeId,
                 limit_count: limit,
                 start_date: startDate || null,
                 end_date: endDate || null,
+                date_basis: dateBasis,
+                seniority_min: seniorityMin ?? null,
+                seniority_max: seniorityMax ?? null,
+                consultant_ids: consultantIds || null,
+                contract_type_filter: contractTypeFilter ?? null,
+                payment_method_filter: paymentMethodFilter || null,
             });
 
             if (error) throw error;
@@ -1503,11 +1568,17 @@ export const db = {
             };
         },
 
-        getOfficeConsultantsSales: async (officeId: string, startDate?: string | null, endDate?: string | null): Promise<Array<{ consultant_id: string; total_sales: number }>> => {
+        getOfficeConsultantsSales: async (officeId: string, startDate?: string | null, endDate?: string | null, dateBasis: 'payment' | 'issue' = 'payment', seniorityMin?: number | null, seniorityMax?: number | null, consultantIds?: string[] | null, contractTypeFilter?: 'VI' | 'GM' | null, paymentMethodFilter?: string | null): Promise<Array<{ consultant_id: string; total_sales: number }>> => {
             const { data, error } = await supabase.rpc('get_office_consultants_sales', {
                 office_id_param: officeId,
                 start_date: startDate || null,
                 end_date: endDate || null,
+                date_basis: dateBasis,
+                seniority_min: seniorityMin ?? null,
+                seniority_max: seniorityMax ?? null,
+                consultant_ids: consultantIds || null,
+                contract_type_filter: contractTypeFilter ?? null,
+                payment_method_filter: paymentMethodFilter || null,
             });
 
             if (error) throw error;
@@ -1519,12 +1590,28 @@ export const db = {
             }));
         },
 
-        // Get office totals by contract type (VI and GM) - prima meta only (optional date range)
-        getOfficeTotalsByType: async (officeId: string, startDate?: string | null, endDate?: string | null): Promise<{ primaMetaVI: number; primaMetaGM: number }> => {
+        // Get office totals by contract type (VI and GM) - prima meta only (optional filters: date range, seniority range, consultants, ramo, forma pago)
+        getOfficeTotalsByType: async (
+            officeId: string,
+            startDate?: string | null,
+            endDate?: string | null,
+            dateBasis: 'payment' | 'issue' = 'payment',
+            seniorityMin?: number | null,
+            seniorityMax?: number | null,
+            consultantIds?: string[] | null,
+            contractTypeFilter?: 'VI' | 'GM' | null,
+            paymentMethodFilter?: string | null
+        ): Promise<{ primaMetaVI: number; primaMetaGM: number }> => {
             const { data, error } = await supabase.rpc('get_office_totals_by_type', {
                 office_id_param: officeId,
                 start_date: startDate || null,
                 end_date: endDate || null,
+                date_basis: dateBasis,
+                seniority_min: seniorityMin ?? null,
+                seniority_max: seniorityMax ?? null,
+                consultant_ids: consultantIds || null,
+                contract_type_filter: contractTypeFilter ?? null,
+                payment_method_filter: paymentMethodFilter || null,
             });
 
             if (error) throw error;

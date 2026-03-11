@@ -75,12 +75,14 @@ function ProfilePageContent() {
 
   return (
     <div>
-      <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-        Perfil
-      </h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-8">
-        Gestiona la configuración y preferencias de tu perfil
-      </p>
+      <div className="text-center mb-8">
+        <h1 className="dashboard-page-title text-4xl font-bold mb-2">
+          Perfil
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          Gestiona la configuración y preferencias de tu perfil
+        </p>
+      </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-2xl">
         <form onSubmit={handleSave} className="space-y-6">

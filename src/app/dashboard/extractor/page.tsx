@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
+import { useToast } from '@/components/toast';
 import { db } from '@/lib/db';
 import { supabaseAdmin, ContractDetail } from '@/lib/supabase';
 
@@ -120,6 +121,7 @@ const EditableCell = memo(function EditableCell({
 
 function ExtractorPageContent() {
   const { profile } = useAuth();
+  const { toast } = useToast();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [tables, setTables] = useState<TableData[]>([]);
   const [fileName, setFileName] = useState<string>('');
@@ -145,6 +147,70 @@ function ExtractorPageContent() {
       reader.onerror = () => reject(new Error('Error leyendo archivo'));
       reader.readAsText(file, 'UTF-8');
     });
+  };
+
+  /** Decode quoted-printable text (minimal implementation for MHTML HTML parts). */
+  const decodeQuotedPrintable = (input: string): string => {
+    // Handle soft line breaks: "=\r\n" or "=\n"
+    const withoutSoftBreaks = input.replace(/=\r?\n/g, '');
+    // Replace =XX hex sequences with the corresponding character
+    return withoutSoftBreaks.replace(/=([0-9A-Fa-f]{2})/g, (_, hex) => {
+      try {
+        return String.fromCharCode(parseInt(hex, 16));
+      } catch {
+        return _;
+      }
+    });
+  };
+
+  /** Extract HTML from MHTML (multipart/related) content for DOMParser. Returns plain HTML or original if not MHTML. */
+  const extractHtmlFromMhtml = (rawContent: string): string => {
+    const trimmed = rawContent.trimStart();
+    const lower = trimmed.toLowerCase();
+    // Only treat as MHTML if it looks like multipart (has boundary)
+    if (!lower.includes('content-type:') && !lower.includes('mime-version:')) {
+      return rawContent;
+    }
+    const boundaryMatch = trimmed.slice(0, 2048).match(/boundary\s*=\s*["']?([^"'\s;]+)["']?/i);
+    const boundary = boundaryMatch ? boundaryMatch[1].trim() : null;
+    if (!boundary) {
+      return rawContent;
+    }
+    const lineDelim = rawContent.includes('\r\n') ? '\r\n' : '\n';
+    const lines = trimmed.split(lineDelim);
+    const parts: string[] = [];
+    let current: string[] = [];
+    const boundaryLine = `--${boundary}`;
+    const boundaryEnd = `--${boundary}--`;
+    for (const line of lines) {
+      if (line === boundaryLine || line === boundaryEnd) {
+        if (current.length) {
+          parts.push(current.join(lineDelim));
+          current = [];
+        }
+        if (line === boundaryEnd) break;
+        continue;
+      }
+      current.push(line);
+    }
+    if (current.length) parts.push(current.join(lineDelim));
+    for (const part of parts) {
+      const sep = part.includes('\r\n\r\n') ? '\r\n\r\n' : '\n\n';
+      const idx = part.indexOf(sep);
+      const headerBlock = idx >= 0 ? part.slice(0, idx) : '';
+      let body = idx >= 0 ? part.slice(idx + sep.length).trim() : part.trim();
+      const headerLower = headerBlock.toLowerCase();
+      const isHtmlByHeader = headerLower.includes('text/html');
+      const isHtmlByContent = body.toLowerCase().slice(0, 50).includes('<!doctype') || body.toLowerCase().slice(0, 20).startsWith('<html');
+      if (body.length > 100 && (isHtmlByHeader || isHtmlByContent)) {
+        // Decode quoted-printable HTML parts before returning
+        if (headerLower.includes('quoted-printable')) {
+          body = decodeQuotedPrintable(body);
+        }
+        return body;
+      }
+    }
+    return rawContent;
   };
 
   const parseHTMLTables = (htmlContent: string): TableData[] => {
@@ -372,14 +438,17 @@ function ExtractorPageContent() {
       'MES EMISION',
       'AÑO EMISION',
       'FECHA PAGO',
+      'MES PAGO',
+      'AÑO PAGO',
       'PRIMA PAGO 1',
-      'PRIMA COMISION',
       'FORMA DE PAGO',
+      'PRIMA COMISION',
       'COMISION/HONORARIOS',
       '% COMISION',
       'MOVIMIENTO',
       'PRIMA COBRO',
       'ANTIGÜEDAD',
+      'PRIMA PAGO 2',
       'PRIMA META',
     ];
 
@@ -388,6 +457,24 @@ function ExtractorPageContent() {
       section.rows.forEach((row) => {
         const allowedCells = ALLOWED_DETAIL_COLUMNS.map((c) => (row[c.index] ?? '').trim());
         const poliza = section.metadata.poliza || '';
+
+        // Find both PRIMA PAGO columns by header, using left-to-right order in the original HTML
+        const normalizeHeader = (h?: string | null): string =>
+          (h || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toUpperCase()
+            .replace(/[^A-Z0-9]/g, '');
+
+        const primaPagoHeaderIndices: number[] = [];
+        mainHeaders.forEach((h, idx) => {
+          if (normalizeHeader(h) === 'PRIMAPAGO') {
+            primaPagoHeaderIndices.push(idx);
+          }
+        });
+
+        const primaPago1Index = primaPagoHeaderIndices[0] ?? -1;
+        const primaPago2Index = primaPagoHeaderIndices[1] ?? -1;
 
         const fechaEmision = allowedCells[0] || '';
         let mesEmision = '';
@@ -401,7 +488,18 @@ function ExtractorPageContent() {
         }
 
         const fechaPago = allowedCells[1] || '';
-        const primaPago1 = allowedCells[2] || '';
+        let mesPago = '';
+        let anioPago = '';
+        if (fechaPago) {
+          const parts = fechaPago.split('/');
+          if (parts.length === 3) {
+            mesPago = parts[1]?.padStart(2, '0') || '';
+            anioPago = parts[2] || '';
+          }
+        }
+
+        const primaPago1 =
+          primaPago1Index >= 0 ? (row[primaPago1Index] ?? '').trim() : allowedCells[2] || '';
         const formaPagoRaw = allowedCells[3] || '';
         const formaPago = normalizeFormaPagoDisplay(formaPagoRaw);
         const comisionHonorarios = allowedCells[4] || '';
@@ -411,6 +509,8 @@ function ExtractorPageContent() {
         const primaMeta = allowedCells[8] || '';
         const movimiento = allowedCells[9] || '';
         const primaComision = allowedCells[10] || '';
+        const primaPago2 =
+          primaPago2Index >= 0 ? (row[primaPago2Index] ?? '').trim() : primaPago1;
 
         combinedRows.push([
           section.metadata.contratante || '',
@@ -425,14 +525,17 @@ function ExtractorPageContent() {
           mesEmision,
           anioEmision,
           fechaPago,
+          mesPago,
+          anioPago,
           primaPago1,
-          primaComision,
           formaPago,
+          primaComision,
           comisionHonorarios,
           porcentajeComision,
           movimiento,
           primaCobro,
           antiguedad,
+          primaPago2,
           primaMeta,
         ]);
       });
@@ -500,7 +603,7 @@ function ExtractorPageContent() {
       }
     } catch (error) {
       console.error('Error copying to clipboard:', error);
-      alert('Error al copiar al portapapeles. Por favor, intenta de nuevo.');
+      toast.error('Error al copiar al portapapeles. Por favor, intenta de nuevo.');
     }
   };
 
@@ -509,11 +612,11 @@ function ExtractorPageContent() {
       if (tables.length > 0) {
         const tableText = convertToClipboardFormat(tables[0]);
         await navigator.clipboard.writeText(tableText);
-        alert('¡Tabla copiada al portapapeles!');
+        toast.success('Tabla copiada al portapapeles');
       }
     } catch (error) {
       console.error('Error copying to clipboard:', error);
-      alert('Error al copiar al portapapeles. Por favor, intenta de nuevo.');
+      toast.error('Error al copiar al portapapeles. Por favor, intenta de nuevo.');
     }
   };
 
@@ -578,7 +681,7 @@ function ExtractorPageContent() {
       );
     });
     if (htmlFiles.length === 0) {
-      alert('Por favor selecciona archivos HTML o MHTML (.html, .htm, .mhtml, .mht)');
+      toast.error('Selecciona archivos HTML o MHTML (.html, .htm, .mhtml, .mht)');
       return;
     }
     try {
@@ -593,7 +696,7 @@ function ExtractorPageContent() {
       setImportResult(null);
     } catch (err) {
       console.error(err);
-      alert('Error al leer uno o más archivos. Intenta de nuevo.');
+      toast.error('Error al leer uno o más archivos. Intenta de nuevo.');
     }
   };
 
@@ -602,7 +705,7 @@ function ExtractorPageContent() {
     setIsDragging(false);
     const files = e.dataTransfer.files;
     if (files?.length) addFiles(files);
-    else alert('Por favor arrastra uno o más archivos HTML');
+    else toast.error('Arrastra uno o más archivos HTML o MHTML');
   };
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -626,7 +729,7 @@ function ExtractorPageContent() {
 
   const handleExtract = () => {
     if (uploadedFiles.length === 0) {
-      alert('Sube al menos un archivo HTML y luego haz clic en Extraer.');
+      toast.error('Sube al menos un archivo HTML y luego haz clic en Extraer');
       return;
     }
     setIsExtracting(true);
@@ -634,8 +737,13 @@ function ExtractorPageContent() {
       const allRows: string[][] = [];
       let combinedHeaders: string[] = [];
 
-      for (const { content } of uploadedFiles) {
-        const fileTables = parseHTMLTables(content);
+      for (const { content, name } of uploadedFiles) {
+        const htmlContent = extractHtmlFromMhtml(content);
+        let fileTables = parseHTMLTables(htmlContent);
+        const isMhtml = /\.mht(ml)?$/i.test(name || '');
+        if (isMhtml && fileTables.every((t) => !t.headers.length) && htmlContent !== content) {
+          fileTables = parseHTMLTables(content);
+        }
         for (const table of fileTables) {
           if (table.headers.length) {
             if (combinedHeaders.length === 0) combinedHeaders = table.headers;
@@ -647,7 +755,7 @@ function ExtractorPageContent() {
       if (combinedHeaders.length === 0) {
         setTables([]);
         setIsExtracting(false);
-        alert('No se encontraron tablas válidas en los archivos.');
+        toast.error('No se encontraron tablas válidas en los archivos. Revisa que el archivo sea una página guardada con tablas de comisiones.');
         return;
       }
 
@@ -656,7 +764,7 @@ function ExtractorPageContent() {
       setTables([{ headers: combinedHeaders, rows: allRows, metadata: undefined, sectionName: 'combined' }]);
     } catch (err) {
       console.error(err);
-      alert('Error al extraer datos. Revisa que los archivos sean HTML válidos.');
+      toast.error('Error al extraer datos. Revisa que los archivos sean HTML válidos.');
     } finally {
       setIsExtracting(false);
     }
@@ -1157,15 +1265,15 @@ function ExtractorPageContent() {
 
   return (
     <div>
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
-            Subir archivos de comisiones
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Sube uno o más archivos HTML y luego haz clic en Extraer para combinar y ordenar por cliente.
-          </p>
-        </div>
+      <div className="text-center mb-6">
+        <h1 className="dashboard-page-title text-4xl font-bold mb-2">
+          Subir archivos de comisiones
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          Sube uno o más archivos HTML y luego haz clic en Extraer para combinar y ordenar por cliente.
+        </p>
+      </div>
+      <div className="flex justify-end mb-8">
         <button
           onClick={() => setShowInfoDialog(true)}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"

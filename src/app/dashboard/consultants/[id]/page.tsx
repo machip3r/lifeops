@@ -256,11 +256,11 @@ function ConsultantDetailsPageContent() {
                 <div>
                     <button
                         onClick={() => router.push('/dashboard/consultants')}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-4"
+                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-2 inline-flex items-center"
                     >
                         ← Volver a Asesores
                     </button>
-                    <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
+                    <h1 className="dashboard-page-title text-4xl font-bold">
                         Detalles del Asesor
                     </h1>
                 </div>
