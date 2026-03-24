@@ -1,6 +1,28 @@
 import { supabase, supabaseAdmin } from './supabase';
 import type { Office, Consultant, Client, Contract, ContractChangeRequest, File, ContractDetail } from './supabase';
 
+/** Auth Admin has no get-by-email; paginate until the address is found (stops early). */
+async function findAuthUserIdByEmail(targetEmail: string): Promise<string | null> {
+    const wanted = targetEmail.toLowerCase();
+    const perPage = 1000;
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+        const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
+        if (error) {
+            console.warn('findAuthUserIdByEmail listUsers:', error);
+            break;
+        }
+        const users = data?.users ?? [];
+        for (const user of users) {
+            if (user.email?.toLowerCase() === wanted) return user.id;
+        }
+        if (users.length < perPage) hasMore = false;
+        else page += 1;
+    }
+    return null;
+}
+
 // Token interface
 export interface Token {
     id: string;
@@ -231,6 +253,120 @@ export const db = {
             }
 
             return data;
+        },
+
+        /**
+         * For HTML import: if no consultant with this code exists for the office, create auth user + consultant row
+         * (same convention as the extractor: braulinusmac+{code}@gmail.com).
+         */
+        ensureConsultantForImport: async (
+            code: string,
+            officeId: string
+        ): Promise<{ consultant: Consultant | null; created: boolean; error?: string }> => {
+            const trimmed = code.trim();
+            if (!trimmed) {
+                return { consultant: null, created: false, error: 'Código de asesor vacío' };
+            }
+
+            const existing = await db.consultant.findConsultantByCode(trimmed, officeId);
+            if (existing) {
+                return { consultant: existing, created: false };
+            }
+
+            const { data: globalRow } = await supabaseAdmin
+                .from('consultant')
+                .select('*')
+                .eq('consultant_code', trimmed)
+                .maybeSingle();
+
+            if (globalRow) {
+                if (globalRow.office_id === officeId) {
+                    return { consultant: globalRow as Consultant, created: false };
+                }
+                return {
+                    consultant: null,
+                    created: false,
+                    error: `El código "${trimmed}" ya está asignado a otra oficina.`,
+                };
+            }
+
+            const defaultEmail = `braulinusmac+${trimmed}@gmail.com`;
+            const defaultPassword = 'Hola123!!';
+
+            let authUserId: string | null = null;
+            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+                email: defaultEmail,
+                password: defaultPassword,
+                email_confirm: true,
+            });
+
+            if (authError) {
+                authUserId = await findAuthUserIdByEmail(defaultEmail);
+                if (!authUserId) {
+                    return {
+                        consultant: null,
+                        created: false,
+                        error: authError.message || 'No se pudo crear el usuario del asesor',
+                    };
+                }
+            } else {
+                authUserId = authData?.user?.id ?? null;
+            }
+
+            if (!authUserId) {
+                return { consultant: null, created: false, error: 'No se pudo obtener el ID de usuario del asesor' };
+            }
+
+            const { data: existingById } = await supabaseAdmin
+                .from('consultant')
+                .select('*')
+                .eq('id', authUserId)
+                .maybeSingle();
+
+            if (existingById) {
+                if (existingById.office_id === officeId) {
+                    return { consultant: existingById as Consultant, created: false };
+                }
+                return {
+                    consultant: null,
+                    created: false,
+                    error: 'El correo asociado a este código ya está registrado como asesor en otra oficina.',
+                };
+            }
+
+            const { data: anyConsultant } = await supabaseAdmin
+                .from('consultant')
+                .select('id')
+                .eq('auth_user_id', authUserId)
+                .maybeSingle();
+
+            if (anyConsultant) {
+                return {
+                    consultant: null,
+                    created: false,
+                    error: 'El usuario ya existe como asesor en el sistema con otro perfil.',
+                };
+            }
+
+            const { data: inserted, error: insErr } = await supabaseAdmin
+                .from('consultant')
+                .insert({
+                    id: authUserId,
+                    office_id: officeId,
+                    name: trimmed,
+                    email: defaultEmail,
+                    consultant_code: trimmed,
+                    auth_user_id: authUserId,
+                    status: 'PENDING',
+                })
+                .select()
+                .single();
+
+            if (insErr) {
+                return { consultant: null, created: false, error: insErr.message };
+            }
+
+            return { consultant: inserted as Consultant, created: true };
         },
 
         findOrCreateConsultantByName: async (name: string, officeId: string): Promise<Consultant> => {
@@ -585,12 +721,26 @@ export const db = {
                 }
             }
 
-            // Pre-fetch consultants in batch (if not using consultantId)
+            // Pre-fetch consultants in batch (if not using consultantId); create missing for this office
             const consultantCache = new Map<string, Consultant>();
+            const ensureConsultantErrorByCode = new Map<string, string>();
             if (!consultantId) {
                 const uniqueAsesores = [...new Set(Array.from(contractGroups.values()).map(g => g.asesor))];
                 for (const asesor of uniqueAsesores) {
-                    const consultant = await db.consultant.findConsultantByCode(asesor, officeId);
+                    let consultant = await db.consultant.findConsultantByCode(asesor, officeId);
+                    if (!consultant) {
+                        const ensured = await db.consultant.ensureConsultantForImport(asesor, officeId);
+                        consultant = ensured.consultant ?? null;
+                        if (ensured.created && consultant) {
+                            warnings.push({
+                                row: 0,
+                                message: `Se creó el asesor con código "${asesor.trim()}" automáticamente para importar.`,
+                            });
+                        }
+                        if (!consultant && ensured.error) {
+                            ensureConsultantErrorByCode.set(asesor.toLowerCase(), ensured.error);
+                        }
+                    }
                     if (consultant) {
                         consultantCache.set(asesor.toLowerCase(), consultant);
                     }
@@ -645,7 +795,7 @@ export const db = {
                     if (consultantId) {
                         consultant = consultantCache.get('');
                         if (consultant && consultant.consultant_code?.toLowerCase() !== group.asesor.toLowerCase()) {
-                            errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Consultant code "${group.asesor}" does not match your account.` });
+                            errors.push({ row: group.rows[0]?.rowIndex || 0, error: `El código de asesor "${group.asesor}" no coincide con tu cuenta.` });
                             continue;
                         }
                     } else {
@@ -653,19 +803,25 @@ export const db = {
                     }
 
                     if (!consultant) {
-                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Consultant with code "${group.asesor}" not found.` });
+                        const ensureMsg = ensureConsultantErrorByCode.get(group.asesor.toLowerCase());
+                        errors.push({
+                            row: group.rows[0]?.rowIndex || 0,
+                            error:
+                                ensureMsg ||
+                                `No hay un asesor con código "${group.asesor}" en tu oficina y no se pudo crear automáticamente.`,
+                        });
                         continue;
                     }
 
                     if (!consultant.id) {
-                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Consultant "${group.asesor}" has no ID` });
+                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `El asesor "${group.asesor}" no tiene ID válido en el sistema.` });
                         continue;
                     }
 
                     // Get client from cache
                     const client = clientCache.get(group.cliente.toLowerCase());
                     if (!client) {
-                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Client "${group.cliente}" not found` });
+                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Cliente "${group.cliente}" no encontrado` });
                         continue;
                     }
 
