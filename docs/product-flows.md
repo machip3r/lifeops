@@ -33,6 +33,7 @@ office (promotory) ── owns ──► consultants (asesores)
 - Auth session from Supabase Auth; profile resolution in `src/contexts/auth-context.tsx`.
 - Route gates via `ProtectedRoute` + dashboard layout nav by role.
 - Prefer server session checks for new privileged mutations (Server Actions / API).
+- Promotory **Zona de peligro** (Perfil): full office wipe also clears cobranza payments and audit log.
 
 ---
 

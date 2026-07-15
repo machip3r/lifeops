@@ -219,6 +219,7 @@ contract (1) ──< (many) contract_change_request
 - Profile stored in `office` or `consultant` tables
 - `ProtectedRoute` component enforces role-based access
 - Consultant invitations create tokens that can be used to sign up
+- Promotory full wipe (`POST /api/office/cleanup` from Perfil) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment` and `collection_audit_log`)
 
 **Key Files**:
 - `src/contexts/auth-context.tsx`: Provides `useAuth()` hook

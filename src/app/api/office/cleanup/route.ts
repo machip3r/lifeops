@@ -57,7 +57,16 @@ export async function POST(request: NextRequest) {
       .filter((id): id is string => !!id);
 
     if (consultantIds.length === 0) {
-      // Still delete clients for this office when there are no consultants
+      // Still delete clients + cobranza audit for this office when there are no consultants
+      const { error: auditDeleteError } = await supabaseAdmin
+        .from('collection_audit_log')
+        .delete()
+        .eq('office_id', officeId);
+      if (auditDeleteError) {
+        console.error('Error deleting collection_audit_log:', auditDeleteError);
+        return NextResponse.json({ error: 'Failed to delete collection audit' }, { status: 500 });
+      }
+
       const { error: clientsDeleteError } = await supabaseAdmin
         .from('client')
         .delete()
@@ -72,6 +81,7 @@ export async function POST(request: NextRequest) {
         deletedConsultants: 0,
         deletedClients: true,
         deletedAuthUsers: 0,
+        deletedCollectionData: true,
       });
     }
 
@@ -88,8 +98,18 @@ export async function POST(request: NextRequest) {
 
     const contractIds = (contracts || []).map((c: any) => c.id);
 
-    // Delete contract_change_request, contract_detail, and contract only if there are contracts
+    // Delete collection payments, change requests, details, and contracts
     if (contractIds.length > 0) {
+      const { error: paymentsError } = await supabaseAdmin
+        .from('contract_collection_payment')
+        .delete()
+        .in('contract_id', contractIds);
+
+      if (paymentsError) {
+        console.error('Error deleting contract_collection_payment rows:', paymentsError);
+        return NextResponse.json({ error: 'Failed to delete collection payments' }, { status: 500 });
+      }
+
       const { error: ccrError } = await supabaseAdmin
         .from('contract_change_request')
         .delete()
@@ -119,6 +139,17 @@ export async function POST(request: NextRequest) {
         console.error('Error deleting contracts:', contractsDeleteError);
         return NextResponse.json({ error: 'Failed to delete contracts' }, { status: 500 });
       }
+    }
+
+    // Audit rows survive contract delete (FK SET NULL); clear by office
+    const { error: auditDeleteError } = await supabaseAdmin
+      .from('collection_audit_log')
+      .delete()
+      .eq('office_id', officeId);
+
+    if (auditDeleteError) {
+      console.error('Error deleting collection_audit_log:', auditDeleteError);
+      return NextResponse.json({ error: 'Failed to delete collection audit' }, { status: 500 });
     }
 
     // Delete clients for this office (after contracts so FK is safe)
@@ -161,6 +192,7 @@ export async function POST(request: NextRequest) {
       deletedConsultants: consultantIds.length,
       deletedClients: true,
       deletedAuthUsers: deletedAuthCount,
+      deletedCollectionData: true,
     });
   } catch (error: any) {
     console.error('Error in office cleanup API:', error);

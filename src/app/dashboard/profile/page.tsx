@@ -148,8 +148,8 @@ function ProfilePageContent() {
                   Zona de peligro
                 </h2>
                 <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                  Esta acción eliminará todos las pólizas y detalles asociados a esta oficina.
-                  No se pueden deshacer estos cambios.
+                  Esta acción eliminará todas las pólizas, detalles, cobranza (pagos e historial),
+                  clientes y asesores asociados a esta oficina. No se pueden deshacer estos cambios.
                 </p>
                 <button
                   type="button"
@@ -174,7 +174,8 @@ function ProfilePageContent() {
                 Confirmar eliminación
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                ¿Estás seguro de que quieres borrar TODOS las pólizas y detalles de esta oficina?
+                ¿Estás seguro de que quieres borrar TODAS las pólizas, detalles, datos de cobranza,
+                clientes y asesores de esta oficina?
                 <br />
                 <br />
                 <strong className="text-red-600 dark:text-red-400">Esta acción no se puede deshacer.</strong>
