@@ -7,15 +7,21 @@ import {
 } from "@/lib/auth/api";
 import { updateAuthUserEmail } from "@/lib/db-admin";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { emailSchema, personNameSchema } from "@/lib/validation/schemas";
+import { zodFieldErrors } from "@/lib/validation/field-errors";
+import {
+  consultantCodeSchema,
+  emailSchema,
+  entityNameSchema,
+} from "@/lib/validation/schemas";
 
 const bodySchema = z.object({
   consultantId: z.string().uuid(),
   officeId: z.string().uuid(),
   updates: z.object({
-    name: personNameSchema.optional(),
+    // entityName (not personName): import may seed name = consultant code (digits).
+    name: entityNameSchema.optional(),
     email: emailSchema.nullable().optional(),
-    consultant_code: z.string().trim().max(64).nullable().optional(),
+    consultant_code: consultantCodeSchema.nullable().optional(),
     status: z.enum(["ACTIVE", "INACTIVE", "PENDING"]).optional(),
   }),
 });
@@ -33,7 +39,17 @@ export async function POST(request: NextRequest) {
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Datos inválidos." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Datos inválidos.",
+        fieldErrors: zodFieldErrors(parsed.error, undefined, {
+          name: "entityName",
+          email: "email",
+          consultant_code: "consultantCode",
+        }),
+      },
+      { status: 400 },
+    );
   }
 
   const access = assertOfficeAccess(auth.ctx, parsed.data.officeId);

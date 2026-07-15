@@ -1,5 +1,9 @@
 import { supabase } from './supabase';
 import type { Office, Consultant, Client, Contract, ContractChangeRequest, File, ContractDetail } from './supabase';
+import {
+    syncPaymentsFromImportedDetails,
+    writeImportSyncAudit,
+} from '@/lib/collections/service';
 
 // Token interface
 export interface Token {
@@ -479,6 +483,11 @@ export const db = {
             const errors: Array<{ row: number; error: string }> = [];
             const warnings: Array<{ row: number; message: string }> = [];
             let successCount = 0;
+            let detailsInsertedTotal = 0;
+            let paymentsUpsertedTotal = 0;
+            const {
+                data: { user: importActor },
+            } = await supabase.auth.getUser();
 
             // Normalize header names to a canonical form (uppercase, no accents, no spaces/punctuation)
             const normalizeHeader = (h?: string | null): string =>
@@ -851,6 +860,27 @@ export const db = {
                     // Bulk insert all details for this contract (only new ones)
                     if (detailRecordsToInsert.length > 0) {
                         await db.contractDetail.createDetails(detailRecordsToInsert);
+                        detailsInsertedTotal += detailRecordsToInsert.length;
+
+                        // Seed cobranza month marks from imported payment dates (never overwrite manual)
+                        try {
+                            const upserted = await syncPaymentsFromImportedDetails(supabase, {
+                                officeId,
+                                actorUserId: importActor?.id ?? null,
+                                contractId: contract.id,
+                                details: detailRecordsToInsert.map((d) => ({
+                                    payment_date: d.payment_date ?? null,
+                                    collection_premium: d.collection_premium ?? null,
+                                })),
+                            });
+                            paymentsUpsertedTotal += upserted;
+                        } catch (syncErr) {
+                            console.error('Cobranza import sync failed', syncErr);
+                            warnings.push({
+                                row: group.rows[0]?.rowIndex || 0,
+                                message: 'Detalles importados, pero no se pudo sincronizar cobranza para este contrato.',
+                            });
+                        }
                     } else if (skippedDetails > 0 && !isNewContract) {
                         warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `All ${skippedDetails} detail(s) for contract "${group.contractNumber || 'N/A'}" were duplicates and skipped.` });
                     }
@@ -858,6 +888,20 @@ export const db = {
                     successCount++;
                 } catch (error: any) {
                     errors.push({ row: group.rows[0]?.rowIndex || 0, error: error.message || 'Unknown error creating contract' });
+                }
+            }
+
+            if (detailsInsertedTotal > 0 || paymentsUpsertedTotal > 0 || successCount > 0) {
+                try {
+                    await writeImportSyncAudit(supabase, {
+                        officeId,
+                        actorUserId: importActor?.id ?? null,
+                        contractsTouched: successCount,
+                        paymentsUpserted: paymentsUpsertedTotal,
+                        detailsInserted: detailsInsertedTotal,
+                    });
+                } catch (auditErr) {
+                    console.error('Cobranza import audit failed', auditErr);
                 }
             }
 

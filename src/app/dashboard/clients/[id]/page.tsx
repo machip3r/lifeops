@@ -7,6 +7,19 @@ import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
+import { SortableTh } from '@/components/sortable-th';
+import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
+
+type SortKey =
+  | 'contract_number'
+  | 'consultant'
+  | 'project_name'
+  | 'insured_amount'
+  | 'annual_premium'
+  | 'savings'
+  | 'status'
+  | 'created_at';
+const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
 
 function ClientDetailsPageContent() {
     const router = useRouter();
@@ -18,6 +31,8 @@ function ClientDetailsPageContent() {
     const [consultantsMap, setConsultantsMap] = useState<Map<string, Consultant>>(new Map());
     const [contractSavingsMap, setContractSavingsMap] = useState<Map<string, number>>(new Map());
     const [loading, setLoading] = useState(true);
+    const [sortKey, setSortKey] = useState<SortKey | null>(null);
+    const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [filters, setFilters] = useState<ContractsFilterState>({
         search: '',
         currency: '',
@@ -40,6 +55,32 @@ function ClientDetailsPageContent() {
         () => filterContracts(contracts, filters),
         [contracts, filters]
     );
+
+    const sortedContracts = useMemo(
+        () =>
+            sortRows(filteredContracts, sortKey, sortDir, {
+                contract_number: (c) => c.contract_number,
+                consultant: (c) => consultantsMap.get(c.consultant_id)?.name,
+                project_name: (c) => c.project_name,
+                insured_amount: (c) => c.insured_amount,
+                annual_premium: (c) => c.annual_premium,
+                savings: (c) => contractSavingsMap.get(c.id) ?? 0,
+                status: (c) => c.status,
+                created_at: (c) => c.created_at,
+            }, {
+                insured_amount: 'number',
+                annual_premium: 'number',
+                savings: 'number',
+                created_at: 'date',
+            }),
+        [filteredContracts, sortKey, sortDir, consultantsMap, contractSavingsMap],
+    );
+
+    const toggleSort = (key: SortKey) => {
+        const next = nextSortState(sortKey, sortDir, key);
+        setSortKey(next.key);
+        setSortDir(next.dir);
+    };
 
     const loadClientData = useCallback(async () => {
         try {
@@ -227,37 +268,21 @@ function ClientDetailsPageContent() {
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                             <thead className="bg-gray-50 dark:bg-gray-700">
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Número de Póliza
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Asesor
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Nombre del Proyecto
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Suma Asegurada
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Prima Anual
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Ahorro Cliente
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Estado
-                                    </th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Fecha de Creación
-                                    </th>
+                                    <SortableTh label="Número de Póliza" active={sortKey === 'contract_number'} dir={sortDir} onSort={() => toggleSort('contract_number')} className={TH} />
+                                    <SortableTh label="Asesor" active={sortKey === 'consultant'} dir={sortDir} onSort={() => toggleSort('consultant')} className={TH} />
+                                    <SortableTh label="Nombre del Proyecto" active={sortKey === 'project_name'} dir={sortDir} onSort={() => toggleSort('project_name')} className={TH} />
+                                    <SortableTh label="Suma Asegurada" active={sortKey === 'insured_amount'} dir={sortDir} onSort={() => toggleSort('insured_amount')} className={TH} />
+                                    <SortableTh label="Prima Anual" active={sortKey === 'annual_premium'} dir={sortDir} onSort={() => toggleSort('annual_premium')} className={TH} />
+                                    <SortableTh label="Ahorro Cliente" active={sortKey === 'savings'} dir={sortDir} onSort={() => toggleSort('savings')} className={TH} />
+                                    <SortableTh label="Estado" active={sortKey === 'status'} dir={sortDir} onSort={() => toggleSort('status')} className={TH} />
+                                    <SortableTh label="Fecha de Creación" active={sortKey === 'created_at'} dir={sortDir} onSort={() => toggleSort('created_at')} className={TH} />
                                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                         Acciones
                                     </th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                {filteredContracts.map((contract) => (
+                                {sortedContracts.map((contract) => (
                                     <tr
                                         key={contract.id}
                                         onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}

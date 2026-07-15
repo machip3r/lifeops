@@ -129,3 +129,104 @@ export const otpVerifySchema = z.object({
   email: emailSchema,
   otp: otpSchema,
 });
+
+export const COLLECTION_STATUSES = [
+  "AMPARADO",
+  "CORRIENTE",
+  "FLEXIBLE",
+  "FLEXIBLE_REVISAR",
+  "MES",
+  "PERIODO_GRACIA",
+  "ATRASADO",
+] as const;
+
+export const collectionStatusSchema = z.enum(COLLECTION_STATUSES);
+
+export const collectionYearSchema = z.coerce
+  .number()
+  .int()
+  .min(2000)
+  .max(2100);
+
+export const collectionMonthSchema = z.coerce.number().int().min(1).max(12);
+
+export const collectionDaySchema = z.coerce.number().int().min(1).max(31);
+
+export const uuidSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+
+export const isoDateRequiredSchema = z
+  .string()
+  .trim()
+  .regex(ISO_DATE_PATTERN);
+
+export const updateCollectionStatusSchema = z.object({
+  contractId: uuidSchema,
+  status: collectionStatusSchema,
+});
+
+export const updateCollectionDaySchema = z.object({
+  contractId: uuidSchema,
+  collectionDay: collectionDaySchema.nullable(),
+});
+
+/** Medio de cobro — short label (e.g. C.A); empty clears. */
+export const PAYMENT_CHANNEL_PATTERN =
+  /^(?!.*[<>])[\p{L}\p{M}\p{N}.\s/_-]{1,64}$/u;
+
+export const updatePaymentChannelSchema = z.object({
+  contractId: uuidSchema,
+  paymentChannel: z.preprocess((value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  }, z.union([z.string().max(64).regex(PAYMENT_CHANNEL_PATTERN), z.null()])),
+});
+
+export const updateProjectNameSchema = z.object({
+  contractId: uuidSchema,
+  projectName: z.preprocess((value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  }, z.union([z.string().max(LIMITS.entityName).regex(ENTITY_NAME_PATTERN), z.null()])),
+});
+
+export const upsertCollectionPaymentSchema = z.object({
+  contractId: uuidSchema,
+  year: collectionYearSchema,
+  month: collectionMonthSchema,
+  paidAt: isoDateRequiredSchema,
+  scheduledDay: collectionDaySchema.optional().nullable(),
+  amount: z.preprocess((value) => {
+    if (value === "" || value === undefined) return null;
+    return value;
+  }, z.union([z.coerce.number().finite().min(0).max(1_000_000_000), z.null()])),
+  notes: z.preprocess((value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length === 0 ? null : trimmed;
+  }, z.union([z.string().max(LIMITS.notes).regex(MESSAGE_PATTERN), z.null()])),
+});
+
+export const clearCollectionPaymentSchema = z.object({
+  contractId: uuidSchema,
+  year: collectionYearSchema,
+  month: collectionMonthSchema,
+});
+
+export const getCollectionsGridSchema = z.object({
+  year: collectionYearSchema,
+});
+
+export const getCollectionAuditLogSchema = z.object({
+  contractId: uuidSchema.optional().nullable(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+});

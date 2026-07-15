@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
+import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
 
 interface FormData {
   prospectName: string;
@@ -453,33 +454,11 @@ function CotizacionPageContent() {
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Selecciona un proyecto</option>
-                  <option value="ALFA MEDICAL FLEX A">ALFA MEDICAL FLEX A</option>
-                  <option value="ALFA MEDICAL FLEX B">ALFA MEDICAL FLEX B</option>
-                  <option value="ALFA MEDICAL INTEGRO">ALFA MEDICAL INTEGRO</option>
-                  <option value="ALFA MEDICAL PLENO">ALFA MEDICAL PLENO</option>
-                  <option value="ALFA MEDICAL PRACTICO">ALFA MEDICAL PRACTICO</option>
-                  <option value="DOTAL 10">DOTAL 10</option>
-                  <option value="DOTAL 20">DOTAL 20</option>
-                  <option value="IMAGINA SER 60">IMAGINA SER 60</option>
-                  <option value="IMAGINA SER 65">IMAGINA SER 65</option>
-                  <option value="IMAGINA SER 65-10">IMAGINA SER 65-10</option>
-                  <option value="IMAGINA SER 65-15">IMAGINA SER 65-15</option>
-                  <option value="IMAGINA SER 65-15 PPR">IMAGINA SER 65-15 PPR</option>
-                  <option value="IMAGINA SER 70">IMAGINA SER 70</option>
-                  <option value="NUEVO PLENITUD 55">NUEVO PLENITUD 55</option>
-                  <option value="NUEVO PLENITUD 55-15">NUEVO PLENITUD 55-15</option>
-                  <option value="NUEVO PLENITUD 60">NUEVO PLENITUD 60</option>
-                  <option value="NUEVO PLENITUD 60-15">NUEVO PLENITUD 60-15</option>
-                  <option value="NUEVO PLENITUD 65">NUEVO PLENITUD 65</option>
-                  <option value="NUEVO PLENITUD 65-15">NUEVO PLENITUD 65-15</option>
-                  <option value="ORVI 6">ORVI 6</option>
-                  <option value="ORVI 10">ORVI 10</option>
-                  <option value="ORVI 15">ORVI 15</option>
-                  <option value="ORVI 20">ORVI 20</option>
-                  <option value="ORVI 99">ORVI 99</option>
-                  <option value="REALIZA">REALIZA</option>
-                  <option value="SEGUBECA">SEGUBECA</option>
-                  <option value="VIDA MUJER">VIDA MUJER</option>
+                  {PROJECT_NAME_OPTIONS.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
                 </select>
               </div>
 

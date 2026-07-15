@@ -927,11 +927,10 @@ function ExtractorPageContent() {
 
     setIsImporting(true);
 
-    // Check for missing consultants first
+    // Auto-create missing asesores (<code>@lifeops.com) before import
     const missing = await checkMissingConsultants(tables[0].rows, officeId);
 
     if (missing.length > 0) {
-      // Auto-create consultants with default emails (bypass dialog temporarily)
       try {
         const res = await authFetch('/api/extractor/create-consultants', {
           method: 'POST',
@@ -941,8 +940,40 @@ function ExtractorPageContent() {
         if (!res.ok) {
           throw new Error(data.error || 'No se pudieron crear los asesores.');
         }
-      } catch (error: any) {
+        const failed = Array.isArray(data.results)
+          ? (data.results as Array<{ code: string; error?: string }>).filter((r) => r.error)
+          : [];
+        if (failed.length > 0) {
+          setImportResult({
+            success: 0,
+            errors: failed.map((r) => ({
+              row: 0,
+              error: `Asesor "${r.code}": ${r.error}`,
+            })),
+            warnings: [],
+          });
+          setIsImporting(false);
+          return;
+        }
+        const createdCount = Array.isArray(data.results)
+          ? (data.results as Array<{ created?: boolean }>).filter((r) => r.created).length
+          : 0;
+        if (createdCount > 0) {
+          toast.success(
+            `Se ${createdCount === 1 ? 'creó' : 'crearon'} ${createdCount} asesor${createdCount === 1 ? '' : 'es'} automáticamente (<código>@lifeops.com).`,
+          );
+        }
+      } catch (error: unknown) {
         console.error('Error auto-creating consultants:', error);
+        const message =
+          error instanceof Error ? error.message : 'No se pudieron crear los asesores faltantes.';
+        setImportResult({
+          success: 0,
+          errors: [{ row: 0, error: message }],
+          warnings: [],
+        });
+        setIsImporting(false);
+        return;
       }
     }
 

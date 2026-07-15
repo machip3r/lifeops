@@ -43,6 +43,27 @@ export interface Client {
     updated_at?: string;
 }
 
+/** Cobranza estatus (separate from contract lifecycle `status`). */
+export type CollectionStatus =
+    | 'AMPARADO'
+    | 'CORRIENTE'
+    | 'FLEXIBLE'
+    | 'FLEXIBLE_REVISAR'
+    | 'MES'
+    | 'PERIODO_GRACIA'
+    | 'ATRASADO';
+
+export type CollectionPaymentSource = 'manual' | 'import';
+
+export type CollectionAuditActionType =
+    | 'status_change'
+    | 'payment_upsert'
+    | 'payment_clear'
+    | 'collection_day_change'
+    | 'payment_channel_change'
+    | 'project_name_change'
+    | 'import_sync';
+
 export interface Contract {
     id: string;
     consultant_id: string;
@@ -57,10 +78,40 @@ export interface Contract {
     exchange_rate?: number | null; // Tipo de cambio. NULL means MXN (no conversion)
     payment_channel?: string | null;
     folder_key?: string | null;
-    status: string; // Default 'PENDING'
+    status: string; // Default 'PENDING' — lifecycle, not cobranza
+    collection_status?: CollectionStatus | null;
+    collection_day?: number | null;
     metadata?: { [key: string]: any };
     created_at?: string;
     updated_at?: string;
+}
+
+export interface ContractCollectionPayment {
+    id: string;
+    contract_id: string;
+    year: number;
+    month: number;
+    scheduled_day?: number | null;
+    paid_at?: string | null;
+    amount?: number | null;
+    notes?: string | null;
+    source: CollectionPaymentSource;
+    created_by?: string | null;
+    updated_by?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface CollectionAuditLog {
+    id: string;
+    office_id: string;
+    contract_id?: string | null;
+    actor_user_id?: string | null;
+    action_type: CollectionAuditActionType;
+    source: CollectionPaymentSource;
+    old_values?: Record<string, unknown> | null;
+    new_values?: Record<string, unknown> | null;
+    created_at?: string;
 }
 
 export interface ContractChangeRequest {

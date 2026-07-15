@@ -1,0 +1,32 @@
+/** Canonical project names used in proyección and cobranza editors. */
+export const PROJECT_NAME_OPTIONS = [
+  "ALFA MEDICAL FLEX A",
+  "ALFA MEDICAL FLEX B",
+  "ALFA MEDICAL INTEGRO",
+  "ALFA MEDICAL PLENO",
+  "ALFA MEDICAL PRACTICO",
+  "DOTAL 10",
+  "DOTAL 20",
+  "IMAGINA SER 60",
+  "IMAGINA SER 65",
+  "IMAGINA SER 65-10",
+  "IMAGINA SER 65-15",
+  "IMAGINA SER 65-15 PPR",
+  "IMAGINA SER 70",
+  "NUEVO PLENITUD 55",
+  "NUEVO PLENITUD 55-15",
+  "NUEVO PLENITUD 60",
+  "NUEVO PLENITUD 60-15",
+  "NUEVO PLENITUD 65",
+  "NUEVO PLENITUD 65-15",
+  "ORVI 6",
+  "ORVI 10",
+  "ORVI 15",
+  "ORVI 20",
+  "ORVI 99",
+  "REALIZA",
+  "SEGUBECA",
+  "VIDA MUJER",
+] as const;
+
+export type ProjectNameOption = (typeof PROJECT_NAME_OPTIONS)[number];

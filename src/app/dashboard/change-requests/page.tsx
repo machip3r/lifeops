@@ -1,11 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContractChangeRequest, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
+import { SortableTh } from '@/components/sortable-th';
+import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
+
+type SortKey = 'request_type' | 'folio_number' | 'contract_number' | 'details' | 'status' | 'created_at';
+const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
 
 function ChangeRequestsPageContent() {
     const router = useRouter();
@@ -13,6 +18,8 @@ function ChangeRequestsPageContent() {
     const [changeRequests, setChangeRequests] = useState<ContractChangeRequest[]>([]);
     const [contracts, setContracts] = useState<{ [key: string]: Contract }>({});
     const [loading, setLoading] = useState(true);
+    const [sortKey, setSortKey] = useState<SortKey | null>(null);
+    const [sortDir, setSortDir] = useState<SortDir>('asc');
 
     const loadChangeRequests = useCallback(async () => {
         try {
@@ -63,6 +70,25 @@ function ChangeRequestsPageContent() {
         }
     };
 
+    const sortedRequests = useMemo(
+        () =>
+            sortRows(changeRequests, sortKey, sortDir, {
+                request_type: (r) => r.request_type,
+                folio_number: (r) => r.folio_number,
+                contract_number: (r) => contracts[r.contract_id]?.contract_number,
+                details: (r) => r.details,
+                status: (r) => r.status,
+                created_at: (r) => r.created_at,
+            }, { created_at: 'date' }),
+        [changeRequests, contracts, sortKey, sortDir],
+    );
+
+    const toggleSort = (key: SortKey) => {
+        const next = nextSortState(sortKey, sortDir, key);
+        setSortKey(next.key);
+        setSortDir(next.dir);
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-screen">
@@ -105,31 +131,19 @@ function ChangeRequestsPageContent() {
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Tipo
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Folio
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Póliza
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Descripción
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Estado
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Fecha
-                                </th>
+                                <SortableTh label="Tipo" active={sortKey === 'request_type'} dir={sortDir} onSort={() => toggleSort('request_type')} className={TH} />
+                                <SortableTh label="Folio" active={sortKey === 'folio_number'} dir={sortDir} onSort={() => toggleSort('folio_number')} className={TH} />
+                                <SortableTh label="Póliza" active={sortKey === 'contract_number'} dir={sortDir} onSort={() => toggleSort('contract_number')} className={TH} />
+                                <SortableTh label="Descripción" active={sortKey === 'details'} dir={sortDir} onSort={() => toggleSort('details')} className={TH} />
+                                <SortableTh label="Estado" active={sortKey === 'status'} dir={sortDir} onSort={() => toggleSort('status')} className={TH} />
+                                <SortableTh label="Fecha" active={sortKey === 'created_at'} dir={sortDir} onSort={() => toggleSort('created_at')} className={TH} />
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Acciones
                                 </th>
                             </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {changeRequests.map((request) => {
+                            {sortedRequests.map((request) => {
                                 const contract = contracts[request.contract_id];
                                 return (
                                     <tr

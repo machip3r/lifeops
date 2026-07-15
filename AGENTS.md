@@ -63,6 +63,10 @@ docs/
 - Baseline: `supabase/migrations/schema.sql` (initial full schema). New work appends numbered files after that.
 - **Keep [`docs/database.md`](docs/database.md) in sync** with every migration and any other database change (tables, columns, constraints, RPCs, triggers, RLS policies, enums). Update that English doc in the **same change** as the SQL — do not leave schema docs stale.
 - Prefer pushing aggregations and filters into SQL RPCs (reuse the dashboard filter contract: date basis, range, seniority, ramo, payment method, consultants) instead of heavy client-side aggregation.
+- **Always verify the target Supabase project before pushing or applying migrations** (`supabase db push`, `supabase migration up`, linked remote SQL, Dashboard SQL against a remote, etc.).
+  - Run `supabase projects list` and/or `supabase status` / inspect `.supabase` link + `project_id` in `supabase/config.toml` (or the linked ref the CLI reports).
+  - Confirm the project **ref / name / URL** matches the environment the user intends (dev vs staging vs prod) and matches `NEXT_PUBLIC_SUPABASE_URL` in the local `.env` when applying to the app’s current backend.
+  - If the linked project is ambiguous or unexpected, **stop and ask the user** before pushing. Never assume the default linked project is correct.
 
 ---
 

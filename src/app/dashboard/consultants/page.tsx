@@ -8,6 +8,11 @@ import { authFetch } from '@/lib/api-client';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import RequestFormDialog from '@/components/request-form-dialog';
+import { SortableTh } from '@/components/sortable-th';
+import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
+
+type SortKey = 'name' | 'email' | 'consultant_code' | 'status' | 'sales' | 'created_at';
+const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
 
 function getCurrentMonthStartEnd(): { start: string; end: string } {
   const now = new Date();
@@ -42,6 +47,8 @@ function ConsultantsPageContent() {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE' | 'PENDING'>('ALL');
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const loadConsultants = useCallback(async () => {
     try {
@@ -210,24 +217,30 @@ function ConsultantsPageContent() {
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Nombre
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Correo Electrónico
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Código
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Estado
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Ventas (período)
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Fecha de Invitación
-              </th>
+              <SortableTh label="Nombre" active={sortKey === 'name'} dir={sortDir} onSort={() => {
+                const next = nextSortState(sortKey, sortDir, 'name');
+                setSortKey(next.key); setSortDir(next.dir);
+              }} className={TH} />
+              <SortableTh label="Correo Electrónico" active={sortKey === 'email'} dir={sortDir} onSort={() => {
+                const next = nextSortState(sortKey, sortDir, 'email');
+                setSortKey(next.key); setSortDir(next.dir);
+              }} className={TH} />
+              <SortableTh label="Código" active={sortKey === 'consultant_code'} dir={sortDir} onSort={() => {
+                const next = nextSortState(sortKey, sortDir, 'consultant_code');
+                setSortKey(next.key); setSortDir(next.dir);
+              }} className={TH} />
+              <SortableTh label="Estado" active={sortKey === 'status'} dir={sortDir} onSort={() => {
+                const next = nextSortState(sortKey, sortDir, 'status');
+                setSortKey(next.key); setSortDir(next.dir);
+              }} className={TH} />
+              <SortableTh label="Ventas (período)" active={sortKey === 'sales'} dir={sortDir} onSort={() => {
+                const next = nextSortState(sortKey, sortDir, 'sales');
+                setSortKey(next.key); setSortDir(next.dir);
+              }} className={TH} />
+              <SortableTh label="Fecha de Invitación" active={sortKey === 'created_at'} dir={sortDir} onSort={() => {
+                const next = nextSortState(sortKey, sortDir, 'created_at');
+                setSortKey(next.key); setSortDir(next.dir);
+              }} className={TH} />
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Acciones
               </th>
@@ -251,7 +264,19 @@ function ConsultantsPageContent() {
                 );
               });
 
-              if (filtered.length === 0) {
+              const sorted = sortRows(filtered, sortKey, sortDir, {
+                name: (c) => c.name,
+                email: (c) => c.email,
+                consultant_code: (c) => c.consultant_code,
+                status: (c) => c.status,
+                sales: (c) => salesByConsultant[c.id] ?? 0,
+                created_at: (c) => c.created_at,
+              }, {
+                sales: 'number',
+                created_at: 'date',
+              });
+
+              if (sorted.length === 0) {
                 return (
                   <tr>
                     <td colSpan={7} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
@@ -263,7 +288,7 @@ function ConsultantsPageContent() {
                 );
               }
 
-              return filtered.map((consultant) => (
+              return sorted.map((consultant) => (
                 <tr
                   key={consultant.id || `temp-${consultant.name}`}
                   onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}

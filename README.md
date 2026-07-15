@@ -185,13 +185,10 @@ contract (1) ──< (many) contract_change_request
 
 **Import Process**:
 1. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist
-2. **Missing Consultants Dialog**: If consultants don't exist:
-   - Shows dialog with list of missing consultants
-   - User can set email and password for each
-   - Default test emails: `braulinusmac+a1@gmail.com`, `braulinusmac+a2@gmail.com`, etc.
-   - Default password: `Hola123!!`
-   - Creates auth user via `supabaseAdmin.auth.admin.createUser`
-   - Creates consultant record with `auth_user_id` linked to the new user
+2. **Automatic missing-consultant creation**: If codes are missing for the office, import auto-creates them via `POST /api/extractor/create-consultants` (`mode: auto`):
+   - Email: `<asesorCode>@lifeops.com` (lowercase code, e.g. `72094@lifeops.com`)
+   - Default password: `Hola123!!` (change for production / after invite)
+   - Creates Auth user (email confirmed) + `consultant` row (`id` / `auth_user_id` linked)
 3. **Data Grouping**: Groups rows by contract (unique combination of `Cliente` + `Poliza` + `Asesor`)
 4. **Contract Creation**: For each unique contract:
    - Finds or creates client by name
@@ -274,7 +271,7 @@ Defines interfaces for all database tables:
 
 When importing HTML data:
 1. Client checks missing codes via `POST /api/extractor/missing-consultants` (Bearer auth)
-2. Creates missing consultants via `POST /api/extractor/create-consultants` (server uses service role)
+2. Auto-creates missing consultants via `POST /api/extractor/create-consultants` (`mode: auto`, service role) with email `<asesorCode>@lifeops.com`
 3. Auth user ID is used for both `id` and `auth_user_id` on the consultant row
 4. Status starts as `PENDING` until the adviser completes setup
 
@@ -335,7 +332,8 @@ Open [http://localhost:3000](http://localhost:3000)
 - `/dashboard/consultants`: Consultant management (promotory only)
 - `/dashboard/clients`: Client listing
 - `/dashboard/projection`: Financial projection
-- `/dashboard/collections`: Collections (cobranza)
+- `/dashboard/collections`: Collections (cobranza) payment-control grid
+- `/dashboard/collections/v0`: Legacy collections “vencimientos” view
 - `/dashboard/change-requests`: Contract change requests
 
 ### Key Components
@@ -367,10 +365,9 @@ Open [http://localhost:3000](http://localhost:3000)
    - If a contract with the same `contract_number` exists, it reuses it
    - New `contract_detail` records are always created (no deduplication)
 
-5. **Testing Defaults**:
-   - Consultant creation uses test emails: `braulinusmac+a{N}@gmail.com`
-   - Default password: `Hola123!!`
-   - These should be changed for production
+5. **Import auto-created asesores**:
+   - Email pattern: `<asesorCode>@lifeops.com` (e.g. `72094@lifeops.com`)
+   - Default password: `Hola123!!` — change for production / invite real emails later
 
 6. **Dashboard & Cobranza Features (current state)**:
    - Overview dashboard (`/dashboard`) with:
@@ -379,10 +376,13 @@ Open [http://localhost:3000](http://localhost:3000)
      - Filters: antigüedad (min/max years), ramo (VI / GM / todos), forma de pago, and asesores multi‑select.
      - Summary section showing total prima pago, total prima meta, and prima meta split by VI/GM with inner borders only (no card chrome).
    - Cobranza (`/dashboard/collections`):
-     - Computes next payment date per contract from `payment_date` + `payment_method` (Mensual/Trimestral/Semestral/Anual).
-     - Shows upcoming amounts due (using `premium_payment` of the latest detail row).
-     - Simple filter for “fin de mes actual” vs “fin del próximo mes”.
-   - All of this is backed by SQL RPCs that accept common filter parameters:
+     - Year-scoped grid of **active** contracts for payment control and reminder analysis.
+     - Columns: clave, asesor, póliza, cliente, proyecto, moneda, forma de pago, medio de cobro, prima al cobro, día de cobro, estatus, ENE–DIC.
+     - Editable `collection_status` (AMPARADO, CORRIENTE, FLEXIBLE, FLEXIBLE/REVISAR, MES, PERIODO GRACIA, ATRASADO) — separate from contract lifecycle `status`.
+     - Month cells show scheduled day and highlight when paid (`contract_collection_payment.paid_at`); click to register/clear payments (real payment date required).
+     - Seeds month marks from HTML import / `contract_detail` without overwriting manual paid marks; append-only `collection_audit_log` for manual and import changes.
+     - Legacy vencimientos view remains at `/dashboard/collections/v0`.
+   - Overview dashboard RPCs accept common filter parameters:
      `start_date`, `end_date`, `date_basis`, `seniority_min`, `seniority_max`, `consultant_ids`, `contract_type_filter`, `payment_method_filter`.
 
 7. **Constraints for new development**:

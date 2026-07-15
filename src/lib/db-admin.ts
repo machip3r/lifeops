@@ -202,7 +202,8 @@ export async function ensureConsultantForImport(
     };
   }
 
-  const defaultEmail = `braulinusmac+${trimmed}@gmail.com`;
+  // Auto-import accounts: <asesorCode>@lifeops.com (lowercase local part).
+  const defaultEmail = `${trimmed.toLowerCase()}@lifeops.com`;
   const defaultPassword = "Hola123!!";
 
   try {

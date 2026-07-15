@@ -55,7 +55,7 @@ office (promotory) ── owns ──► consultants (asesores)
 
 1. Upload HTML tables; preview combined rows.
 2. Validate consultants by `consultant_code` (asesor).
-3. Optionally create missing consultants (privileged Auth — **must be server-side**).
+3. Auto-create missing consultants on import (`<asesorCode>@lifeops.com`) via privileged Auth API — **must be server-side**.
 4. Import contracts + `contract_detail` rows; map Cliente / Poliza / Moneda / Asesor.
 
 ### Pólizas (`/dashboard/contracts`)
@@ -66,8 +66,12 @@ office (promotory) ── owns ──► consultants (asesores)
 
 ### Cobranza (`/dashboard/collections`)
 
-- Next payment from latest detail `payment_date` + `payment_method` (Mensual / Trimestral / Semestral / Anual).
-- Filters for end of current vs next month (and shared dashboard filters where applicable).
+- Year-scoped payment-control grid for **active** contracts: clave, asesor, póliza, cliente, proyecto, moneda, forma/medio de pago, prima al cobro, día de cobro, estatus, and ENE–DIC cells.
+- Estatus is editable (`AMPARADO`, `CORRIENTE`, `FLEXIBLE`, `FLEXIBLE/REVISAR`, `MES`, `PERIODO GRACIA`, `ATRASADO`) — stored as `contract.collection_status`, separate from lifecycle `contract.status`.
+- Month cells show scheduled day; highlighted when paid (`paid_at`). Click opens dialog requiring real payment date (optional amount/notes); can clear a paid mark.
+- Month marks seed from import/`contract_detail` (`source=import`) without overwriting manual paid marks; edits write `collection_audit_log`.
+- Historial panel lists recent audit entries (manual + import). Promotoría and asesores (own contracts) can edit.
+- Legacy vencimientos view: `/dashboard/collections/v0`.
 
 ### Vista general (`/dashboard`) — promotory-focused filters
 

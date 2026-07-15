@@ -7,6 +7,11 @@ import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { useToast } from '@/components/toast';
+import { SortableTh } from '@/components/sortable-th';
+import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
+
+type SortKey = 'name' | 'birth_date' | 'age' | 'contracts' | 'created_at';
+const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
 
 function ClientsPageContent() {
     const router = useRouter();
@@ -15,6 +20,8 @@ function ClientsPageContent() {
     const [clients, setClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
+    const [sortKey, setSortKey] = useState<SortKey | null>(null);
+    const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [showForm, setShowForm] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [formData, setFormData] = useState({
@@ -204,6 +211,35 @@ function ClientsPageContent() {
             return true;
         });
     }, [clients, contracts, search, registeredFrom, registeredTo, minContracts]);
+
+    const sortedClients = useMemo(
+        () =>
+            sortRows(
+                filteredClients,
+                sortKey,
+                sortDir,
+                {
+                    name: (c) => c.name,
+                    birth_date: (c) => c.birth_date,
+                    age: (c) => calculateAge(c.birth_date),
+                    contracts: (c) => getContractCount(c.id),
+                    created_at: (c) => c.created_at,
+                },
+                {
+                    age: 'number',
+                    contracts: 'number',
+                    birth_date: 'date',
+                    created_at: 'date',
+                },
+            ),
+        [filteredClients, sortKey, sortDir, contracts],
+    );
+
+    const toggleSort = (key: SortKey) => {
+        const next = nextSortState(sortKey, sortDir, key);
+        setSortKey(next.key);
+        setSortDir(next.dir);
+    };
 
     if (loading) {
         return (
@@ -401,34 +437,24 @@ function ClientsPageContent() {
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Nombre
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Fecha de Nacimiento
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Edad
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Pólizas
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Fecha de Registro
-                                </th>
+                                <SortableTh label="Nombre" active={sortKey === 'name'} dir={sortDir} onSort={() => toggleSort('name')} className={TH} />
+                                <SortableTh label="Fecha de Nacimiento" active={sortKey === 'birth_date'} dir={sortDir} onSort={() => toggleSort('birth_date')} className={TH} />
+                                <SortableTh label="Edad" active={sortKey === 'age'} dir={sortDir} onSort={() => toggleSort('age')} className={TH} />
+                                <SortableTh label="Pólizas" active={sortKey === 'contracts'} dir={sortDir} onSort={() => toggleSort('contracts')} className={TH} />
+                                <SortableTh label="Fecha de Registro" active={sortKey === 'created_at'} dir={sortDir} onSort={() => toggleSort('created_at')} className={TH} />
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                     Acciones
                                 </th>
                             </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {filteredClients.length === 0 ? (
+                            {sortedClients.length === 0 ? (
                                 <tr>
                                     <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                                         No hay clientes que coincidan con los filtros.
                                     </td>
                                 </tr>
-                            ) : filteredClients.map((client) => {
+                            ) : sortedClients.map((client) => {
                                 const age = calculateAge(client.birth_date);
                                 return (
                                     <tr
