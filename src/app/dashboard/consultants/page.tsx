@@ -7,12 +7,20 @@ import { db } from '@/lib/db';
 import { authFetch } from '@/lib/api-client';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
+import { useToast } from '@/components/toast';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import RequestFormDialog from '@/components/request-form-dialog';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 
 type SortKey = 'name' | 'email' | 'consultant_code' | 'status' | 'sales' | 'created_at';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
+const ACTIONS_TH =
+  'px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-900 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
+const ACTIONS_TD =
+  'px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white dark:bg-gray-800 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
 
 function getCurrentMonthStartEnd(): { start: string; end: string } {
   const now = new Date();
@@ -28,6 +36,7 @@ function getCurrentMonthStartEnd(): { start: string; end: string } {
 function ConsultantsPageContent() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { toast } = useToast();
   const { start: defaultStart, end: defaultEnd } = getCurrentMonthStartEnd();
   const [dateStart, setDateStart] = useState(defaultStart);
   const [dateEnd, setDateEnd] = useState(defaultEnd);
@@ -49,6 +58,11 @@ function ConsultantsPageContent() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE' | 'PENDING'>('ALL');
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [consultantToDelete, setConsultantToDelete] = useState<Consultant | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
 
   const loadConsultants = useCallback(async () => {
     try {
@@ -57,14 +71,28 @@ function ConsultantsPageContent() {
         return;
       }
 
-      const [data, sales] = await Promise.all([
-        db.consultant.getConsultantsByOffice(profile.id),
+      const dbSort =
+        sortKey && sortKey !== 'sales'
+          ? { column: sortKey, ascending: sortDir === 'asc' }
+          : undefined;
+
+      const [pageResult, sales] = await Promise.all([
+        db.consultant.getConsultantsByOfficePage(profile.id, {
+          page,
+          pageSize,
+          search,
+          status: statusFilter,
+          sort: dbSort,
+        }),
         db.dashboard.getOfficeConsultantsSales(profile.id, dateStart, dateEnd),
       ]);
 
-      setConsultants(data);
+      setConsultants(pageResult.rows);
+      setTotal(pageResult.total);
       const map: Record<string, number> = {};
-      sales.forEach((s) => { map[s.consultant_id] = s.total_sales; });
+      sales.forEach((s) => {
+        map[s.consultant_id] = s.total_sales;
+      });
       setSalesByConsultant(map);
       setLoadError('');
     } catch (error) {
@@ -73,13 +101,27 @@ function ConsultantsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [profile?.id, dateStart, dateEnd]);
+  }, [
+    profile?.id,
+    dateStart,
+    dateEnd,
+    page,
+    pageSize,
+    search,
+    statusFilter,
+    sortKey,
+    sortDir,
+  ]);
 
   useEffect(() => {
     if (profile?.role === 'promotory' && profile.id) {
       loadConsultants();
     }
   }, [profile, loadConsultants]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, pageSize, sortKey, sortDir]);
 
   const handleInviteConsultant = async () => {
     if (!inviteEmail || !inviteName || !inviteCode) {
@@ -134,6 +176,54 @@ function ConsultantsPageContent() {
     setSelectedConsultant(consultant);
     setIsDialogOpen(true);
   };
+
+  const openDeleteDialog = (consultant: Consultant) => {
+    setConsultantToDelete(consultant);
+  };
+
+  const closeDeleteDialog = () => {
+    if (deletingId) return;
+    setConsultantToDelete(null);
+  };
+
+  const confirmDeleteConsultant = async () => {
+    if (!profile?.id || !consultantToDelete?.id) return;
+
+    setDeletingId(consultantToDelete.id);
+    try {
+      const res = await authFetch('/api/consultants/delete', {
+        method: 'POST',
+        body: JSON.stringify({
+          consultantId: consultantToDelete.id,
+          officeId: profile.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'No se pudo eliminar el asesor.');
+      }
+      const contracts = Number(data.deletedContracts ?? 0);
+      toast.success(
+        contracts > 0
+          ? `Asesor eliminado (${contracts} póliza${contracts === 1 ? '' : 's'} asociada${contracts === 1 ? '' : 's'}).`
+          : 'Asesor eliminado.',
+      );
+      setConsultantToDelete(null);
+      await loadConsultants();
+    } catch (error: unknown) {
+      console.error('Error deleting consultant:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Error al eliminar el asesor',
+      );
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const deleteDialogLabel =
+    consultantToDelete?.name?.trim() ||
+    consultantToDelete?.consultant_code?.trim() ||
+    'este asesor';
 
   const closeDialog = () => {
     setIsDialogOpen(false);
@@ -214,6 +304,7 @@ function ConsultantsPageContent() {
             </select>
           </div>
         </div>
+        <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900">
             <tr>
@@ -241,46 +332,29 @@ function ConsultantsPageContent() {
                 const next = nextSortState(sortKey, sortDir, 'created_at');
                 setSortKey(next.key); setSortDir(next.dir);
               }} className={TH} />
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <th className={ACTIONS_TH}>
                 Acciones
               </th>
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             {(() => {
-              const searchLower = search.trim().toLowerCase();
-              const filtered = consultants.filter((consultant) => {
-                if (statusFilter !== 'ALL' && consultant.status !== statusFilter) {
-                  return false;
-                }
-                if (!searchLower) return true;
-                const name = consultant.name?.toLowerCase() || '';
-                const email = consultant.email?.toLowerCase() || '';
-                const code = consultant.consultant_code?.toLowerCase() || '';
-                return (
-                  name.includes(searchLower) ||
-                  email.includes(searchLower) ||
-                  code.includes(searchLower)
-                );
-              });
+              const displayed =
+                sortKey === 'sales'
+                  ? sortRows(
+                      consultants,
+                      'sales',
+                      sortDir,
+                      { sales: (c) => salesByConsultant[c.id] ?? 0 },
+                      { sales: 'number' },
+                    )
+                  : consultants;
 
-              const sorted = sortRows(filtered, sortKey, sortDir, {
-                name: (c) => c.name,
-                email: (c) => c.email,
-                consultant_code: (c) => c.consultant_code,
-                status: (c) => c.status,
-                sales: (c) => salesByConsultant[c.id] ?? 0,
-                created_at: (c) => c.created_at,
-              }, {
-                sales: 'number',
-                created_at: 'date',
-              });
-
-              if (sorted.length === 0) {
+              if (displayed.length === 0) {
                 return (
                   <tr>
                     <td colSpan={7} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                      {consultants.length === 0
+                      {total === 0
                         ? 'No hay asesores registrados. Invita uno para comenzar.'
                         : 'No hay asesores que coincidan con los filtros.'}
                     </td>
@@ -288,11 +362,11 @@ function ConsultantsPageContent() {
                 );
               }
 
-              return sorted.map((consultant) => (
+              return displayed.map((consultant) => (
                 <tr
                   key={consultant.id || `temp-${consultant.name}`}
                   onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                  className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group"
                 >
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                     {consultant.name}
@@ -321,19 +395,33 @@ function ConsultantsPageContent() {
                       ? new Date(consultant.created_at).toLocaleDateString('en-US')
                       : '-'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end space-x-3">
+                  <td
+                    className={`${ACTIONS_TD} group-hover:bg-gray-50 dark:group-hover:bg-gray-700`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex justify-end items-center gap-3 flex-nowrap">
                       <button
+                        type="button"
                         onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
                         className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
                       >
                         Ver Detalles
                       </button>
                       <button
+                        type="button"
                         onClick={() => openRequestDialog(consultant)}
                         className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300"
                       >
                         Nueva Solicitud
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingId === consultant.id}
+                        onClick={() => openDeleteDialog(consultant)}
+                        className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 disabled:opacity-50"
+                        aria-label={`Eliminar asesor ${consultant.name || consultant.consultant_code || ''}`}
+                      >
+                        {deletingId === consultant.id ? 'Eliminando…' : 'Eliminar'}
                       </button>
                     </div>
                   </td>
@@ -342,7 +430,31 @@ function ConsultantsPageContent() {
             })()}
           </tbody>
         </table>
+        </div>
+        <TablePagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          disabled={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
       </div>
+
+      <ConfirmDialog
+        open={consultantToDelete != null}
+        title="Eliminar asesor"
+        description={`¿Eliminar a ${deleteDialogLabel}?\n\nTambién se eliminarán sus pólizas, detalles y datos de cobranza asociados. Esta acción no se puede deshacer.`}
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        loadingLabel="Eliminando…"
+        loading={deletingId != null && deletingId === consultantToDelete?.id}
+        onConfirm={() => void confirmDeleteConsultant()}
+        onCancel={closeDeleteDialog}
+      />
 
       {/* Invite/Request Dialog */}
       {isDialogOpen && (

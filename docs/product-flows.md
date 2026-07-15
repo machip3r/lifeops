@@ -34,6 +34,7 @@ office (promotory) ── owns ──► consultants (asesores)
 - Route gates via `ProtectedRoute` + dashboard layout nav by role.
 - Prefer server session checks for new privileged mutations (Server Actions / API).
 - Promotory **Zona de peligro** (Perfil): full office wipe also clears cobranza payments and audit log.
+- List tables (asesores, clientes, pólizas, solicitudes, cobranza, detail sub-tables) paginate from Supabase (`.range` + `count`, default 25 rows / page).
 
 ---
 
@@ -51,13 +52,14 @@ office (promotory) ── owns ──► consultants (asesores)
 2. Token stored in `token`.
 3. Consultant opens `/invite/[token]`, completes account.
 4. Consultant linked (`auth_user_id` / status → `ACTIVE`).
+5. Promotory can **Eliminar** an asesor from `/dashboard/consultants` (cascades their contracts / details / cobranza; removes Auth user).
 
 ### Upload commissions (`/dashboard/extractor`) — promotory
 
-1. Upload HTML tables; preview combined rows.
-2. Validate consultants by `consultant_code` (asesor).
-3. Auto-create missing consultants on import (`<asesorCode>@lifeops.com`) via privileged Auth API — **must be server-side**.
-4. Import contracts + `contract_detail` rows; map Cliente / Poliza / Moneda / Asesor.
+1. Upload HTML tables **or** a pagos/comisiones `.xlsx` (button **Importar desde Excel**).
+2. Preview combined rows; validate consultants by `consultant_code` (asesor).
+3. Auto-create missing consultants on import (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API — **must be server-side**. Same asesor code may exist in another office.
+4. Import contracts + `contract_detail` rows; map Cliente / Poliza / Moneda / Asesor; seed cobranza marks from payment dates.
 
 ### Pólizas (`/dashboard/contracts`)
 

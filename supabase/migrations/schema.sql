@@ -56,7 +56,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS consultant_email_unique ON consultant (email)
 WHERE
     email IS NOT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS consultant_code_unique ON consultant (consultant_code)
+CREATE UNIQUE INDEX IF NOT EXISTS consultant_code_per_office_unique ON consultant (office_id, consultant_code)
 WHERE
     consultant_code IS NOT NULL;
 

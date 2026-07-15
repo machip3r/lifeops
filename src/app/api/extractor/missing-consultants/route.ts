@@ -6,11 +6,13 @@ import {
   requireOfficeContext,
 } from "@/lib/auth/api";
 import { findMissingConsultantCodes } from "@/lib/db-admin";
+import { EXTRACTOR_CONTRACT_NUMBER_BATCH } from "@/lib/extractor/batch";
 import { consultantCodeSchema } from "@/lib/validation/schemas";
 
 const bodySchema = z.object({
   officeId: z.string().uuid(),
-  codes: z.array(consultantCodeSchema).max(500),
+  /** Accept raw strings; validate per-code so one bad value does not blank the import. */
+  codes: z.array(z.string()).max(EXTRACTOR_CONTRACT_NUMBER_BATCH),
 });
 
 export async function POST(request: NextRequest) {
@@ -26,7 +28,15 @@ export async function POST(request: NextRequest) {
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Datos inválidos." }, { status: 400 });
+    const issue = parsed.error.issues[0];
+    return NextResponse.json(
+      {
+        error: issue
+          ? `Datos inválidos (${issue.path.join(".") || "body"}): ${issue.message}`
+          : "Datos inválidos.",
+      },
+      { status: 400 },
+    );
   }
 
   const access = assertOfficeAccess(auth.ctx, parsed.data.officeId);
@@ -34,12 +44,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
+  const validCodes: string[] = [];
+  const invalidCodes: string[] = [];
+  for (const raw of parsed.data.codes) {
+    const checked = consultantCodeSchema.safeParse(raw.trim().replace(/\s+/g, ""));
+    if (checked.success) {
+      validCodes.push(checked.data);
+    } else if (raw.trim()) {
+      invalidCodes.push(raw.trim().slice(0, 64));
+    }
+  }
+
+  if (parsed.data.codes.length > 0 && validCodes.length === 0) {
+    return NextResponse.json(
+      {
+        error: `Códigos de asesor inválidos: ${invalidCodes.slice(0, 5).join(", ") || "(vacíos)"}`,
+      },
+      { status: 400 },
+    );
+  }
+
   try {
     const missing = await findMissingConsultantCodes(
       parsed.data.officeId,
-      parsed.data.codes,
+      validCodes,
     );
-    return NextResponse.json({ missing });
+    return NextResponse.json({
+      missing,
+      ...(invalidCodes.length > 0 ? { invalidCodes } : {}),
+    });
   } catch (e) {
     console.error("missing-consultants:", e);
     return NextResponse.json(

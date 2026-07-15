@@ -6,25 +6,47 @@ import {
   requireOfficeContext,
 } from "@/lib/auth/api";
 import { findContractsByNumbers } from "@/lib/db-admin";
+import {
+  chunkArray,
+  EXTRACTOR_CONTRACT_NUMBER_BATCH,
+  EXTRACTOR_DB_IN_BATCH,
+  EXTRACTOR_DETAIL_CHECK_BATCH,
+} from "@/lib/extractor/batch";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { contractNumberSchema } from "@/lib/validation/schemas";
+import {
+  contractNumberSchema,
+  LIMITS,
+} from "@/lib/validation/schemas";
 
 const bodySchema = z.object({
   officeId: z.string().uuid(),
-  contractNumbers: z.array(contractNumberSchema).max(2000),
+  /** Accept raw strings; validate each entry so one bad póliza does not blank the import. */
+  contractNumbers: z.array(z.coerce.string()).max(EXTRACTOR_CONTRACT_NUMBER_BATCH),
   /** Optional detail checks: contract_number + payment_date + premium for duplicate detection */
   details: z
     .array(
       z.object({
-        contractNumber: z.string().min(1).max(64),
-        paymentDate: z.string().nullable().optional(),
-        premiumPayment: z.number().nullable().optional(),
-        row: z.number().int().nonnegative(),
+        contractNumber: z.coerce.string().min(1).max(LIMITS.contractNumber),
+        paymentDate: z
+          .union([z.string(), z.null(), z.undefined()])
+          .optional()
+          .transform((v) => (v == null || v === "" ? null : String(v).slice(0, 32))),
+        premiumPayment: z.preprocess((value) => {
+          if (value === "" || value === undefined) return null;
+          if (typeof value === "number" && !Number.isFinite(value)) return null;
+          return value;
+        }, z.union([z.number().finite(), z.null()]).optional()),
+        row: z.coerce.number().int().nonnegative(),
       }),
     )
-    .max(5000)
+    /** Client batches above this; keep a single-request cap aligned with batch helper. */
+    .max(EXTRACTOR_DETAIL_CHECK_BATCH)
     .optional(),
 });
+
+function normalizeContractId(raw: string): string {
+  return raw.trim().replace(/,/g, "").replace(/\s+/g, "");
+}
 
 export async function POST(request: NextRequest) {
   const auth = await requireOfficeContext(request);
@@ -39,7 +61,15 @@ export async function POST(request: NextRequest) {
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
-    return NextResponse.json({ error: "Datos inválidos." }, { status: 400 });
+    const issue = parsed.error.issues[0];
+    return NextResponse.json(
+      {
+        error: issue
+          ? `Datos inválidos (${issue.path.join(".") || "body"}): ${issue.message}`
+          : "Datos inválidos.",
+      },
+      { status: 400 },
+    );
   }
 
   const access = assertOfficeAccess(auth.ctx, parsed.data.officeId);
@@ -47,8 +77,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
+  const validContractNumbers: string[] = [];
+  const invalidContractNumbers: string[] = [];
+  for (const raw of parsed.data.contractNumbers) {
+    const normalized = normalizeContractId(raw);
+    const checked = contractNumberSchema.safeParse(normalized);
+    if (checked.success) {
+      validContractNumbers.push(checked.data);
+    } else if (raw.trim()) {
+      invalidContractNumbers.push(raw.trim().slice(0, 64));
+    }
+  }
+
+  if (parsed.data.contractNumbers.length > 0 && validContractNumbers.length === 0) {
+    return NextResponse.json(
+      {
+        error: `Números de póliza inválidos: ${invalidContractNumbers.slice(0, 5).join(", ") || "(vacíos)"}`,
+      },
+      { status: 400 },
+    );
+  }
+
   try {
-    const existing = await findContractsByNumbers(parsed.data.contractNumbers);
+    const existing = await findContractsByNumbers(validContractNumbers);
     const byNumber = new Map(existing.map((c) => [c.contract_number, c]));
 
     const duplicateDetails: Array<{
@@ -60,25 +111,44 @@ export async function POST(request: NextRequest) {
     if (parsed.data.details?.length) {
       const contractIds = existing.map((c) => c.id);
       if (contractIds.length > 0) {
-        const { data: details } = await supabaseAdmin
-          .from("contract_detail")
-          .select("contract_id, payment_date, premium_payment")
-          .in("contract_id", contractIds);
+        const existingDetailRows: Array<{
+          contract_id: string;
+          payment_date: string | null;
+          premium_payment: number | null;
+        }> = [];
+        for (const idChunk of chunkArray(contractIds, EXTRACTOR_DB_IN_BATCH)) {
+          const { data: details, error: detailsError } = await supabaseAdmin
+            .from("contract_detail")
+            .select("contract_id, payment_date, premium_payment")
+            .in("contract_id", idChunk);
+          if (detailsError) throw detailsError;
+          existingDetailRows.push(
+            ...((details || []) as Array<{
+              contract_id: string;
+              payment_date: string | null;
+              premium_payment: number | null;
+            }>),
+          );
+        }
 
         const existingKeys = new Set(
-          (details || []).map(
+          existingDetailRows.map(
             (d) =>
               `${d.contract_id}|${d.payment_date ?? ""}|${d.premium_payment ?? ""}`,
           ),
         );
 
         for (const row of parsed.data.details) {
-          const contract = byNumber.get(row.contractNumber);
+          const checked = contractNumberSchema.safeParse(
+            normalizeContractId(row.contractNumber),
+          );
+          if (!checked.success) continue;
+          const contract = byNumber.get(checked.data);
           if (!contract) continue;
           const key = `${contract.id}|${row.paymentDate ?? ""}|${row.premiumPayment ?? ""}`;
           if (existingKeys.has(key)) {
             duplicateDetails.push({
-              contract: row.contractNumber,
+              contract: checked.data,
               ticket: `${row.paymentDate ?? ""} / ${row.premiumPayment ?? ""}`,
               row: row.row,
             });

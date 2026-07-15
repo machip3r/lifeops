@@ -9,6 +9,8 @@ import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 
 type SortKey =
@@ -41,6 +43,10 @@ function ConsultantDetailsPageContent() {
     const [pendingDateEnd, setPendingDateEnd] = useState(defaultEnd);
     const [consultant, setConsultant] = useState<Consultant | null>(null);
     const [contracts, setContracts] = useState<Array<Contract & { client_name?: string }>>([]);
+    const [contractsTotal, setContractsTotal] = useState(0);
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [contractsLoading, setContractsLoading] = useState(false);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
     const [totalPrimaPago, setTotalPrimaPago] = useState(0);
     const [totalPrimaMeta, setTotalPrimaMeta] = useState(0);
@@ -111,12 +117,33 @@ function ConsultantDetailsPageContent() {
         [contractDetails]
     );
 
+    const loadContractsPage = useCallback(async () => {
+        try {
+            setContractsLoading(true);
+            const result = await db.contract.getContractsWithClientsPage({
+                consultantId,
+                page,
+                pageSize,
+            });
+            setContracts(result.rows);
+            setContractsTotal(result.total);
+        } catch (error: unknown) {
+            console.error('Error loading consultant contracts page:', error);
+            setError(
+                error instanceof Error
+                    ? error.message
+                    : 'Error al cargar las pólizas del asesor',
+            );
+        } finally {
+            setContractsLoading(false);
+        }
+    }, [consultantId, page, pageSize]);
+
     const loadConsultantData = useCallback(async () => {
         try {
             setLoading(true);
-            const [consultantData, contractsData, totals, totalsByType] = await Promise.all([
+            const [consultantData, totals, totalsByType] = await Promise.all([
                 db.consultant.getConsultantById(consultantId),
-                db.contract.getContractsWithClients(consultantId),
                 db.dashboard.getConsultantTotals(consultantId, dateStart, dateEnd, seniorityFilter || null),
                 db.dashboard.getConsultantTotalsByType(consultantId, dateStart, dateEnd, seniorityFilter || null),
             ]);
@@ -128,7 +155,6 @@ function ConsultantDetailsPageContent() {
             setConsultant(consultantData);
             setEditName(consultantData.name);
             setEditEmail(consultantData.email || '');
-            setContracts(contractsData);
             setTotalPrimaPago(totals.totalPrimaPago);
             setTotalPrimaMeta(totals.totalPrimaMeta);
             setPrimaPagoVI(totalsByType.primaPagoVI);
@@ -136,12 +162,20 @@ function ConsultantDetailsPageContent() {
             setPrimaMetaVI(totalsByType.primaMetaVI);
             setPrimaMetaGM(totalsByType.primaMetaGM);
 
-            const allDetails: ContractDetail[] = [];
-            for (const contract of contractsData) {
-                const details = await db.contractDetail.getDetailsByContract(contract.id);
-                allDetails.push(...details);
-            }
-            setContractDetails(allDetails);
+            // Charts/seniority options: load all details in the background (does not block the table).
+            void (async () => {
+                try {
+                    const allContracts = await db.contract.getContractsWithClients(consultantId);
+                    const allDetails: ContractDetail[] = [];
+                    for (const contract of allContracts) {
+                        const details = await db.contractDetail.getDetailsByContract(contract.id);
+                        allDetails.push(...details);
+                    }
+                    setContractDetails(allDetails);
+                } catch (chartError) {
+                    console.error('Error loading consultant chart details:', chartError);
+                }
+            })();
         } catch (error: any) {
             console.error('Error loading consultant data:', error);
             setError(error.message || 'Error al cargar los datos del asesor');
@@ -155,6 +189,16 @@ function ConsultantDetailsPageContent() {
             loadConsultantData();
         }
     }, [consultantId, loadConsultantData]);
+
+    useEffect(() => {
+        if (consultantId) {
+            loadContractsPage();
+        }
+    }, [consultantId, loadContractsPage]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [pageSize]);
 
     const handleSave = async () => {
         if (!consultant) return;
@@ -607,7 +651,7 @@ function ConsultantDetailsPageContent() {
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                 <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                     <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-                        Pólizas ({filteredContracts.length} de {contracts.length})
+                        Pólizas ({filteredContracts.length} de {contractsTotal})
                     </h2>
                     <ContractsFilters
                         filters={filters}
@@ -616,73 +660,86 @@ function ConsultantDetailsPageContent() {
                         availablePaymentMethods={availablePaymentMethods}
                     />
                 </div>
-                {contracts.length > 0 ? (
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-700">
-                                <tr>
-                                    <SortableTh label="Cliente" active={sortKey === 'client_name'} dir={sortDir} onSort={() => toggleSort('client_name')} className={TH} />
-                                    <SortableTh label="Número de Póliza" active={sortKey === 'contract_number'} dir={sortDir} onSort={() => toggleSort('contract_number')} className={TH} />
-                                    <SortableTh label="Nombre del Proyecto" active={sortKey === 'project_name'} dir={sortDir} onSort={() => toggleSort('project_name')} className={TH} />
-                                    <SortableTh label="Suma Asegurada" active={sortKey === 'insured_amount'} dir={sortDir} onSort={() => toggleSort('insured_amount')} className={TH} />
-                                    <SortableTh label="Prima Anual" active={sortKey === 'annual_premium'} dir={sortDir} onSort={() => toggleSort('annual_premium')} className={TH} />
-                                    <SortableTh label="Estado" active={sortKey === 'status'} dir={sortDir} onSort={() => toggleSort('status')} className={TH} />
-                                    <SortableTh label="Fecha de Creación" active={sortKey === 'created_at'} dir={sortDir} onSort={() => toggleSort('created_at')} className={TH} />
-                                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                        Acciones
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                {sortedContracts.map((contract: any) => (
-                                    <tr
-                                        key={contract.id}
-                                        onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
-                                        className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
-                                    >
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                            {contract.client_name || 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                            {contract.contract_number || 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {contract.project_name || 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {contract.insured_amount || 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {contract.annual_premium || 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${contract.status === 'PENDING'
-                                                ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                                                : contract.status === 'APPROVED'
-                                                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                                    : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                                                }`}>
-                                                {contract.status}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                            {contract.created_at
-                                                ? new Date(contract.created_at).toLocaleDateString('es-MX')
-                                                : 'N/A'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                                onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
-                                                className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
-                                            >
-                                                Ver Detalles
-                                            </button>
-                                        </td>
+                {contractsTotal > 0 || contracts.length > 0 ? (
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                <thead className="bg-gray-50 dark:bg-gray-700">
+                                    <tr>
+                                        <SortableTh label="Cliente" active={sortKey === 'client_name'} dir={sortDir} onSort={() => toggleSort('client_name')} className={TH} />
+                                        <SortableTh label="Número de Póliza" active={sortKey === 'contract_number'} dir={sortDir} onSort={() => toggleSort('contract_number')} className={TH} />
+                                        <SortableTh label="Nombre del Proyecto" active={sortKey === 'project_name'} dir={sortDir} onSort={() => toggleSort('project_name')} className={TH} />
+                                        <SortableTh label="Suma Asegurada" active={sortKey === 'insured_amount'} dir={sortDir} onSort={() => toggleSort('insured_amount')} className={TH} />
+                                        <SortableTh label="Prima Anual" active={sortKey === 'annual_premium'} dir={sortDir} onSort={() => toggleSort('annual_premium')} className={TH} />
+                                        <SortableTh label="Estado" active={sortKey === 'status'} dir={sortDir} onSort={() => toggleSort('status')} className={TH} />
+                                        <SortableTh label="Fecha de Creación" active={sortKey === 'created_at'} dir={sortDir} onSort={() => toggleSort('created_at')} className={TH} />
+                                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                            Acciones
+                                        </th>
                                     </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                                </thead>
+                                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                    {sortedContracts.map((contract: any) => (
+                                        <tr
+                                            key={contract.id}
+                                            onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
+                                            className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                                        >
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                {contract.client_name || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                                                {contract.contract_number || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                {contract.project_name || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                {contract.insured_amount || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                {contract.annual_premium || 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${contract.status === 'PENDING'
+                                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                                                    : contract.status === 'APPROVED'
+                                                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                                                    }`}>
+                                                    {contract.status}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                                {contract.created_at
+                                                    ? new Date(contract.created_at).toLocaleDateString('es-MX')
+                                                    : 'N/A'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
+                                                <button
+                                                    onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
+                                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
+                                                >
+                                                    Ver Detalles
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        <TablePagination
+                            page={page}
+                            pageSize={pageSize}
+                            total={contractsTotal}
+                            disabled={contractsLoading}
+                            onPageChange={setPage}
+                            onPageSizeChange={(size) => {
+                                setPageSize(size);
+                                setPage(1);
+                            }}
+                        />
+                    </>
                 ) : (
                     <div className="p-12 text-center">
                         <p className="text-gray-600 dark:text-gray-400 text-lg">

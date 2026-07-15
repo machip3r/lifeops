@@ -8,6 +8,7 @@ import { es } from 'date-fns/locale';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
@@ -23,6 +24,7 @@ import type {
   CollectionMonthCell,
   CollectionsGridRow,
 } from '@/lib/collections/service';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import type { CollectionStatus } from '@/lib/supabase';
 import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
 import {
@@ -126,6 +128,9 @@ export default function CollectionsPage() {
   const { toast } = useToast();
   const [year, setYear] = useState(currentYear);
   const [rows, setRows] = useState<CollectionsGridRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<PaymentDialogState | null>(null);
@@ -141,20 +146,26 @@ export default function CollectionsPage() {
     if (!accessToken) return;
     setLoading(true);
     try {
-      const result = await getCollectionsGridAction(accessToken, { year });
+      const result = await getCollectionsGridAction(accessToken, {
+        year,
+        page,
+        pageSize,
+      });
       if (!result.ok) {
         toast.error(result.error);
         setRows([]);
+        setTotal(0);
         return;
       }
-      setRows(result.data);
+      setRows(result.data.rows);
+      setTotal(result.data.total);
     } catch (err) {
       console.error(err);
       toast.error('Error al cargar cobranza.');
     } finally {
       setLoading(false);
     }
-  }, [accessToken, year, toast]);
+  }, [accessToken, year, page, pageSize, toast]);
 
   const reloadAudit = useCallback(async () => {
     if (!accessToken) return;
@@ -172,15 +183,18 @@ export default function CollectionsPage() {
   useEffect(() => {
     if (!profile || !accessToken) return;
     let cancelled = false;
-    void getCollectionsGridAction(accessToken, { year })
+    setLoading(true);
+    void getCollectionsGridAction(accessToken, { year, page, pageSize })
       .then((result) => {
         if (cancelled) return;
         if (!result.ok) {
           toast.error(result.error);
           setRows([]);
+          setTotal(0);
           return;
         }
-        setRows(result.data);
+        setRows(result.data.rows);
+        setTotal(result.data.total);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -193,7 +207,7 @@ export default function CollectionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [profile, accessToken, year, toast]);
+  }, [profile, accessToken, year, page, pageSize, toast]);
 
   useEffect(() => {
     if (!profile || !accessToken || !auditOpen) return;
@@ -373,6 +387,7 @@ export default function CollectionsPage() {
             value={year}
             onChange={(e) => {
               setLoading(true);
+              setPage(1);
               setYear(Number(e.target.value));
             }}
             className="rounded-md border border-[#3a4049] bg-[#242830] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
@@ -384,7 +399,7 @@ export default function CollectionsPage() {
             ))}
           </select>
           <p className="text-sm text-[#9ca3af]">
-            {rows.length} pólizas · {paidCount} pagos marcados
+            {total.toLocaleString('es-MX')} pólizas · {paidCount} pagos marcados
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -677,6 +692,21 @@ export default function CollectionsPage() {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            disabled={loading}
+            onPageChange={(next) => {
+              setLoading(true);
+              setPage(next);
+            }}
+            onPageSizeChange={(size) => {
+              setLoading(true);
+              setPageSize(size);
+              setPage(1);
+            }}
+          />
         </div>
       )}
 

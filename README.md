@@ -1,6 +1,6 @@
 # LifeOps
 
-A Next.js application for managing insurance operations, consultants, clients, contracts, and policy data. The system includes an HTML table extractor that imports data from HTML files into a structured database.
+A Next.js application for managing insurance operations, consultants, clients, contracts, and policy data. The system includes an HTML / Excel extractor that imports commission and payment data into a structured database.
 
 ## Tech Stack
 
@@ -73,7 +73,7 @@ lifeops/
   - `office_id` (UUID, FK → `office.id`)
   - `name` (TEXT)
   - `email` (TEXT, nullable)
-  - `consultant_code` (TEXT, nullable, unique when not null) - **This is the "asesor" from HTML imports**
+  - `consultant_code` (TEXT, nullable, unique per office when not null) - **This is the "asesor" from HTML/Excel imports**
   - `auth_user_id` (UUID, nullable, FK → `auth.users.id`)
   - `status` (TEXT: 'ACTIVE', 'INACTIVE', 'PENDING')
 - **Relationships**:
@@ -172,23 +172,25 @@ contract (1) ──< (many) contract_change_request
 
 ## Key Features
 
-### 1. HTML Table Extractor (`/dashboard/extractor`)
+### 1. HTML / Excel Extractor (`/dashboard/extractor`)
 
-**Purpose**: Import insurance data from HTML files into the database.
+**Purpose**: Import insurance data from HTML commission pages or Excel pagos workbooks into the database.
 
 **How it works**:
-1. User uploads an HTML file containing table data
-2. System parses all HTML tables and combines them into a single table
-3. First 4 columns are prepended: `Cliente`, `Poliza`, `Moneda`, `Asesor`
-4. Data is displayed in a preview table
-5. User clicks "Import to Database" button
+1. User uploads an HTML/MHTML file **or** clicks **Importar desde Excel** with a `.xlsx` (pagos columns: Cliente, Póliza, Ramo, Moneda, Tipo Cambio, Asesor, fechas, primas, forma de pago, etc.)
+2. System parses into a shared 24-column preview table
+3. Data is displayed for review / edit
+4. User clicks "Importar a Base de Datos"
 
 **Import Process**:
 1. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist
 2. **Automatic missing-consultant creation**: If codes are missing for the office, import auto-creates them via `POST /api/extractor/create-consultants` (`mode: auto`):
-   - Email: `<asesorCode>@lifeops.com` (lowercase code, e.g. `72094@lifeops.com`)
+   - Email: `<asesorCode>.<officeTag>@lifeops.com` (office-scoped so the same code can exist in another promotoría)
+   - Name: from Excel/HTML column `Nombre Asesor` when present (otherwise the code)
    - Default password: `Hola123!!` (change for production / after invite)
    - Creates Auth user (email confirmed) + `consultant` row (`id` / `auth_user_id` linked)
+   - On re-import, updates `consultant.name` when the file includes a real nombre
+   - Same `consultant_code` may belong to different offices (unique per `office_id` only)
 3. **Data Grouping**: Groups rows by contract (unique combination of `Cliente` + `Poliza` + `Asesor`)
 4. **Contract Creation**: For each unique contract:
    - Finds or creates client by name
@@ -196,17 +198,18 @@ contract (1) ──< (many) contract_change_request
    - Checks if contract with same `contract_number` (poliza) exists
    - Creates new contract if it doesn't exist
 5. **Contract Details Creation**: For each row in a contract group:
-   - Creates a `contract_detail` record
-   - Maps all 24 columns from HTML to database fields
+   - Creates a `contract_detail` record (deduped when all mapped columns match)
+   - Maps columns by header name to database fields
    - Stores dates in YYYY-MM-DD format (converted from DD/MM/YYYY)
-   - Stores any unmapped data in `row_data` JSONB field
+   - Seeds cobranza month marks from payment dates (`source=import`)
+   - Clients are find-or-created by name for the office (names with spaces are supported; broken PostgREST `ilike` OR filters were fixed)
 
 **Important Mappings**:
-- `Asesor` (HTML column 3) → `consultant.consultant_code`
-- `Poliza` (HTML column 1) → `contract.contract_number`
-- `Cliente` (HTML column 0) → `client.name`
-- `Moneda` (HTML column 2) → `contract.currency`
-- Remaining columns (4+) → `contract_detail` fields
+- `Asesor` → `consultant.consultant_code`
+- `Poliza` → `contract.contract_number`
+- `Cliente` → `client.name`
+- `Moneda` / `Tipo Cambio` → `contract.currency` / `exchange_rate`
+- Detail headers (FECHA EMISION, FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, …) → `contract_detail`
 
 ### 2. Authentication & Authorization
 
@@ -272,7 +275,7 @@ Defines interfaces for all database tables:
 
 When importing HTML data:
 1. Client checks missing codes via `POST /api/extractor/missing-consultants` (Bearer auth)
-2. Auto-creates missing consultants via `POST /api/extractor/create-consultants` (`mode: auto`, service role) with email `<asesorCode>@lifeops.com`
+2. Auto-creates missing consultants via `POST /api/extractor/create-consultants` (`mode: auto`, service role) with office-scoped email `<asesorCode>.<officeTag>@lifeops.com` (same code allowed in other offices)
 3. Auth user ID is used for both `id` and `auth_user_id` on the consultant row
 4. Status starts as `PENDING` until the adviser completes setup
 
@@ -328,7 +331,7 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ### Main Pages
 
-- `/dashboard/extractor`: HTML import and data extraction
+- `/dashboard/extractor`: HTML / Excel import and data extraction
 - `/dashboard/contracts`: Contract listing and management
 - `/dashboard/consultants`: Consultant management (promotory only)
 - `/dashboard/clients`: Client listing
@@ -367,10 +370,12 @@ Open [http://localhost:3000](http://localhost:3000)
    - New `contract_detail` records are always created (no deduplication)
 
 5. **Import auto-created asesores**:
-   - Email pattern: `<asesorCode>@lifeops.com` (e.g. `72094@lifeops.com`)
+   - Email pattern: `<asesorCode>.<officeTag>@lifeops.com` (unique per office; same code OK across promotorías)
    - Default password: `Hola123!!` — change for production / invite real emails later
+   - `consultant_code` unique per `office_id` only
 
 6. **Dashboard & Cobranza Features (current state)**:
+   - List screens (asesores, clientes, pólizas, solicitudes, cobranza, and detail sub-tables) use **Supabase-backed pagination** (`.select(..., { count: 'exact' })` + `.range()`, default 25 rows; shared `TablePagination` UI).
    - Overview dashboard (`/dashboard`) with:
      - Date basis selector (fecha de pago vs fecha de emisión).
      - Date range picker (Shadcn Calendar, pending state + Aplicar).

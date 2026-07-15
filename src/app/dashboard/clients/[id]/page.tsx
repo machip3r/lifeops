@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { Client, Contract, Consultant, ContractDetail } from '@/lib/supabase';
+import { Client, Contract, Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 
 type SortKey =
@@ -28,6 +30,10 @@ function ClientDetailsPageContent() {
     const { profile } = useAuth();
     const [client, setClient] = useState<Client | null>(null);
     const [contracts, setContracts] = useState<Contract[]>([]);
+    const [contractsTotal, setContractsTotal] = useState(0);
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [contractsLoading, setContractsLoading] = useState(false);
     const [consultantsMap, setConsultantsMap] = useState<Map<string, Consultant>>(new Map());
     const [contractSavingsMap, setContractSavingsMap] = useState<Map<string, number>>(new Map());
     const [loading, setLoading] = useState(true);
@@ -84,38 +90,43 @@ function ClientDetailsPageContent() {
 
     const loadClientData = useCallback(async () => {
         try {
-            setLoading(true);
-            const [clientData, contractsData] = await Promise.all([
+            setContractsLoading(true);
+            const [clientData, contractsPage] = await Promise.all([
                 db.client.getClientById(clientId),
-                db.contract.getContractsByClient(clientId),
+                db.contract.getContractsWithClientsPage({
+                    clientId,
+                    page,
+                    pageSize,
+                }),
             ]);
 
             if (!clientData) {
                 throw new Error('Cliente no encontrado');
             }
 
+            const contractsData = contractsPage.rows;
             setClient(clientData);
             setContracts(contractsData);
+            setContractsTotal(contractsPage.total);
 
-            // Load consultant names for all contracts
+            // Load consultant names for contracts on this page
             const consultantIds = [...new Set(contractsData.map(c => c.consultant_id).filter((id): id is string => !!id))];
-            const consultantsMap = new Map<string, Consultant>();
+            const nextConsultantsMap = new Map<string, Consultant>();
 
             for (const consultantId of consultantIds) {
                 try {
                     const consultant = await db.consultant.getConsultantById(consultantId);
                     if (consultant) {
-                        consultantsMap.set(consultantId, consultant);
+                        nextConsultantsMap.set(consultantId, consultant);
                     }
                 } catch (error) {
                     console.error(`Error loading consultant ${consultantId}:`, error);
                 }
             }
 
-            setConsultantsMap(consultantsMap);
+            setConsultantsMap(nextConsultantsMap);
 
-            // Load contract details for all contracts and calculate savings (ahorro cliente)
-            // Ahorro cliente = sum of collection_premium for each contract
+            // Savings (ahorro cliente) for contracts on this page only
             const savingsMap = new Map<string, number>();
 
             for (const contract of contractsData) {
@@ -137,14 +148,20 @@ function ClientDetailsPageContent() {
             console.error('Error loading client data:', error);
         } finally {
             setLoading(false);
+            setContractsLoading(false);
         }
-    }, [clientId]);
+    }, [clientId, page, pageSize]);
+
 
     useEffect(() => {
         if (clientId) {
             loadClientData();
         }
     }, [clientId, loadClientData]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [pageSize]);
 
     const formatDate = (dateString: string | null | undefined) => {
         if (!dateString) return 'N/A';
@@ -239,7 +256,7 @@ function ClientDetailsPageContent() {
                     </div>
                     <div>
                         <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Total de Pólizas</span>
-                        <p id="client-total-policies" className="text-sm text-gray-900 dark:text-white">{contracts.length}</p>
+                        <p id="client-total-policies" className="text-sm text-gray-900 dark:text-white">{contractsTotal}</p>
                     </div>
                     <div>
                         <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Registro</span>
@@ -251,11 +268,11 @@ function ClientDetailsPageContent() {
             </div>
 
             {/* Contracts List */}
-            {contracts.length > 0 ? (
+            {contractsTotal > 0 || contracts.length > 0 ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                     <div className="p-6 border-b border-gray-200 dark:border-gray-700">
                         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-                            Pólizas ({filteredContracts.length} de {contracts.length})
+                            Pólizas ({filteredContracts.length} de {contractsTotal})
                         </h2>
                         <ContractsFilters
                             filters={filters}
@@ -352,6 +369,17 @@ function ClientDetailsPageContent() {
                             </tbody>
                         </table>
                     </div>
+                    <TablePagination
+                        page={page}
+                        pageSize={pageSize}
+                        total={contractsTotal}
+                        disabled={contractsLoading}
+                        onPageChange={setPage}
+                        onPageSizeChange={(size) => {
+                            setPageSize(size);
+                            setPage(1);
+                        }}
+                    />
                 </div>
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">

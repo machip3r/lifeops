@@ -224,6 +224,8 @@ export const clearCollectionPaymentSchema = z.object({
 
 export const getCollectionsGridSchema = z.object({
   year: collectionYearSchema,
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
 });
 
 export const getCollectionAuditLogSchema = z.object({

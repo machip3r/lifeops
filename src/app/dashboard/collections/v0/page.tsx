@@ -3,11 +3,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
-import { addMonths, endOfMonth, parseISO, isAfter } from 'date-fns';
+import { addMonths, parseISO } from 'date-fns';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import Link from 'next/link';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 
 type SortKey = 'contract_number' | 'client_name' | 'nextDue' | 'payment_method' | 'premium_payment';
@@ -47,67 +49,68 @@ export default function CollectionsPage() {
   const { profile, loading: authLoading } = useAuth();
   const [details, setDetails] = useState<DetailRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dueByEndOfMonth, setDueByEndOfMonth] = useState(true); // show due by end of current month, or include next month
+  const [dueByEndOfMonth, setDueByEndOfMonth] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const loadDetails = useCallback(async () => {
     try {
-      const data = await db.contractDetail.getDetailsWithContractAndClient();
-      setDetails(data as DetailRow[]);
+      setLoading(true);
+      const result = await db.contractDetail.getDetailsWithContractAndClientPage({
+        page,
+        pageSize,
+        dueByEndOfMonth: dueByEndOfMonth || undefined,
+      });
+      setDetails(result.rows as DetailRow[]);
+      setTotal(result.total);
     } catch (error) {
       console.error('Error loading collections data:', error);
+      setDetails([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page, pageSize, dueByEndOfMonth]);
 
   useEffect(() => {
     if (profile) loadDetails();
   }, [profile, loadDetails]);
 
-  // One row per contract: the latest payment (by payment_date) so we get a single "next due" per contract
-  const latestByContract = useMemo(() => {
-    const byContract = new Map<string, DetailRow>();
-    for (const row of details) {
-      const existing = byContract.get(row.contract_id);
-      const rowDate = row.payment_date || '';
-      const existingDate = existing?.payment_date || '';
-      if (!existing || rowDate > existingDate) {
-        byContract.set(row.contract_id, row);
-      }
-    }
-    return Array.from(byContract.values());
-  }, [details]);
-
-  const dueItems = useMemo(() => {
-    const cutoff = dueByEndOfMonth ? endOfMonth(new Date()) : endOfMonth(addMonths(new Date(), 1));
-    return latestByContract
-      .map((row) => {
-        const nextDue = getNextDueDate(row.payment_date, row.payment_method);
-        return { row, nextDue };
-      })
-      .filter(({ nextDue }) => nextDue != null && !isAfter(nextDue, cutoff))
-      .sort((a, b) => (a.nextDue!.getTime() - b.nextDue!.getTime()));
-  }, [latestByContract, dueByEndOfMonth]);
+  const dueItems = useMemo(
+    () =>
+      details.map((row) => ({
+        row,
+        nextDue: getNextDueDate(row.payment_date, row.payment_method),
+      })),
+    [details],
+  );
 
   const totalDue = useMemo(
     () => dueItems.reduce((sum, { row }) => sum + (row.premium_payment ?? 0), 0),
-    [dueItems]
+    [dueItems],
   );
 
   const sortedDueItems = useMemo(
     () =>
-      sortRows(dueItems, sortKey, sortDir, {
-        contract_number: (i) => i.row.contract_number,
-        client_name: (i) => i.row.client_name,
-        nextDue: (i) => i.nextDue,
-        payment_method: (i) => i.row.payment_method,
-        premium_payment: (i) => i.row.premium_payment,
-      }, {
-        nextDue: 'date',
-        premium_payment: 'number',
-      }),
+      sortRows(
+        dueItems,
+        sortKey,
+        sortDir,
+        {
+          contract_number: (i) => i.row.contract_number,
+          client_name: (i) => i.row.client_name,
+          nextDue: (i) => i.nextDue,
+          payment_method: (i) => i.row.payment_method,
+          premium_payment: (i) => i.row.premium_payment,
+        },
+        {
+          nextDue: 'date',
+          premium_payment: 'number',
+        },
+      ),
     [dueItems, sortKey, sortDir],
   );
 
@@ -148,11 +151,14 @@ export default function CollectionsPage() {
           <label className="text-sm text-[#9ca3af]">Mostrar vencimientos hasta:</label>
           <select
             value={dueByEndOfMonth ? 'month' : 'next'}
-            onChange={(e) => setDueByEndOfMonth(e.target.value === 'month')}
+            onChange={(e) => {
+              setPage(1);
+              setDueByEndOfMonth(e.target.value === 'month');
+            }}
             className="rounded-md border border-[#3a4049] bg-[#242830] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
           >
             <option value="month">Fin del mes actual</option>
-            <option value="next">Fin del próximo mes</option>
+            <option value="next">Todos (sin filtro de mes)</option>
           </select>
         </div>
       </div>
@@ -161,7 +167,7 @@ export default function CollectionsPage() {
         <div className="flex justify-center items-center py-12">
           <p className="text-[#9ca3af]">Cargando cobranza...</p>
         </div>
-      ) : dueItems.length === 0 ? (
+      ) : total === 0 ? (
         <div className="rounded-lg border border-[#2a2f38] bg-[#242830] p-8 text-center">
           <p className="text-[#9ca3af]">
             No hay pagos pendientes en el periodo seleccionado.
@@ -171,7 +177,9 @@ export default function CollectionsPage() {
         <>
           <div className="rounded-lg border border-[#2a2f38] bg-[#242830] p-4">
             <p className="text-sm text-[#9ca3af]">
-              Total a cobrar ({dueItems.length} {dueItems.length === 1 ? 'póliza' : 'pólizas'}):{' '}
+              Total a cobrar en esta página ({dueItems.length}{' '}
+              {dueItems.length === 1 ? 'registro' : 'registros'} · {total.toLocaleString('es-MX')}{' '}
+              en total):{' '}
               <span className="font-semibold text-white">
                 ${totalDue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
@@ -191,7 +199,7 @@ export default function CollectionsPage() {
                 </thead>
                 <tbody className="divide-y divide-[#2a2f38]">
                   {sortedDueItems.map(({ row, nextDue }) => (
-                    <tr key={`${row.contract_id}-${row.payment_date}`} className="hover:bg-[#2a2f38]/50">
+                    <tr key={`${row.id}-${row.payment_date}`} className="hover:bg-[#2a2f38]/50">
                       <td className="px-4 py-3 whitespace-nowrap">
                         <Link
                           href={`/dashboard/contracts/${row.contract_id}`}
@@ -219,6 +227,17 @@ export default function CollectionsPage() {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              disabled={loading}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+            />
           </div>
         </>
       )}

@@ -1,7 +1,9 @@
 import "server-only";
 
+import { chunkArray, EXTRACTOR_DB_IN_BATCH } from "@/lib/extractor/batch";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Consultant, Office } from "@/lib/supabase";
+import { LIMITS } from "@/lib/validation/schemas";
 
 /** Auth Admin has no get-by-email; paginate until the address is found. */
 async function findAuthUserIdByEmail(targetEmail: string): Promise<string | null> {
@@ -162,17 +164,29 @@ export async function createConsultantWithAuth(
 }
 
 /**
- * For HTML import: if no consultant with this code exists for the office,
+ * For HTML/Excel import: if no consultant with this code exists for the office,
  * create auth user + consultant row with a default email/password.
+ * When `name` is provided, use it on create; also refresh placeholder names
+ * (empty or equal to the code) on existing rows.
  */
 export async function ensureConsultantForImport(
   code: string,
   officeId: string,
+  name?: string | null,
 ): Promise<{ consultant: Consultant | null; created: boolean; error?: string }> {
   const trimmed = code.trim();
   if (!trimmed) {
     return { consultant: null, created: false, error: "Código de asesor vacío" };
   }
+
+  const cleanedName = (name ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, LIMITS.entityName);
+  const displayName =
+    cleanedName && cleanedName.toLowerCase() !== trimmed.toLowerCase()
+      ? cleanedName
+      : trimmed;
 
   const { data: existing } = await supabaseAdmin
     .from("consultant")
@@ -182,34 +196,40 @@ export async function ensureConsultantForImport(
     .maybeSingle();
 
   if (existing) {
+    const currentName = (existing.name ?? "").trim();
+    const hasRealImportName =
+      displayName.toLowerCase() !== trimmed.toLowerCase();
+
+    if (
+      hasRealImportName &&
+      currentName.toLowerCase() !== displayName.toLowerCase()
+    ) {
+      const { data: updated, error: updErr } = await supabaseAdmin
+        .from("consultant")
+        .update({ name: displayName })
+        .eq("id", existing.id)
+        .select()
+        .single();
+      if (updErr) {
+        console.error("ensureConsultantForImport name update:", updErr);
+        return { consultant: existing as Consultant, created: false };
+      }
+      return { consultant: (updated ?? existing) as Consultant, created: false };
+    }
+
     return { consultant: existing as Consultant, created: false };
   }
 
-  const { data: globalRow } = await supabaseAdmin
-    .from("consultant")
-    .select("*")
-    .eq("consultant_code", trimmed)
-    .maybeSingle();
-
-  if (globalRow) {
-    if (globalRow.office_id === officeId) {
-      return { consultant: globalRow as Consultant, created: false };
-    }
-    return {
-      consultant: null,
-      created: false,
-      error: `El código "${trimmed}" ya está asignado a otra oficina.`,
-    };
-  }
-
-  // Auto-import accounts: <asesorCode>@lifeops.com (lowercase local part).
-  const defaultEmail = `${trimmed.toLowerCase()}@lifeops.com`;
+  // Auto-import accounts: office-scoped email so the same code can exist in another office.
+  // Format: <asesorCode>.<officeIdWithoutDashes12>@lifeops.com
+  const officeEmailTag = officeId.replace(/-/g, "").slice(0, 12).toLowerCase();
+  const defaultEmail = `${trimmed.toLowerCase()}.${officeEmailTag}@lifeops.com`;
   const defaultPassword = "Hola123!!";
 
   try {
     const result = await createConsultantWithAuth(officeId, {
       consultantCode: trimmed,
-      name: trimmed,
+      name: displayName,
       email: defaultEmail,
       password: defaultPassword,
     });
@@ -249,11 +269,15 @@ export async function findContractsByNumbers(
   contractNumbers: string[],
 ): Promise<Array<{ id: string; contract_number: string }>> {
   if (contractNumbers.length === 0) return [];
-  const { data, error } = await supabaseAdmin
-    .from("contract")
-    .select("id, contract_number")
-    .in("contract_number", contractNumbers);
-
-  if (error) throw error;
-  return (data || []) as Array<{ id: string; contract_number: string }>;
+  const unique = [...new Set(contractNumbers.map((n) => n.trim()).filter(Boolean))];
+  const out: Array<{ id: string; contract_number: string }> = [];
+  for (const chunk of chunkArray(unique, EXTRACTOR_DB_IN_BATCH)) {
+    const { data, error } = await supabaseAdmin
+      .from("contract")
+      .select("id, contract_number")
+      .in("contract_number", chunk);
+    if (error) throw error;
+    out.push(...((data || []) as Array<{ id: string; contract_number: string }>));
+  }
+  return out;
 }

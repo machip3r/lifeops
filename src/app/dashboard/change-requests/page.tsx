@@ -2,12 +2,18 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { ContractChangeRequest, Contract } from '@/lib/supabase';
+import { ContractChangeRequest } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
+
+type ChangeRequestRow = ContractChangeRequest & {
+    contract_number?: string | null;
+};
 
 type SortKey = 'request_type' | 'folio_number' | 'contract_number' | 'details' | 'status' | 'created_at';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
@@ -15,47 +21,49 @@ const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
 function ChangeRequestsPageContent() {
     const router = useRouter();
     const { profile } = useAuth();
-    const [changeRequests, setChangeRequests] = useState<ContractChangeRequest[]>([]);
-    const [contracts, setContracts] = useState<{ [key: string]: Contract }>({});
+    const [changeRequests, setChangeRequests] = useState<ChangeRequestRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<SortDir>('asc');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [total, setTotal] = useState(0);
 
     const loadChangeRequests = useCallback(async () => {
         try {
             if (!profile?.id) return;
 
-            let data: ContractChangeRequest[];
-            if (profile.role === 'promotory') {
-                data = await db.contractChangeRequest.getChangeRequestsByOffice(profile.id);
-            } else {
-                data = await db.contractChangeRequest.getChangeRequestsByConsultant(profile.id);
-            }
+            const dbSort =
+                sortKey && sortKey !== 'contract_number'
+                    ? { column: sortKey, ascending: sortDir === 'asc' }
+                    : undefined;
 
-            setChangeRequests(data);
+            const result = await db.contractChangeRequest.getChangeRequestsPage({
+                officeId: profile.role === 'promotory' ? profile.id : undefined,
+                consultantId: profile.role === 'consultant' ? profile.id : undefined,
+                sort: dbSort,
+                page,
+                pageSize,
+            });
 
-            // Load contracts for display
-            const contractIds = [...new Set(data.map(cr => cr.contract_id))];
-            const contractsData: { [key: string]: Contract } = {};
-            for (const contractId of contractIds) {
-                const contract = await db.contract.getContractById(contractId);
-                if (contract) {
-                    contractsData[contractId] = contract;
-                }
-            }
-            setContracts(contractsData);
+            setChangeRequests(result.rows);
+            setTotal(result.total);
         } catch (error) {
             console.error('Error loading change requests:', error);
         } finally {
             setLoading(false);
         }
-    }, [profile]);
+    }, [profile, page, pageSize, sortKey, sortDir]);
 
     useEffect(() => {
         if (profile) {
             loadChangeRequests();
         }
     }, [profile, loadChangeRequests]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [pageSize, sortKey, sortDir]);
 
     const getStatusColor = (status: string) => {
         switch (status) {
@@ -70,18 +78,14 @@ function ChangeRequestsPageContent() {
         }
     };
 
-    const sortedRequests = useMemo(
-        () =>
-            sortRows(changeRequests, sortKey, sortDir, {
-                request_type: (r) => r.request_type,
-                folio_number: (r) => r.folio_number,
-                contract_number: (r) => contracts[r.contract_id]?.contract_number,
-                details: (r) => r.details,
-                status: (r) => r.status,
-                created_at: (r) => r.created_at,
-            }, { created_at: 'date' }),
-        [changeRequests, contracts, sortKey, sortDir],
-    );
+    const displayedRequests = useMemo(() => {
+        if (sortKey === 'contract_number') {
+            return sortRows(changeRequests, sortKey, sortDir, {
+                contract_number: (r) => r.contract_number,
+            });
+        }
+        return changeRequests;
+    }, [changeRequests, sortKey, sortDir]);
 
     const toggleSort = (key: SortKey) => {
         const next = nextSortState(sortKey, sortDir, key);
@@ -120,7 +124,7 @@ function ChangeRequestsPageContent() {
                 </div>
             )}
 
-            {changeRequests.length === 0 ? (
+            {total === 0 ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
                     <p className="text-gray-600 dark:text-gray-400 text-lg">
                         No hay solicitudes de cambio registradas
@@ -128,6 +132,7 @@ function ChangeRequestsPageContent() {
                 </div>
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                    <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
@@ -143,9 +148,7 @@ function ChangeRequestsPageContent() {
                             </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {sortedRequests.map((request) => {
-                                const contract = contracts[request.contract_id];
-                                return (
+                            {displayedRequests.map((request) => (
                                     <tr
                                         key={request.id}
                                         onClick={() => router.push(`/dashboard/change-requests/${request.id}`)}
@@ -163,7 +166,7 @@ function ChangeRequestsPageContent() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="text-sm text-gray-600 dark:text-gray-400">
-                                                {contract?.contract_number || 'N/A'}
+                                                {request.contract_number || 'N/A'}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4">
@@ -192,10 +195,21 @@ function ChangeRequestsPageContent() {
                                             </button>
                                         </td>
                                     </tr>
-                                );
-                            })}
+                            ))}
                         </tbody>
                     </table>
+                    </div>
+                    <TablePagination
+                        page={page}
+                        pageSize={pageSize}
+                        total={total}
+                        disabled={loading}
+                        onPageChange={setPage}
+                        onPageSizeChange={(size) => {
+                            setPageSize(size);
+                            setPage(1);
+                        }}
+                    />
                 </div>
             )}
         </div>
@@ -209,4 +223,3 @@ export default function ChangeRequestsPage() {
         </ProtectedRoute>
     );
 }
-

@@ -8,6 +8,8 @@ English reference for the Postgres schema (Supabase). Source of truth: migration
 | `002_collections_control.sql` | Cobranza payment grid: `collection_status` / `collection_day` on `contract`, `contract_collection_payment`, `collection_audit_log`, seed RPC + RLS |
 | `003_collection_payment_channel_audit.sql` | Extends `collection_audit_log.action_type` with `payment_channel_change` |
 | `004_collection_project_name_audit.sql` | Extends `collection_audit_log.action_type` with `project_name_change` |
+| `005_consultant_code_per_office.sql` | `consultant_code` unique per `office_id` (same code allowed across offices) |
+| `006_drop_global_consultant_code_constraint.sql` | Drops leftover global UNIQUE `consultant_consultant_code_key` so 005’s per-office index actually applies |
 
 **Rule:** never edit an applied migration. Append `002_…`, `003_…`, etc.
 
@@ -66,7 +68,7 @@ contract (1) ──< (many) file (via folder_key / ownership patterns)
 | `office_id` | FK → `office` |
 | `name` | Display name |
 | `email` | Nullable; unique when set |
-| `consultant_code` | Asesor code from HTML import; unique when set |
+| `consultant_code` | Asesor code from HTML/Excel import; unique per office when set |
 | `auth_user_id` | Nullable FK → `auth.users` when invited |
 | `status` | `ACTIVE` \| `INACTIVE` \| `PENDING` |
 

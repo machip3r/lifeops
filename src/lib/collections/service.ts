@@ -6,6 +6,13 @@ import type {
   CollectionStatus,
   ContractCollectionPayment,
 } from "@/lib/supabase";
+import {
+  emptyPageResult,
+  normalizePageParams,
+  toRange,
+  type PageParams,
+  type PageResult,
+} from "@/lib/pagination";
 
 export type CollectionsActor = {
   userId: string;
@@ -162,11 +169,15 @@ export async function seedCollectionPaymentsForYear(
 export async function getCollectionsGrid(
   client: SupabaseClient,
   year: number,
-): Promise<ActionResult<CollectionsGridRow[]>> {
+  pageParams?: Partial<PageParams>,
+): Promise<ActionResult<PageResult<CollectionsGridRow>>> {
   const actor = await resolveActor(client);
   if (!actor.ok) return actor;
 
   await seedCollectionPaymentsForYear(client, year);
+
+  const { page, pageSize } = normalizePageParams(pageParams);
+  const { from, to } = toRange(page, pageSize);
 
   let contractsQuery = client
     .from("contract")
@@ -184,9 +195,11 @@ export async function getCollectionsGrid(
       consultant:consultant_id ( id, name, consultant_code, office_id ),
       client:client_id ( name )
     `,
+      { count: "exact" },
     )
     .eq("status", "ACTIVE")
-    .order("contract_number", { ascending: true, nullsFirst: false });
+    .order("contract_number", { ascending: true, nullsFirst: false })
+    .range(from, to);
 
   if (actor.data.role === "consultant" && actor.data.consultantId) {
     contractsQuery = contractsQuery.eq(
@@ -195,16 +208,24 @@ export async function getCollectionsGrid(
     );
   }
 
-  const { data: contracts, error: contractsError } = await contractsQuery;
+  const {
+    data: contracts,
+    error: contractsError,
+    count,
+  } = await contractsQuery;
   if (contractsError) {
     console.error(contractsError);
     return { ok: false, error: "No se pudieron cargar los contratos." };
   }
 
   const list = contracts ?? [];
+  const total = count ?? 0;
   const contractIds = list.map((c) => c.id as string);
   if (contractIds.length === 0) {
-    return { ok: true, data: [] };
+    return {
+      ok: true,
+      data: emptyPageResult<CollectionsGridRow>({ page, pageSize }),
+    };
   }
 
   const { data: payments, error: paymentsError } = await client
@@ -293,7 +314,10 @@ export async function getCollectionsGrid(
     };
   });
 
-  return { ok: true, data: rows };
+  return {
+    ok: true,
+    data: { rows, total, page, pageSize },
+  };
 }
 
 export async function updateCollectionStatus(

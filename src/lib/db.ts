@@ -4,6 +4,37 @@ import {
     syncPaymentsFromImportedDetails,
     writeImportSyncAudit,
 } from '@/lib/collections/service';
+import { chunkArray, IMPORT_BATCH_SIZE } from '@/lib/extractor/batch';
+import {
+    emptyPageResult,
+    normalizePageParams,
+    toRange,
+    type PageParams,
+    type PageResult,
+    type SortOrder,
+} from '@/lib/pagination';
+
+async function attachContractCounts(
+    clients: Client[],
+): Promise<Array<Client & { contract_count?: number }>> {
+    if (clients.length === 0) return [];
+    const ids = clients.map((c) => c.id);
+    const { data, error } = await supabase
+        .from('contract')
+        .select('client_id')
+        .in('client_id', ids);
+    if (error) throw error;
+    const counts = new Map<string, number>();
+    for (const row of data || []) {
+        const cid = row.client_id as string | null;
+        if (!cid) continue;
+        counts.set(cid, (counts.get(cid) ?? 0) + 1);
+    }
+    return clients.map((c) => ({
+        ...c,
+        contract_count: counts.get(c.id) ?? 0,
+    }));
+}
 
 // Token interface
 export interface Token {
@@ -121,6 +152,51 @@ export const db = {
 
             if (error) throw error;
             return data || [];
+        },
+
+        getConsultantsByOfficePage: async (
+            officeId: string,
+            params: Partial<PageParams> & {
+                search?: string;
+                status?: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ALL';
+                sort?: SortOrder;
+            } = {},
+        ): Promise<PageResult<Consultant>> => {
+            const { page, pageSize } = normalizePageParams(params);
+            const { from, to } = toRange(page, pageSize);
+            const sortCol = params.sort?.column &&
+                ['name', 'email', 'consultant_code', 'status', 'created_at'].includes(params.sort.column)
+                ? params.sort.column
+                : 'created_at';
+            const ascending = params.sort?.ascending ?? false;
+
+            let query = supabase
+                .from('consultant')
+                .select('*', { count: 'exact' })
+                .eq('office_id', officeId)
+                .order(sortCol, { ascending, nullsFirst: false })
+                .range(from, to);
+
+            if (params.status && params.status !== 'ALL') {
+                query = query.eq('status', params.status);
+            }
+
+            const search = params.search?.trim();
+            if (search) {
+                const pattern = `%${search}%`;
+                query = query.or(
+                    `name.ilike.${pattern},email.ilike.${pattern},consultant_code.ilike.${pattern}`,
+                );
+            }
+
+            const { data, error, count } = await query;
+            if (error) throw error;
+            return {
+                rows: (data as Consultant[]) || [],
+                total: count ?? 0,
+                page,
+                pageSize,
+            };
         },
 
         createConsultant: async (
@@ -424,6 +500,95 @@ export const db = {
             });
         },
 
+        getContractsWithClientsPage: async (
+            opts: {
+                consultantId?: string;
+                officeId?: string;
+                clientId?: string;
+                search?: string;
+                currency?: string;
+                paymentMethod?: string;
+                captureDateFrom?: string;
+                captureDateTo?: string;
+                sort?: SortOrder;
+            } & Partial<PageParams> = {},
+        ): Promise<PageResult<Contract & { client_name?: string }>> => {
+            const { page, pageSize } = normalizePageParams(opts);
+            const { from, to } = toRange(page, pageSize);
+
+            const allowedSort = [
+                'contract_number',
+                'project_name',
+                'insured_amount',
+                'annual_premium',
+                'payment_method',
+                'currency',
+                'payment_channel',
+                'capture_date',
+                'status',
+                'created_at',
+            ];
+            const sortCol =
+                opts.sort?.column && allowedSort.includes(opts.sort.column)
+                    ? opts.sort.column
+                    : 'created_at';
+            const ascending = opts.sort?.ascending ?? false;
+
+            let query = supabase
+                .from('contract')
+                .select('*, client:client_id(name)', { count: 'exact' })
+                .order(sortCol, { ascending, nullsFirst: false })
+                .range(from, to);
+
+            if (opts.consultantId) {
+                query = query.eq('consultant_id', opts.consultantId);
+            } else if (opts.officeId) {
+                const consultants = await db.consultant.getConsultantsByOffice(opts.officeId);
+                const consultantIds = consultants.map((c) => c.id);
+                if (consultantIds.length === 0) {
+                    return emptyPageResult(opts);
+                }
+                query = query.in('consultant_id', consultantIds);
+            }
+
+            if (opts.clientId) {
+                query = query.eq('client_id', opts.clientId);
+            }
+            if (opts.currency?.trim()) {
+                query = query.eq('currency', opts.currency.trim());
+            }
+            if (opts.paymentMethod?.trim()) {
+                query = query.eq('payment_method', opts.paymentMethod.trim());
+            }
+            if (opts.captureDateFrom) {
+                query = query.gte('capture_date', opts.captureDateFrom);
+            }
+            if (opts.captureDateTo) {
+                query = query.lte('capture_date', opts.captureDateTo);
+            }
+
+            const search = opts.search?.trim();
+            if (search) {
+                const pattern = `%${search}%`;
+                query = query.or(
+                    `contract_number.ilike.${pattern},project_name.ilike.${pattern},payment_channel.ilike.${pattern}`,
+                );
+            }
+
+            const { data, error, count } = await query;
+            if (error) throw error;
+
+            const rows = (data || []).map((item: any) => {
+                const { client, ...contract } = item;
+                return {
+                    ...contract,
+                    client_name: client?.name || null,
+                } as Contract & { client_name?: string };
+            });
+
+            return { rows, total: count ?? 0, page, pageSize };
+        },
+
         getContractsByOffice: async (officeId: string): Promise<Contract[]> => {
             // Get consultant IDs for this office first (cached if possible)
             const consultants = await db.consultant.getConsultantsByOffice(officeId);
@@ -619,17 +784,26 @@ export const db = {
                 }
             }
 
-            // Pre-fetch existing contracts in batch
+            // Pre-fetch existing contracts in batch (office-scoped via consultant ids)
             const contractNumbersToCheck = Array.from(contractGroups.values())
                 .map(g => g.contractNumber)
                 .filter((p): p is string => !!p);
 
             const existingContractsMap = new Map<string, Contract>();
             if (contractNumbersToCheck.length > 0) {
-                const { data: existingContracts } = await supabase
+                const officeConsultantIds = [...consultantCache.values()]
+                    .map((c) => c.id)
+                    .filter(Boolean);
+                let existingQuery = supabase
                     .from('contract')
                     .select('*')
                     .in('contract_number', contractNumbersToCheck);
+                if (officeConsultantIds.length > 0) {
+                    existingQuery = existingQuery.in('consultant_id', officeConsultantIds);
+                } else if (consultantId) {
+                    existingQuery = existingQuery.eq('consultant_id', consultantId);
+                }
+                const { data: existingContracts } = await existingQuery;
 
                 if (existingContracts) {
                     existingContracts.forEach((c: Contract) => {
@@ -640,9 +814,18 @@ export const db = {
                 }
             }
 
-            // Pre-fetch clients in batch (single query for all clients)
+            // Pre-fetch / create clients in batch
             const uniqueClientNames = [...new Set(Array.from(contractGroups.values()).map(g => g.clientName))];
-            const clientCache = await db.client.findOrCreateClientsByName(uniqueClientNames, officeId);
+            let clientCache: Map<string, Client>;
+            try {
+                clientCache = await db.client.findOrCreateClientsByName(uniqueClientNames, officeId);
+            } catch (clientErr: any) {
+                throw new Error(
+                    clientErr?.message
+                        ? `Error al crear/buscar clientes: ${clientErr.message}`
+                        : 'Error al crear/buscar clientes durante la importación.',
+                );
+            }
 
             // Helper functions (defined here so they can be used in the loop)
             // Parse exchange rate - tipo cambio
@@ -652,6 +835,32 @@ export const db = {
                 const cleaned = value.trim().replace(/,/g, '').replace(/\s/g, '');
                 const parsed = parseFloat(cleaned);
                 return isNaN(parsed) ? null : parsed;
+            };
+
+            // Normalize payment method (FORMA DE PAGO) to catalog values
+            const normalizePaymentMethod = (value: string | null): string | null => {
+                if (!value) return null;
+                const raw = value.trim().toLowerCase().replace(/\([^)]*\)/g, '').trim();
+                switch (raw) {
+                    case '1':
+                    case '01':
+                    case 'anual':
+                        return 'Anual';
+                    case '2':
+                    case '02':
+                    case 'semestral':
+                        return 'Semestral';
+                    case '4':
+                    case '04':
+                    case 'trimestral':
+                        return 'Trimestral';
+                    case '5':
+                    case '05':
+                    case 'mensual':
+                        return 'Mensual';
+                    default:
+                        return value.trim();
+                }
             };
 
             // Process each contract group
@@ -702,13 +911,17 @@ export const db = {
                             warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.contractNumber}" ya existe. Se omitirá la creación de la póliza, se agregarán solo los detalles.` });
                             contract = existing;
                         } else {
-                            // Create new contract
+                            // Create new contract — use FORMA DE PAGO from first detail row when present
+                            const firstPaymentMethod = normalizePaymentMethod(
+                                getCell(group.rows[0]?.row ?? [], paymentMethodIndex) || null,
+                            );
                             contract = await db.contract.createContract({
                                 consultant_id: consultant.id,
                                 client_id: client.id,
                                 contract_number: group.contractNumber,
                                 currency: group.currency || null,
                                 exchange_rate: parseExchangeRate(group.exchangeRate),
+                                payment_method: firstPaymentMethod,
                                 status: 'ACTIVE',
                             });
                             isNewContract = true;
@@ -736,17 +949,17 @@ export const db = {
                         return value || null;
                     };
 
-                    // Parse dates helper - converts DD/MM/YYYY to YYYY-MM-DD
-                    // This format is safe for PostgreSQL DATE type and avoids timezone issues
+                    // Parse dates helper - DD/MM/YYYY or YYYY-MM-DD → YYYY-MM-DD
                     const parseDate = (dateStr: string | null): string | null => {
                         if (!dateStr || !dateStr.trim()) return null;
-                        const parts = dateStr.trim().split('/');
+                        const trimmed = dateStr.trim();
+                        const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+                        if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+                        const parts = trimmed.split('/');
                         if (parts.length === 3) {
                             const day = parts[0].padStart(2, '0');
                             const month = parts[1].padStart(2, '0');
                             const year = parts[2];
-                            // Return in YYYY-MM-DD format (ISO date format, no time component)
-                            // This avoids timezone conversion issues when stored as DATE in PostgreSQL
                             return `${year}-${month}-${day}`;
                         }
                         return null;
@@ -759,33 +972,6 @@ export const db = {
                         const cleaned = value.trim().replace(/,/g, '').replace(/\s/g, '');
                         const parsed = parseFloat(cleaned);
                         return isNaN(parsed) ? null : parsed;
-                    };
-
-                    // Normalize payment method (FORMA DE PAGO) to catalog values
-                    const normalizePaymentMethod = (value: string | null): string | null => {
-                        if (!value) return null;
-                        // Remove anything in parentheses so values like "Semestral (2)" still normalize correctly
-                        const raw = value.trim().toLowerCase().replace(/\([^)]*\)/g, '').trim();
-                        switch (raw) {
-                            case '1':
-                            case '01':
-                            case 'anual':
-                                return 'Anual';
-                            case '2':
-                            case '02':
-                            case 'semestral':
-                                return 'Semestral';
-                            case '4':
-                            case '04':
-                            case 'trimestral':
-                                return 'Trimestral';
-                            case '5':
-                            case '05':
-                            case 'mensual':
-                                return 'Mensual';
-                            default:
-                                return value.trim();
-                        }
                     };
 
                     // Prepare all detail records first, then batch check for duplicates
@@ -967,6 +1153,68 @@ export const db = {
             return data || [];
         },
 
+        getChangeRequestsPage: async (
+            opts: {
+                officeId?: string;
+                consultantId?: string;
+                sort?: SortOrder;
+            } & Partial<PageParams> = {},
+        ): Promise<
+            PageResult<
+                ContractChangeRequest & {
+                    contract_number?: string | null;
+                }
+            >
+        > => {
+            const { page, pageSize } = normalizePageParams(opts);
+            const { from, to } = toRange(page, pageSize);
+
+            let contractIds: string[] = [];
+            if (opts.consultantId) {
+                const contracts = await db.contract.getContractsByConsultant(opts.consultantId);
+                contractIds = contracts.map((c) => c.id);
+            } else if (opts.officeId) {
+                const contracts = await db.contract.getContractsByOffice(opts.officeId);
+                contractIds = contracts.map((c) => c.id);
+            }
+
+            if (contractIds.length === 0) {
+                return emptyPageResult(opts);
+            }
+
+            const allowedSort = [
+                'request_type',
+                'folio_number',
+                'details',
+                'status',
+                'created_at',
+            ];
+            const sortCol =
+                opts.sort?.column && allowedSort.includes(opts.sort.column)
+                    ? opts.sort.column
+                    : 'created_at';
+            const ascending = opts.sort?.ascending ?? false;
+
+            const { data, error, count } = await supabase
+                .from('contract_change_request')
+                .select('*, contract:contract_id(contract_number)', { count: 'exact' })
+                .in('contract_id', contractIds)
+                .order(sortCol, { ascending, nullsFirst: false })
+                .range(from, to);
+
+            if (error) throw error;
+
+            const rows = (data || []).map((item: any) => {
+                const { contract, ...cr } = item;
+                return {
+                    ...cr,
+                    contract_number: contract?.contract_number ?? null,
+                } as ContractChangeRequest & { contract_number?: string | null };
+            });
+
+            return { rows, total: count ?? 0, page, pageSize };
+        },
+
         createChangeRequest: async (changeRequest: Omit<ContractChangeRequest, 'id' | 'created_at' | 'updated_at'>): Promise<ContractChangeRequest> => {
             const { data, error } = await supabase
                 .from('contract_change_request')
@@ -1056,6 +1304,88 @@ export const db = {
             const { data, error } = await query;
             if (error) throw error;
             return data || [];
+        },
+
+        getClientsPage: async (
+            opts: {
+                officeId?: string;
+                consultantId?: string;
+                search?: string;
+                registeredFrom?: string;
+                registeredTo?: string;
+                sort?: SortOrder;
+            } & Partial<PageParams> = {},
+        ): Promise<PageResult<Client & { contract_count?: number }>> => {
+            const { page, pageSize } = normalizePageParams(opts);
+            const { from, to } = toRange(page, pageSize);
+
+            const sortCol =
+                opts.sort?.column &&
+                ['name', 'birth_date', 'created_at'].includes(opts.sort.column)
+                    ? opts.sort.column
+                    : 'created_at';
+            const ascending = opts.sort?.ascending ?? false;
+
+            // Consultant scope: clients linked via their contracts
+            if (opts.consultantId) {
+                const { data: contractRows, error: cErr } = await supabase
+                    .from('contract')
+                    .select('client_id')
+                    .eq('consultant_id', opts.consultantId)
+                    .not('client_id', 'is', null);
+                if (cErr) throw cErr;
+                const clientIds = [
+                    ...new Set(
+                        (contractRows || [])
+                            .map((r: { client_id: string | null }) => r.client_id)
+                            .filter((id): id is string => !!id),
+                    ),
+                ];
+                if (clientIds.length === 0) return emptyPageResult(opts);
+
+                let query = supabase
+                    .from('client')
+                    .select('*', { count: 'exact' })
+                    .in('id', clientIds)
+                    .order(sortCol, { ascending, nullsFirst: false })
+                    .range(from, to);
+
+                const search = opts.search?.trim();
+                if (search) query = query.ilike('name', `%${search}%`);
+                if (opts.registeredFrom) query = query.gte('created_at', opts.registeredFrom);
+                if (opts.registeredTo) {
+                    query = query.lte('created_at', `${opts.registeredTo}T23:59:59.999Z`);
+                }
+
+                const { data, error, count } = await query;
+                if (error) throw error;
+
+                const rows = await attachContractCounts((data as Client[]) || []);
+                return { rows, total: count ?? 0, page, pageSize };
+            }
+
+            let query = supabase
+                .from('client')
+                .select('*', { count: 'exact' })
+                .order(sortCol, { ascending, nullsFirst: false })
+                .range(from, to);
+
+            if (opts.officeId) {
+                query = query.eq('office_id', opts.officeId);
+            }
+
+            const search = opts.search?.trim();
+            if (search) query = query.ilike('name', `%${search}%`);
+            if (opts.registeredFrom) query = query.gte('created_at', opts.registeredFrom);
+            if (opts.registeredTo) {
+                query = query.lte('created_at', `${opts.registeredTo}T23:59:59.999Z`);
+            }
+
+            const { data, error, count } = await query;
+            if (error) throw error;
+
+            const rows = await attachContractCounts((data as Client[]) || []);
+            return { rows, total: count ?? 0, page, pageSize };
         },
 
         getClientsByConsultant: async (consultantId: string): Promise<Client[]> => {
@@ -1164,53 +1494,68 @@ export const db = {
 
         findOrCreateClientsByName: async (names: string[], officeId?: string | null): Promise<Map<string, Client>> => {
             const clientMap = new Map<string, Client>();
-            const uniqueNames = [...new Set(names.map(n => n.trim()))];
+            const uniqueNames = [
+                ...new Set(
+                    names
+                        .map((n) => n.trim())
+                        .filter((n) => n.length > 0),
+                ),
+            ];
 
             if (uniqueNames.length === 0) return clientMap;
 
-            let query = supabase.from('client').select('*');
-            const orConditions = uniqueNames.map(name => `name.ilike.${name}`).join(',');
-            query = query.or(orConditions);
-            if (officeId) query = query.eq('office_id', officeId);
-            const { data: existingClients, error: searchError } = await query;
+            const wantedKeys = new Set(uniqueNames.map((n) => n.toLowerCase()));
 
-            if (searchError && searchError.code !== 'PGRST116') {
-                throw searchError;
+            // Avoid PostgREST `.or(name.ilike.First Last)` which breaks on spaces.
+            // Load office clients (or match by exact name chunks) and join in memory.
+            let existing: Client[] = [];
+            if (officeId) {
+                const { data, error: searchError } = await supabase
+                    .from('client')
+                    .select('*')
+                    .eq('office_id', officeId);
+                if (searchError) throw searchError;
+                existing = (data as Client[]) || [];
+            } else {
+                // Chunk exact-name lookups when no office scope
+                for (const chunk of chunkArray(uniqueNames, IMPORT_BATCH_SIZE)) {
+                    const { data, error: searchError } = await supabase
+                        .from('client')
+                        .select('*')
+                        .in('name', chunk);
+                    if (searchError) throw searchError;
+                    existing.push(...((data as Client[]) || []));
+                }
             }
 
-            const existingMap = new Map<string, Client>();
-            if (existingClients) {
-                existingClients.forEach((client: Client) => {
-                    const key = client.name.toLowerCase();
-                    existingMap.set(key, client);
+            for (const client of existing) {
+                const key = (client.name || '').trim().toLowerCase();
+                if (key && wantedKeys.has(key) && !clientMap.has(key)) {
                     clientMap.set(key, client);
-                });
+                }
             }
 
-            const namesToCreate = uniqueNames.filter(name => {
-                const key = name.toLowerCase();
-                return !existingMap.has(key);
-            });
+            const namesToCreate = uniqueNames.filter(
+                (name) => !clientMap.has(name.toLowerCase()),
+            );
 
-            if (namesToCreate.length > 0) {
-                const clientsToCreate = namesToCreate.map(name => ({
-                    name,
-                    birth_date: null,
-                    office_id: officeId ?? null,
-                }));
-
+            for (const chunk of chunkArray(namesToCreate, IMPORT_BATCH_SIZE)) {
                 const { data: newClients, error: createError } = await supabase
                     .from('client')
-                    .insert(clientsToCreate)
+                    .insert(
+                        chunk.map((name) => ({
+                            name,
+                            birth_date: null,
+                            office_id: officeId ?? null,
+                        })),
+                    )
                     .select();
 
                 if (createError) throw createError;
 
-                if (newClients) {
-                    newClients.forEach((client: Client) => {
-                        const key = client.name.toLowerCase();
-                        clientMap.set(key, client);
-                    });
+                for (const client of (newClients as Client[]) || []) {
+                    const key = (client.name || '').trim().toLowerCase();
+                    if (key) clientMap.set(key, client);
                 }
             }
 
@@ -1240,6 +1585,37 @@ export const db = {
 
             if (error) throw error;
             return data || [];
+        },
+
+        getDetailsByContractPage: async (
+            contractId: string,
+            params: Partial<PageParams> & { sort?: SortOrder } = {},
+        ): Promise<PageResult<ContractDetail>> => {
+            const { page, pageSize } = normalizePageParams(params);
+            const { from, to } = toRange(page, pageSize);
+            const sortCol =
+                params.sort?.column &&
+                ['payment_date', 'issue_date', 'premium_payment', 'created_at'].includes(
+                    params.sort.column,
+                )
+                    ? params.sort.column
+                    : 'payment_date';
+            const ascending = params.sort?.ascending ?? false;
+
+            const { data, error, count } = await supabase
+                .from('contract_detail')
+                .select('*', { count: 'exact' })
+                .eq('contract_id', contractId)
+                .order(sortCol, { ascending, nullsFirst: false })
+                .range(from, to);
+
+            if (error) throw error;
+            return {
+                rows: (data as ContractDetail[]) || [],
+                total: count ?? 0,
+                page,
+                pageSize,
+            };
         },
 
         /** For Cobranza: details with contract number and client name. RLS filters by office/consultant. */
@@ -1272,6 +1648,74 @@ export const db = {
                     client_name: clientName,
                 } as ContractDetail & { contract_number?: string | null; client_name?: string | null };
             });
+        },
+
+        getDetailsWithContractAndClientPage: async (
+            params: Partial<PageParams> & {
+                dueByEndOfMonth?: boolean;
+                sort?: SortOrder;
+            } = {},
+        ): Promise<
+            PageResult<
+                ContractDetail & {
+                    contract_number?: string | null;
+                    client_name?: string | null;
+                }
+            >
+        > => {
+            const { page, pageSize } = normalizePageParams(params);
+            const { from, to } = toRange(page, pageSize);
+            const sortCol =
+                params.sort?.column &&
+                ['payment_date', 'premium_payment', 'payment_method'].includes(
+                    params.sort.column,
+                )
+                    ? params.sort.column
+                    : 'payment_date';
+            const ascending = params.sort?.ascending ?? false;
+
+            let query = supabase
+                .from('contract_detail')
+                .select(
+                    `
+                    id,
+                    contract_id,
+                    payment_date,
+                    premium_payment,
+                    payment_method,
+                    contract:contract_id(
+                        contract_number,
+                        client:client_id(name)
+                    )
+                `,
+                    { count: 'exact' },
+                )
+                .order(sortCol, { ascending, nullsFirst: false })
+                .range(from, to);
+
+            if (params.dueByEndOfMonth) {
+                const now = new Date();
+                const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                const endIso = end.toISOString().slice(0, 10);
+                query = query.lte('payment_date', endIso);
+            }
+
+            const { data, error, count } = await query;
+            if (error) throw error;
+
+            const rows = (data || []).map((row: any) => {
+                const { contract, ...detail } = row;
+                return {
+                    ...detail,
+                    contract_number: contract?.contract_number ?? null,
+                    client_name: contract?.client?.name ?? null,
+                } as ContractDetail & {
+                    contract_number?: string | null;
+                    client_name?: string | null;
+                };
+            });
+
+            return { rows, total: count ?? 0, page, pageSize };
         },
 
         checkDetailExists: async (contractId: string, ticketNumber: string | null): Promise<boolean> => {

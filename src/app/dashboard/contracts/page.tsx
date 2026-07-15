@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Contract, Client } from '@/lib/supabase';
+import { Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
-import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
+import { ContractsFilters, ContractsFilterState } from '@/components/contracts-filters';
 import { useToast } from '@/components/toast';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 
 type ContractRow = Contract & { client_name?: string };
@@ -44,10 +46,12 @@ function ContractsPageContent() {
     const { profile } = useAuth();
     const { toast } = useToast();
     const [contracts, setContracts] = useState<ContractRow[]>([]);
-    const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<SortDir>('asc');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [total, setTotal] = useState(0);
     const [filters, setFilters] = useState<ContractsFilterState>({
         search: '',
         currency: '',
@@ -60,33 +64,32 @@ function ContractsPageContent() {
         try {
             if (!profile?.id) return;
 
-            // Use optimized function that includes client names in the query
-            const dataWithClients = await db.contract.getContractsWithClients(
-                profile.role === 'consultant' ? profile.id : undefined,
-                profile.role === 'promotory' ? profile.id : undefined
-            );
+            const dbSort =
+                sortKey && sortKey !== 'client_name'
+                    ? { column: sortKey, ascending: sortDir === 'asc' }
+                    : undefined;
 
-            setContracts(dataWithClients);
-
-            // Extract unique clients for the client list (if needed elsewhere)
-            const uniqueClients = new Map<string, Client>();
-            dataWithClients.forEach((contract: any) => {
-                if (contract.client_id && contract.client_name) {
-                    if (!uniqueClients.has(contract.client_id)) {
-                        uniqueClients.set(contract.client_id, {
-                            id: contract.client_id,
-                            name: contract.client_name,
-                        } as Client);
-                    }
-                }
+            const result = await db.contract.getContractsWithClientsPage({
+                consultantId: profile.role === 'consultant' ? profile.id : undefined,
+                officeId: profile.role === 'promotory' ? profile.id : undefined,
+                search: filters.search || undefined,
+                currency: filters.currency || undefined,
+                paymentMethod: filters.paymentMethod || undefined,
+                captureDateFrom: filters.captureDateFrom || undefined,
+                captureDateTo: filters.captureDateTo || undefined,
+                sort: dbSort,
+                page,
+                pageSize,
             });
-            setClients(Array.from(uniqueClients.values()));
+
+            setContracts(result.rows);
+            setTotal(result.total);
         } catch (error) {
             console.error('Error loading contracts:', error);
         } finally {
             setLoading(false);
         }
-    }, [profile]);
+    }, [profile, page, pageSize, filters, sortKey, sortDir]);
 
     useEffect(() => {
         if (profile) {
@@ -94,10 +97,13 @@ function ContractsPageContent() {
         }
     }, [profile, loadContracts]);
 
-    const getClientName = (clientId: string | null | undefined) => {
-        if (!clientId) return 'N/A';
-        const contract = contracts.find(c => c.client_id === clientId);
-        return (contract as any)?.client_name || 'N/A';
+    useEffect(() => {
+        setPage(1);
+    }, [filters, pageSize, sortKey, sortDir]);
+
+    const handleFiltersChange = (next: ContractsFilterState) => {
+        setFilters(next);
+        setPage(1);
     };
 
     const handleDelete = async (id: string) => {
@@ -112,36 +118,42 @@ function ContractsPageContent() {
         }
     };
 
-    const availableCurrencies = useMemo(
-        () => Array.from(new Set(contracts.map(c => c.currency).filter((c): c is string => !!c))),
-        [contracts]
-    );
+    const availableCurrencies = useMemo(() => {
+        const fromRows = contracts.map((c) => c.currency).filter((c): c is string => !!c);
+        if (filters.currency && !fromRows.includes(filters.currency)) {
+            fromRows.push(filters.currency);
+        }
+        return Array.from(new Set(fromRows));
+    }, [contracts, filters.currency]);
 
-    const availablePaymentMethods = useMemo(
-        () => Array.from(new Set(contracts.map(c => c.payment_method).filter((m): m is string => !!m))),
-        [contracts]
-    );
+    const availablePaymentMethods = useMemo(() => {
+        const fromRows = contracts.map((c) => c.payment_method).filter((m): m is string => !!m);
+        if (filters.paymentMethod && !fromRows.includes(filters.paymentMethod)) {
+            fromRows.push(filters.paymentMethod);
+        }
+        return Array.from(new Set(fromRows));
+    }, [contracts, filters.paymentMethod]);
 
-    const filteredContracts = useMemo(
-        () => filterContracts(contracts, filters),
-        [contracts, filters]
-    );
-
-    const sortedContracts = useMemo(
-        () =>
-            sortRows(filteredContracts, sortKey, sortDir, SORT_GETTERS, {
-                insured_amount: 'number',
-                annual_premium: 'number',
-                capture_date: 'date',
-            }),
-        [filteredContracts, sortKey, sortDir],
-    );
+    const displayedContracts = useMemo(() => {
+        if (sortKey === 'client_name') {
+            return sortRows(contracts, sortKey, sortDir, SORT_GETTERS);
+        }
+        return contracts;
+    }, [contracts, sortKey, sortDir]);
 
     const toggleSort = (key: SortKey) => {
         const next = nextSortState(sortKey, sortDir, key);
         setSortKey(next.key);
         setSortDir(next.dir);
     };
+
+    const hasActiveFilters = !!(
+        filters.search.trim() ||
+        filters.currency ||
+        filters.paymentMethod ||
+        filters.captureDateFrom ||
+        filters.captureDateTo
+    );
 
     if (loading) {
         return (
@@ -172,8 +184,7 @@ function ContractsPageContent() {
                 </button>
             </div>
 
-            {/* Contracts List */}
-            {contracts.length === 0 ? (
+            {total === 0 && !hasActiveFilters ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
                     <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
                         Aún no hay pólizas registradas
@@ -186,15 +197,16 @@ function ContractsPageContent() {
                     </button>
                 </div>
             ) : (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-x-auto">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                         <ContractsFilters
                             filters={filters}
-                            onChange={setFilters}
+                            onChange={handleFiltersChange}
                             availableCurrencies={availableCurrencies}
                             availablePaymentMethods={availablePaymentMethods}
                         />
                     </div>
+                    <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
@@ -214,7 +226,14 @@ function ContractsPageContent() {
                             </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {sortedContracts.map((contract) => (
+                            {displayedContracts.length === 0 ? (
+                                <tr>
+                                    <td colSpan={11} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                                        No hay pólizas que coincidan con los filtros.
+                                    </td>
+                                </tr>
+                            ) : (
+                                displayedContracts.map((contract) => (
                                 <tr
                                     key={contract.id}
                                     onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
@@ -222,7 +241,7 @@ function ContractsPageContent() {
                                 >
                                     <td className="px-6 py-4 whitespace-nowrap">
                                         <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                            {(contract as any).client_name || getClientName(contract.client_id) || 'N/A'}
+                                            {contract.client_name || 'N/A'}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
@@ -316,9 +335,22 @@ function ContractsPageContent() {
                                         </button>
                                     </td>
                                 </tr>
-                            ))}
+                                ))
+                            )}
                         </tbody>
                     </table>
+                    </div>
+                    <TablePagination
+                        page={page}
+                        pageSize={pageSize}
+                        total={total}
+                        disabled={loading}
+                        onPageChange={setPage}
+                        onPageSizeChange={(size) => {
+                            setPageSize(size);
+                            setPage(1);
+                        }}
+                    />
                 </div>
             )}
         </div>
@@ -332,4 +364,3 @@ export default function ContractsPage() {
         </ProtectedRoute>
     );
 }
-

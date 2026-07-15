@@ -6,6 +6,13 @@ import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
 import { authFetch } from '@/lib/api-client';
 import { db } from '@/lib/db';
+import {
+  chunkArray,
+  EXTRACTOR_CONSULTANT_CREATE_BATCH,
+  EXTRACTOR_CONTRACT_NUMBER_BATCH,
+  EXTRACTOR_DETAIL_CHECK_BATCH,
+} from '@/lib/extractor/batch';
+import { parsePagosXlsx } from '@/lib/extractor/parse-pagos-xlsx';
 
 interface ContractorMetadata {
   policyholder?: string;
@@ -127,6 +134,7 @@ function ExtractorPageContent() {
   const [fileName, setFileName] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isImportingExcel, setIsImportingExcel] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const [importResult, setImportResult] = useState<{ success: number; errors: Array<{ row: number; error: string }>; warnings: Array<{ row: number; message: string }> } | null>(null);
@@ -139,6 +147,7 @@ function ExtractorPageContent() {
   const [allCellsEditable, setAllCellsEditable] = useState(false);
   const [focusedEmptyCell, setFocusedEmptyCell] = useState<{ tableIndex: number; rowIndex: number; cellIndex: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const readFileAsText = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -762,6 +771,7 @@ function ExtractorPageContent() {
       // Preserve original row order from the uploaded files
       setFileName(uploadedFiles.map(f => f.name.replace(/\.[^/.]+$/, '')).join('_'));
       setTables([{ headers: combinedHeaders, rows: allRows, metadata: undefined, sectionName: 'combined' }]);
+      setImportResult(null);
     } catch (err) {
       console.error(err);
       toast.error('Error al extraer datos. Revisa que los archivos sean HTML válidos.');
@@ -770,89 +780,135 @@ function ExtractorPageContent() {
     }
   };
 
-  const checkMissingConsultants = async (rows: string[][], officeId: string): Promise<string[]> => {
-    const consultantCodes = new Set<string>();
+  const handleExcelFile = async (file: File) => {
+    if (!/\.xlsx$/i.test(file.name)) {
+      toast.error('Selecciona un archivo .xlsx de pagos/comisiones.');
+      return;
+    }
+    setIsImportingExcel(true);
+    setImportResult(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const parsed = parsePagosXlsx(buffer);
+      setUploadedFiles([]);
+      setFileName(file.name.replace(/\.xlsx$/i, ''));
+      setTables([
+        {
+          headers: parsed.headers,
+          rows: parsed.rows,
+          metadata: undefined,
+          sectionName: `excel:${parsed.sheetName}`,
+        },
+      ]);
+      toast.success(
+        `Excel leído: ${parsed.rows.length.toLocaleString('es-MX')} filas desde "${parsed.sheetName}". Revisa la vista previa e importa.`,
+      );
+    } catch (err) {
+      console.error(err);
+      const message =
+        err instanceof Error ? err.message : 'No se pudo leer el archivo Excel.';
+      toast.error(message);
+    } finally {
+      setIsImportingExcel(false);
+      if (excelInputRef.current) excelInputRef.current.value = '';
+    }
+  };
 
-    // Extract unique consultant codes (asesor) from rows (column index 5: Asesor; 0–2 Cliente, Poliza, TIPO POLIZA; 3 Moneda; 4 Tipo Cambio)
-    rows.forEach(row => {
-      if (row.length >= 6 && row[5]?.trim()) {
-        consultantCodes.add(row[5].trim());
+  const normalizeHeaderKey = (h?: string | null): string =>
+    (h || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+
+  const headerIndexMap = (headers: string[]): Map<string, number> => {
+    const map = new Map<string, number>();
+    headers.forEach((h, idx) => {
+      map.set(normalizeHeaderKey(h), idx);
+    });
+    return map;
+  };
+
+  const indexFromHeaders = (
+    map: Map<string, number>,
+    candidates: string[],
+    fallback: number,
+  ): number => {
+    for (const name of candidates) {
+      const idx = map.get(normalizeHeaderKey(name));
+      if (idx !== undefined) return idx;
+    }
+    return fallback;
+  };
+
+  const checkMissingConsultants = async (
+    rows: string[][],
+    officeId: string,
+    headers?: string[],
+  ): Promise<{ missing: string[]; consultants: Array<{ code: string; name?: string }> }> => {
+    const map = headerIndexMap(headers ?? []);
+    const asesorIdx = indexFromHeaders(map, ['ASESOR'], 5);
+    const nameIdx = indexFromHeaders(map, ['NOMBRE ASESOR', 'NOMBREASESOR'], 6);
+
+    const byCode = new Map<string, { code: string; name?: string }>();
+    rows.forEach((row) => {
+      const code = row[asesorIdx]?.trim();
+      if (!code) return;
+      const key = code.toLowerCase();
+      const name = row[nameIdx]?.trim() || undefined;
+      const prev = byCode.get(key);
+      if (!prev) {
+        byCode.set(key, { code, name });
+        return;
+      }
+      if (!prev.name && name) {
+        byCode.set(key, { code: prev.code, name });
       }
     });
 
-    if (consultantCodes.size === 0) return [];
-
-    const codes = Array.from(consultantCodes);
-    const res = await authFetch('/api/extractor/missing-consultants', {
-      method: 'POST',
-      body: JSON.stringify({ officeId, codes }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || 'No se pudieron verificar los asesores.');
+    const consultants = Array.from(byCode.values());
+    if (consultants.length === 0) {
+      return { missing: [], consultants: [] };
     }
-    return data.missing as string[];
+
+    const codes = consultants.map((c) => c.code);
+    const missing: string[] = [];
+    for (const codeBatch of chunkArray(codes, EXTRACTOR_CONTRACT_NUMBER_BATCH)) {
+      const res = await authFetch('/api/extractor/missing-consultants', {
+        method: 'POST',
+        body: JSON.stringify({ officeId, codes: codeBatch }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudieron verificar los asesores.');
+      }
+      if (Array.isArray(data.missing)) {
+        missing.push(...(data.missing as string[]));
+      }
+    }
+    return { missing, consultants };
   };
 
   const checkDuplicates = async (
     rows: string[][],
     officeId: string,
+    headers?: string[],
   ): Promise<{ contracts: string[]; details: Array<{ contract: string; ticket: string; row: number }> }> => {
-    // Group rows by contract (same logic as import)
-    type ContractGroup = {
-      clientName: string;
-      contractNumber: string;
-      currency: string;
-      exchangeRate: string;
-      consultantCode: string;
-      rows: Array<{ rowIndex: number; data: string[] }>;
-    };
-
-    const contractGroups = new Map<string, ContractGroup>();
-
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.length < 17) continue; // 6 metadata (Cliente, Poliza, TIPO POLIZA, Moneda, Tipo Cambio, Asesor) + 11 detail columns
-
-      const clientName = row[0]?.trim();
-      const contractNumber = row[1]?.trim();
-      const currency = row[3]?.trim();
-      const exchangeRate = row[4]?.trim();
-      const consultantCode = row[5]?.trim();
-
-      if (!clientName || !consultantCode) continue;
-
-      const contractKey = `${clientName}|${contractNumber}|${consultantCode}`;
-      if (!contractGroups.has(contractKey)) {
-        contractGroups.set(contractKey, {
-          clientName,
-          contractNumber,
-          currency: currency || '',
-          exchangeRate: exchangeRate || '',
-          consultantCode,
-          rows: [],
-        });
-      }
-      contractGroups.get(contractKey)!.rows.push({
-        rowIndex: i + 1,
-        data: row.slice(6),
-      });
-    }
-
-    const contractNumbers = Array.from(contractGroups.values())
-      .map(g => g.contractNumber)
-      .filter((p): p is string => !!p);
-
-    // Helper functions to parse data (same as import function)
-    const mapColumn = (detailData: string[], index: number): string | null => {
-      if (index >= detailData.length) return null;
-      const value = detailData[index]?.trim();
-      return value || null;
-    };
+    const map = headerIndexMap(headers ?? []);
+    const contractNumberIndex = indexFromHeaders(map, ['POLIZA'], 1);
+    const paymentDateIndex = indexFromHeaders(map, ['FECHA PAGO'], 11);
+    const premiumPaymentIndex = indexFromHeaders(
+      map,
+      ['PRIMA PAGO', 'PRIMA PAGO 1'],
+      14,
+    );
 
     const parseDate = (dateStr: string | null): string | null => {
       if (!dateStr || !dateStr.trim()) return null;
-      const parts = dateStr.trim().split('/');
+      const trimmed = dateStr.trim();
+      const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+      if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+      const parts = trimmed.split('/');
       if (parts.length === 3) {
         const day = parts[0].padStart(2, '0');
         const month = parts[1].padStart(2, '0');
@@ -869,7 +925,14 @@ function ExtractorPageContent() {
       return isNaN(parsed) ? null : parsed;
     };
 
-    // detailData is 11 columns in order: FECHA EMISION, FECHA PAGO, PRIMA PAGO, …
+    const contractNumbers = [
+      ...new Set(
+        rows
+          .map((row) => (row[contractNumberIndex] ?? "").trim().replace(/,/g, "").replace(/\s+/g, ""))
+          .filter((p): p is string => Boolean(p)),
+      ),
+    ];
+
     const details: Array<{
       contractNumber: string;
       paymentDate: string | null;
@@ -877,34 +940,85 @@ function ExtractorPageContent() {
       row: number;
     }> = [];
 
-    for (const [, group] of contractGroups.entries()) {
-      if (!group.contractNumber) continue;
-      for (const rowInfo of group.rows) {
-        try {
-          const detailData = rowInfo.data;
-          details.push({
-            contractNumber: group.contractNumber,
-            paymentDate: parseDate(mapColumn(detailData, 1)),
-            premiumPayment: parseNumeric(mapColumn(detailData, 2)),
-            row: rowInfo.rowIndex,
-          });
-        } catch (error) {
-          console.error('Error parsing detail row:', error);
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const contractNumber = (row[contractNumberIndex] ?? "")
+        .trim()
+        .replace(/,/g, "")
+        .replace(/\s+/g, "");
+      if (!contractNumber) continue;
+      const premium = parseNumeric(row[premiumPaymentIndex]?.trim() || null);
+      details.push({
+        contractNumber,
+        paymentDate: parseDate(row[paymentDateIndex]?.trim() || null),
+        premiumPayment:
+          premium != null && Number.isFinite(premium) ? premium : null,
+        row: i + 1,
+      });
+    }
+
+    const contractSet = new Set<string>();
+    const duplicateDetails: Array<{
+      contract: string;
+      ticket: string;
+      row: number;
+    }> = [];
+
+    const mergeDuplicateResponse = (data: {
+      contracts?: string[];
+      details?: Array<{ contract: string; ticket: string; row: number }>;
+    }) => {
+      for (const c of data.contracts || []) {
+        if (c) contractSet.add(c);
+      }
+      for (const d of data.details || []) {
+        duplicateDetails.push(d);
+      }
+    };
+
+    // Large Excel files exceed API caps — check batch by batch.
+    if (details.length === 0) {
+      for (const numberBatch of chunkArray(
+        contractNumbers,
+        EXTRACTOR_CONTRACT_NUMBER_BATCH,
+      )) {
+        const res = await authFetch('/api/extractor/check-duplicates', {
+          method: 'POST',
+          body: JSON.stringify({ officeId, contractNumbers: numberBatch }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'No se pudieron verificar duplicados.');
         }
+        mergeDuplicateResponse(data);
+      }
+    } else {
+      for (const detailBatch of chunkArray(
+        details,
+        EXTRACTOR_DETAIL_CHECK_BATCH,
+      )) {
+        const batchContractNumbers = [
+          ...new Set(detailBatch.map((d) => d.contractNumber).filter(Boolean)),
+        ];
+        const res = await authFetch('/api/extractor/check-duplicates', {
+          method: 'POST',
+          body: JSON.stringify({
+            officeId,
+            contractNumbers: batchContractNumbers,
+            details: detailBatch,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'No se pudieron verificar duplicados.');
+        }
+        mergeDuplicateResponse(data);
       }
     }
 
-    const res = await authFetch('/api/extractor/check-duplicates', {
-      method: 'POST',
-      body: JSON.stringify({ officeId, contractNumbers, details }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data.error || 'No se pudieron verificar duplicados.');
-    }
     return {
-      contracts: data.contracts as string[],
-      details: data.details as Array<{ contract: string; ticket: string; row: number }>,
+      contracts: [...contractSet],
+      details: duplicateDetails,
     };
   };
 
@@ -927,22 +1041,64 @@ function ExtractorPageContent() {
 
     setIsImporting(true);
 
-    // Auto-create missing asesores (<code>@lifeops.com) before import
-    const missing = await checkMissingConsultants(tables[0].rows, officeId);
+    // Ensure asesores exist and sync names from "Nombre Asesor" (Excel/HTML)
+    let missing: string[] = [];
+    let consultants: Array<{ code: string; name?: string }> = [];
+    try {
+      const checked = await checkMissingConsultants(
+        tables[0].rows,
+        officeId,
+        tables[0].headers,
+      );
+      missing = checked.missing;
+      consultants = checked.consultants;
+    } catch (error: unknown) {
+      setIsImporting(false);
+      setImportResult({
+        success: 0,
+        errors: [{
+          row: 0,
+          error: error instanceof Error ? error.message : 'No se pudieron verificar los asesores.',
+        }],
+        warnings: [],
+      });
+      return;
+    }
 
-    if (missing.length > 0) {
+    if (consultants.length > 0) {
       try {
-        const res = await authFetch('/api/extractor/create-consultants', {
-          method: 'POST',
-          body: JSON.stringify({ mode: 'auto', officeId, codes: missing }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data.error || 'No se pudieron crear los asesores.');
+        const failed: Array<{ code: string; error?: string }> = [];
+        let createdCount = 0;
+        for (const batch of chunkArray(
+          consultants,
+          EXTRACTOR_CONSULTANT_CREATE_BATCH,
+        )) {
+          const res = await authFetch('/api/extractor/create-consultants', {
+            method: 'POST',
+            body: JSON.stringify({
+              mode: 'auto',
+              officeId,
+              consultants: batch.map((c) => ({
+                code: c.code,
+                name: c.name || '',
+              })),
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data.error || 'No se pudieron crear los asesores.');
+          }
+          if (Array.isArray(data.results)) {
+            for (const r of data.results as Array<{
+              code: string;
+              created?: boolean;
+              error?: string;
+            }>) {
+              if (r.error) failed.push(r);
+              if (r.created) createdCount += 1;
+            }
+          }
         }
-        const failed = Array.isArray(data.results)
-          ? (data.results as Array<{ code: string; error?: string }>).filter((r) => r.error)
-          : [];
         if (failed.length > 0) {
           setImportResult({
             success: 0,
@@ -955,12 +1111,12 @@ function ExtractorPageContent() {
           setIsImporting(false);
           return;
         }
-        const createdCount = Array.isArray(data.results)
-          ? (data.results as Array<{ created?: boolean }>).filter((r) => r.created).length
-          : 0;
+        if (createdCount === 0 && missing.length > 0) {
+          createdCount = missing.length;
+        }
         if (createdCount > 0) {
           toast.success(
-            `Se ${createdCount === 1 ? 'creó' : 'crearon'} ${createdCount} asesor${createdCount === 1 ? '' : 'es'} automáticamente (<código>@lifeops.com).`,
+            `Se ${createdCount === 1 ? 'creó' : 'crearon'} ${createdCount} asesor${createdCount === 1 ? '' : 'es'} automáticamente.`,
           );
         }
       } catch (error: unknown) {
@@ -980,7 +1136,11 @@ function ExtractorPageContent() {
     // Check for duplicates
     setIsCheckingDuplicates(true);
     try {
-      const duplicateData = await checkDuplicates(tables[0].rows, officeId);
+      const duplicateData = await checkDuplicates(
+        tables[0].rows,
+        officeId,
+        tables[0].headers,
+      );
 
       setIsCheckingDuplicates(false);
 
@@ -1054,7 +1214,11 @@ function ExtractorPageContent() {
       // Check for duplicates before importing
       setIsCheckingDuplicates(true);
       try {
-        const duplicateData = await checkDuplicates(tables[0].rows, officeId);
+        const duplicateData = await checkDuplicates(
+        tables[0].rows,
+        officeId,
+        tables[0].headers,
+      );
 
         setIsCheckingDuplicates(false);
 
@@ -1117,7 +1281,8 @@ function ExtractorPageContent() {
           Subir archivos de comisiones
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Sube uno o más archivos HTML y luego haz clic en Extraer para combinar y ordenar por cliente.
+          Sube archivos HTML de comisiones o un Excel de pagos (.xlsx). Luego importa
+          pólizas, asesores, clientes y detalles a la base de datos.
         </p>
       </div>
       <div className="flex justify-end mb-8">
@@ -1190,6 +1355,38 @@ function ExtractorPageContent() {
         </div>
       </div>
 
+      <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-gray-900 dark:text-white">
+            Importar Excel de pagos (.xlsx)
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Columnas: Cliente, Póliza, Asesor, fechas, primas, forma de pago, etc. Misma
+            ruta de importación que el HTML (contratos, asesores, detalles, cobranza).
+          </p>
+        </div>
+        <div>
+          <input
+            ref={excelInputRef}
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleExcelFile(file);
+            }}
+          />
+          <button
+            type="button"
+            disabled={isImportingExcel || isExtracting || isImporting}
+            onClick={() => excelInputRef.current?.click()}
+            className="px-4 py-2 bg-[#FBDBAC] text-[#1a1d23] font-medium rounded-lg hover:brightness-105 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            {isImportingExcel ? 'Leyendo Excel...' : 'Importar desde Excel'}
+          </button>
+        </div>
+      </div>
+
       {/* Uploaded files list + Extract button */}
       {uploadedFiles.length > 0 && (
         <div className="mt-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -1200,7 +1397,7 @@ function ExtractorPageContent() {
               </span>
               {uploadedFiles.map((f, i) => (
                 <span
-                  key={f.name}
+                  key={`file-${i}-${f.name}`}
                   className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                 >
                   {f.name}
@@ -1298,11 +1495,16 @@ function ExtractorPageContent() {
                   </p>
                   <div className="text-sm text-blue-700 dark:text-blue-300 max-h-60 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1">
-                      {importResult.warnings.slice(0, 50).map((warning) => (
-                        <li key={warning.row}>Fila {warning.row}: {warning.message}</li>
+                      {importResult.warnings.slice(0, 50).map((warning, idx) => (
+                        <li key={`warn-${idx}-${warning.row}`}>
+                          {warning.row > 0 ? `Fila ${warning.row}: ` : ''}
+                          {warning.message}
+                        </li>
                       ))}
                       {importResult.warnings.length > 50 && (
-                        <li>... y {importResult.warnings.length - 50} advertencias más</li>
+                        <li key="warn-more">
+                          ... y {importResult.warnings.length - 50} advertencias más
+                        </li>
                       )}
                     </ul>
                   </div>
@@ -1326,11 +1528,16 @@ function ExtractorPageContent() {
                 {importResult.errors.length > 0 && (
                   <div className="text-sm text-yellow-700 dark:text-yellow-300 max-h-60 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1">
-                      {importResult.errors.slice(0, 50).map((error) => (
-                        <li key={error.row}>Fila {error.row}: {error.error}</li>
+                      {importResult.errors.slice(0, 50).map((error, idx) => (
+                        <li key={`err-${idx}-${error.row}`}>
+                          {error.row > 0 ? `Fila ${error.row}: ` : ''}
+                          {error.error}
+                        </li>
                       ))}
                       {importResult.errors.length > 50 && (
-                        <li>... y {importResult.errors.length - 50} errores más</li>
+                        <li key="err-more">
+                          ... y {importResult.errors.length - 50} errores más
+                        </li>
                       )}
                     </ul>
                   </div>
@@ -1437,8 +1644,8 @@ function ExtractorPageContent() {
                   </h3>
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 max-h-40 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800 dark:text-yellow-200">
-                      {duplicates.details.map((detail) => (
-                        <li key={detail.row}>
+                      {duplicates.details.map((detail, idx) => (
+                        <li key={`dup-${idx}-${detail.row}-${detail.ticket}`}>
                           Fila {detail.row}: Contrato &quot;{detail.contract}&quot; - Ticket &quot;{detail.ticket}&quot;
                         </li>
                       ))}

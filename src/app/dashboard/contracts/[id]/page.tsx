@@ -1,19 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Contract, ContractDetail, Client, Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
-import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 
 function ContractDetailsPageContent() {
     const router = useRouter();
     const params = useParams();
     const contractId = params.id as string;
-    const { profile } = useAuth();
     const [contract, setContract] = useState<Contract | null>(null);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
+    const [detailsTotal, setDetailsTotal] = useState(0);
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [statsDetails, setStatsDetails] = useState<ContractDetail[]>([]);
     const [client, setClient] = useState<Client | null>(null);
     const [consultant, setConsultant] = useState<Consultant | null>(null);
     const [loading, setLoading] = useState(true);
@@ -22,16 +27,10 @@ function ContractDetailsPageContent() {
     // For now, using a placeholder. In production, this should be fetched from Banco de México API
     const UDI_ACTUAL_VALUE = 8.5; // Placeholder - should be updated with actual UDI value
 
-    useEffect(() => {
-        if (contractId) {
-            loadContractData();
-        }
-    }, [contractId]);
-
-    const loadContractData = async () => {
+    const loadContractMeta = useCallback(async () => {
         try {
-            // Load contract with relations and details in parallel (2 queries instead of 4)
-            const [contractWithRelations, details] = await Promise.all([
+            setLoading(true);
+            const [contractWithRelations, allDetails] = await Promise.all([
                 db.contract.getContractWithRelations(contractId),
                 db.contractDetail.getDetailsByContract(contractId),
             ]);
@@ -43,13 +42,45 @@ function ContractDetailsPageContent() {
             setContract(contractWithRelations.contract);
             setClient(contractWithRelations.client);
             setConsultant(contractWithRelations.consultant);
-            setContractDetails(details);
+            setStatsDetails(allDetails);
         } catch (error) {
             console.error('Error loading contract data:', error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [contractId]);
+
+    const loadDetailsPage = useCallback(async () => {
+        try {
+            setDetailsLoading(true);
+            const result = await db.contractDetail.getDetailsByContractPage(contractId, {
+                page,
+                pageSize,
+            });
+            setContractDetails(result.rows);
+            setDetailsTotal(result.total);
+        } catch (error) {
+            console.error('Error loading contract details page:', error);
+        } finally {
+            setDetailsLoading(false);
+        }
+    }, [contractId, page, pageSize]);
+
+    useEffect(() => {
+        if (contractId) {
+            loadContractMeta();
+        }
+    }, [contractId, loadContractMeta]);
+
+    useEffect(() => {
+        if (contractId) {
+            loadDetailsPage();
+        }
+    }, [contractId, loadDetailsPage]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [pageSize]);
 
     const formatDate = (dateString: string | null | undefined) => {
         if (!dateString) return 'N/A';
@@ -81,11 +112,11 @@ function ContractDetailsPageContent() {
     // Calculate contract value: prima cobro * UDI actual value * tipo cambio
     // If exchange_rate is null/undefined, it means MXN (no conversion needed, so use 1)
     const calculateContractValue = (): number => {
-        if (!contract || contractDetails.length === 0) return 0;
+        if (!contract || statsDetails.length === 0) return 0;
 
         const exchangeRate = contract.exchange_rate ?? 1; // If null, it's MXN, so no conversion (1)
 
-        const totalValue = contractDetails.reduce((sum, detail) => {
+        const totalValue = statsDetails.reduce((sum, detail) => {
             const primaCobro = detail.collection_premium || 0;
             // Formula: prima cobro * UDI actual value * tipo cambio
             const detailValue = primaCobro * UDI_ACTUAL_VALUE * exchangeRate;
@@ -100,10 +131,10 @@ function ContractDetailsPageContent() {
     // Determine contract type: "inicial" or "renovacion" based on last contract_detail's seniority
     // The last detail is the one with the most recent payment_date
     const getContractType = (): 'inicial' | 'renovacion' | null => {
-        if (contractDetails.length === 0) return null;
+        if (statsDetails.length === 0) return null;
 
         // Sort by payment_date descending to get the most recent one
-        const sortedDetails = [...contractDetails].sort((a, b) => {
+        const sortedDetails = [...statsDetails].sort((a, b) => {
             if (!a.payment_date && !b.payment_date) return 0;
             if (!a.payment_date) return 1;
             if (!b.payment_date) return -1;
@@ -267,10 +298,10 @@ function ContractDetailsPageContent() {
             </div>
 
             {/* Contract Details Table */}
-            {contractDetails.length > 0 ? (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-x-auto">
+            {detailsTotal > 0 || contractDetails.length > 0 ? (
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                     <div className="p-6">
-                        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Detalles del Contrato ({contractDetails.length} filas)</h2>
+                        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Detalles del Contrato ({detailsTotal} filas)</h2>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -342,6 +373,17 @@ function ContractDetailsPageContent() {
                             </tbody>
                         </table>
                     </div>
+                    <TablePagination
+                        page={page}
+                        pageSize={pageSize}
+                        total={detailsTotal}
+                        disabled={detailsLoading}
+                        onPageChange={setPage}
+                        onPageSizeChange={(size) => {
+                            setPageSize(size);
+                            setPage(1);
+                        }}
+                    />
                 </div>
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">

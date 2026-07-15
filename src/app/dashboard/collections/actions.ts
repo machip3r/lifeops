@@ -53,7 +53,10 @@ export async function getCollectionsGridAction(
   }
 
   const client = createUserClient(accessToken);
-  return getCollectionsGrid(client, parsed.data.year);
+  return getCollectionsGrid(client, parsed.data.year, {
+    page: parsed.data.page,
+    pageSize: parsed.data.pageSize,
+  });
 }
 
 export async function updateCollectionStatusAction(

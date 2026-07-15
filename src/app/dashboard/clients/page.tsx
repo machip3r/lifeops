@@ -2,14 +2,17 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Client, Contract } from '@/lib/supabase';
+import { Client } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { useToast } from '@/components/toast';
 import { SortableTh } from '@/components/sortable-th';
+import { TablePagination } from '@/components/table-pagination';
+import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 
+type ClientRow = Client & { contract_count?: number };
 type SortKey = 'name' | 'birth_date' | 'age' | 'contracts' | 'created_at';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
 
@@ -17,8 +20,7 @@ function ClientsPageContent() {
     const router = useRouter();
     const { profile } = useAuth();
     const { toast } = useToast();
-    const [clients, setClients] = useState<Client[]>([]);
-    const [contracts, setContracts] = useState<Contract[]>([]);
+    const [clients, setClients] = useState<ClientRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -34,50 +36,51 @@ function ClientsPageContent() {
     const [registeredFrom, setRegisteredFrom] = useState('');
     const [registeredTo, setRegisteredTo] = useState('');
     const [minContracts, setMinContracts] = useState('');
+    const [appliedSearch, setAppliedSearch] = useState('');
+    const [appliedFrom, setAppliedFrom] = useState('');
+    const [appliedTo, setAppliedTo] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [total, setTotal] = useState(0);
 
     const loadClients = useCallback(async () => {
         try {
-            let data: Client[];
-            if (profile?.role === 'consultant' && profile.id) {
-                data = await db.client.getClientsByConsultant(profile.id);
-            } else {
-                // Promotory users see clients for their office
-                data = await db.client.getAllClients(profile?.role === 'promotory' ? profile?.id : undefined);
-            }
-            setClients(data);
+            if (!profile?.id) return;
+            const dbSort =
+                sortKey && sortKey !== 'age' && sortKey !== 'contracts'
+                    ? { column: sortKey, ascending: sortDir === 'asc' }
+                    : undefined;
+
+            const result = await db.client.getClientsPage({
+                page,
+                pageSize,
+                search: appliedSearch,
+                registeredFrom: appliedFrom || undefined,
+                registeredTo: appliedTo || undefined,
+                sort: dbSort,
+                officeId: profile.role === 'promotory' ? profile.id : undefined,
+                consultantId: profile.role === 'consultant' ? profile.id : undefined,
+            });
+            setClients(result.rows);
+            setTotal(result.total);
         } catch (error) {
             console.error('Error loading clients:', error);
         } finally {
             setLoading(false);
         }
-    }, [profile]);
-
-    const loadContracts = useCallback(async () => {
-        try {
-            if (!profile?.id) return;
-
-            let data: Contract[];
-            if (profile.role === 'promotory') {
-                data = await db.contract.getContractsByOffice(profile.id);
-            } else {
-                data = await db.contract.getContractsByConsultant(profile.id);
-            }
-            setContracts(data);
-        } catch (error) {
-            console.error('Error loading contracts:', error);
-        }
-    }, [profile]);
+    }, [profile, page, pageSize, appliedSearch, appliedFrom, appliedTo, sortKey, sortDir]);
 
     useEffect(() => {
         if (profile && (profile.role === 'consultant' || profile.role === 'promotory')) {
             loadClients();
-            loadContracts();
         }
-    }, [profile, loadClients, loadContracts]);
+    }, [profile, loadClients]);
 
-    const getContractCount = (clientId: string) => {
-        return contracts.filter(c => c.client_id === clientId).length;
-    };
+    useEffect(() => {
+        setPage(1);
+    }, [appliedSearch, appliedFrom, appliedTo, pageSize, sortKey, sortDir]);
+
+    const getContractCount = (client: ClientRow) => client.contract_count ?? 0;
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -181,36 +184,10 @@ function ClientsPageContent() {
     };
 
     const filteredClients = useMemo(() => {
-        const searchLower = search.trim().toLowerCase();
         const minContractsNumber = minContracts ? parseInt(minContracts, 10) || 0 : 0;
-
-        return clients.filter((client) => {
-            if (searchLower && !client.name.toLowerCase().includes(searchLower)) {
-                return false;
-            }
-
-            const createdAt = client.created_at ? new Date(client.created_at) : null;
-            if (createdAt && (registeredFrom || registeredTo)) {
-                if (registeredFrom) {
-                    const from = new Date(registeredFrom);
-                    from.setHours(0, 0, 0, 0);
-                    if (createdAt < from) return false;
-                }
-                if (registeredTo) {
-                    const to = new Date(registeredTo);
-                    to.setHours(23, 59, 59, 999);
-                    if (createdAt > to) return false;
-                }
-            }
-
-            const contractCount = getContractCount(client.id);
-            if (minContractsNumber > 0 && contractCount < minContractsNumber) {
-                return false;
-            }
-
-            return true;
-        });
-    }, [clients, contracts, search, registeredFrom, registeredTo, minContracts]);
+        if (minContractsNumber <= 0) return clients;
+        return clients.filter((client) => getContractCount(client) >= minContractsNumber);
+    }, [clients, minContracts]);
 
     const sortedClients = useMemo(
         () =>
@@ -222,7 +199,7 @@ function ClientsPageContent() {
                     name: (c) => c.name,
                     birth_date: (c) => c.birth_date,
                     age: (c) => calculateAge(c.birth_date),
-                    contracts: (c) => getContractCount(c.id),
+                    contracts: (c) => getContractCount(c),
                     created_at: (c) => c.created_at,
                 },
                 {
@@ -232,7 +209,7 @@ function ClientsPageContent() {
                     created_at: 'date',
                 },
             ),
-        [filteredClients, sortKey, sortDir, contracts],
+        [filteredClients, sortKey, sortDir],
     );
 
     const toggleSort = (key: SortKey) => {
@@ -322,6 +299,19 @@ function ClientsPageContent() {
                         />
                     </div>
                 </div>
+                <div className="flex gap-2 ml-auto">
+                <button
+                    type="button"
+                    onClick={() => {
+                        setAppliedSearch(search.trim());
+                        setAppliedFrom(registeredFrom);
+                        setAppliedTo(registeredTo);
+                        setPage(1);
+                    }}
+                    className="px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                >
+                    Aplicar
+                </button>
                 <button
                     type="button"
                     onClick={() => {
@@ -329,11 +319,16 @@ function ClientsPageContent() {
                         setRegisteredFrom('');
                         setRegisteredTo('');
                         setMinContracts('');
+                        setAppliedSearch('');
+                        setAppliedFrom('');
+                        setAppliedTo('');
+                        setPage(1);
                     }}
-                    className="ml-auto px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                     Limpiar filtros
                 </button>
+                </div>
             </div>
 
             {/* Form Modal */}
@@ -417,7 +412,7 @@ function ClientsPageContent() {
             )}
 
             {/* Clients List */}
-            {clients.length === 0 ? (
+            {total === 0 && !loading && !appliedSearch && !appliedFrom && !appliedTo ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
                     <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
                         No tienes clientes registrados aún
@@ -434,6 +429,7 @@ function ClientsPageContent() {
                 </div>
             ) : (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                    <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gray-50 dark:bg-gray-700">
                             <tr>
@@ -479,7 +475,7 @@ function ClientsPageContent() {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                                {getContractCount(client.id)}
+                                                {getContractCount(client)}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -514,6 +510,18 @@ function ClientsPageContent() {
                             })}
                         </tbody>
                     </table>
+                    </div>
+                    <TablePagination
+                        page={page}
+                        pageSize={pageSize}
+                        total={total}
+                        disabled={loading}
+                        onPageChange={setPage}
+                        onPageSizeChange={(size) => {
+                            setPageSize(size);
+                            setPage(1);
+                        }}
+                    />
                 </div>
             )}
         </div>
