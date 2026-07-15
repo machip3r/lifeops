@@ -1,0 +1,9 @@
+# pnpm v11 project settings (single package; not a multi-package workspace)
+allowBuilds:
+  sharp: true
+  unrs-resolver: true
+
+overrides:
+  postcss: ^8.5.10
+
+autoInstallPeers: true

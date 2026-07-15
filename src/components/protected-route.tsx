@@ -23,7 +23,7 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
       if (allowedRoles && !allowedRoles.includes(profile.role)) {
         // Redirect based on role
         if (profile.role === 'consultant') {
-          router.push('/dashboard/policies');
+          router.push('/dashboard/contracts');
         } else {
           router.push('/dashboard');
         }

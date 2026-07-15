@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Consultant, Contract, ContractDetail } from '@/lib/supabase';
 import { db } from '@/lib/db';
+import { authFetch } from '@/lib/api-client';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
@@ -125,9 +126,21 @@ function ConsultantDetailsPageContent() {
         setSuccess('');
 
         try {
-            await db.consultant.updateConsultant(consultant.id, {
-                name: editName,
-                email: editEmail || null,
+            await authFetch('/api/consultants/update', {
+                method: 'POST',
+                body: JSON.stringify({
+                    consultantId: consultant.id,
+                    officeId: profile?.id,
+                    updates: {
+                        name: editName,
+                        email: editEmail || null,
+                    },
+                }),
+            }).then(async (response) => {
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Error al actualizar la información');
+                }
             });
 
             setConsultant({ ...consultant, name: editName, email: editEmail || null });
@@ -156,11 +169,8 @@ function ConsultantDetailsPageContent() {
         setSuccess('');
 
         try {
-            const response = await fetch('/api/invite-consultant', {
+            const response = await authFetch('/api/invite-consultant', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify({
                     officeId: profile.id,
                     consultantEmail: editEmail,

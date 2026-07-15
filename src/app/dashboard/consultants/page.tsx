@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
+import { authFetch } from '@/lib/api-client';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import RequestFormDialog from '@/components/request-form-dialog';
@@ -84,11 +85,8 @@ function ConsultantsPageContent() {
 
     try {
       // Call API to create token and send email
-      const response = await fetch('/api/invite-consultant', {
+      const response = await authFetch('/api/invite-consultant', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({
           officeId: profile?.id,
           consultantEmail: inviteEmail,

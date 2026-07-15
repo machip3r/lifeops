@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
+import { authFetch } from '@/lib/api-client';
 import ProtectedRoute from '@/components/protected-route';
 
 function ProfilePageContent() {
@@ -197,9 +198,8 @@ function ProfilePageContent() {
                     setShowCleanupDialog(false);
                     setMessage(null);
                     try {
-                      const res = await fetch('/api/office/cleanup', {
+                      const res = await authFetch('/api/office/cleanup', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ officeId: profile.id }),
                       });
                       const data = await res.json();

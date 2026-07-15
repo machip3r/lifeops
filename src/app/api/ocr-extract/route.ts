@@ -111,7 +111,7 @@ Tu tarea es analizar el documento completo, incluyendo todas las tablas HTML, te
   "insuredAmount": suma asegurada como número sin comas ni símbolos (busca en tablas de proyección o resumen),
   "basicPremium": prima básica o aportación anual como número sin comas ni símbolos (busca en tablas de proyección),
   "paymentTerm": plazo de pagos en años (debe ser 5, 10, 15 o 20, busca en tablas o texto que mencione años de pago),
-  "currency": "UDIS" o "Dolares" (determina por el contexto: si menciona UDI/UDIS usa "UDIS", si menciona dólares usa "Dolares"),
+  "currency": "UDIS" or "Dollars" (use "UDIS" if the doc mentions UDI/UDIS; use "Dollars" if it mentions dólares/dollars),
   "currentUDIValue": valor actual UDI o tipo de cambio dólar como número decimal (busca valores como 8.56, puede estar en tablas o texto),
   "projectedDevaluation": inflación o devaluación proyectada como número decimal sin % (busca tasas como 3.00%, 4.00% en notas o tablas),
   "effectiveValueYear14": valor efectivo año 14 como número sin comas (busca en tablas de valores garantizados, fila año 14),
@@ -138,7 +138,7 @@ INSTRUCCIONES CRÍTICAS:
    - Usa números puros: 145000 (no 145,000 o $145,000)
    - Para decimales: 8.56 (no 8,56)
 5. VALORES ESPECIALES:
-   - currency: Si el documento menciona "UDI" o "UDIS" o "Unidades de Inversión", usa "UDIS". Si menciona "dólares" o "dollars", usa "Dolares"
+   - currency: If the document mentions "UDI" / "UDIS", use "UDIS". If it mentions dólares/dollars, use "Dollars"
    - paymentTerm: Si encuentras "10-15" en el nombre del proyecto, significa 15 años. Cuenta los años con aportaciones en la tabla.
    - projectedDevaluation: Si dice "tasa de inversión supuesta del 3.00%", usa 3.0 (sin el %)
 6. Si un campo NO se encuentra después de analizar TODO el documento (texto, tablas, markdown), usa null para ese campo
@@ -344,7 +344,7 @@ function parseProjectionData(text: string): Partial<FormData> {
   if (searchText.match(/UDIS|UDI|Unidades\s+de\s+Inversión/i) && !searchText.match(/dolares?|dollar/i)) {
     data.currency = 'UDIS';
   } else if (searchText.match(/dolares?|dollar/i)) {
-    data.currency = 'Dolares';
+    data.currency = 'Dollars';
   }
 
   // Extract current UDI value
@@ -443,7 +443,7 @@ interface FormData {
   insuredAmount?: number;
   basicPremium?: number;
   paymentTerm?: number;
-  currency?: 'UDIS' | 'Dolares';
+  currency?: 'UDIS' | 'Dollars';
   effectiveValueYear14?: number;
   effectiveValueYear19?: number;
   effectiveValueYear24?: number;

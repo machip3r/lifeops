@@ -1,27 +1,5 @@
-import { supabase, supabaseAdmin } from './supabase';
+import { supabase } from './supabase';
 import type { Office, Consultant, Client, Contract, ContractChangeRequest, File, ContractDetail } from './supabase';
-
-/** Auth Admin has no get-by-email; paginate until the address is found (stops early). */
-async function findAuthUserIdByEmail(targetEmail: string): Promise<string | null> {
-    const wanted = targetEmail.toLowerCase();
-    const perPage = 1000;
-    let page = 1;
-    let hasMore = true;
-    while (hasMore) {
-        const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
-        if (error) {
-            console.warn('findAuthUserIdByEmail listUsers:', error);
-            break;
-        }
-        const users = data?.users ?? [];
-        for (const user of users) {
-            if (user.email?.toLowerCase() === wanted) return user.id;
-        }
-        if (users.length < perPage) hasMore = false;
-        else page += 1;
-    }
-    return null;
-}
 
 // Token interface
 export interface Token {
@@ -44,17 +22,6 @@ export const db = {
     office: {
         getOfficeById: async (id: string): Promise<Office | null> => {
             const { data, error } = await supabase
-                .from('office')
-                .select('*')
-                .eq('id', id)
-                .maybeSingle();
-
-            if (error) throw error;
-            return data;
-        },
-
-        getAdminOfficeById: async (id: string): Promise<Office | null> => {
-            const { data, error } = await supabaseAdmin
                 .from('office')
                 .select('*')
                 .eq('id', id)
@@ -171,32 +138,13 @@ export const db = {
         },
 
         updateConsultant: async (id: string, updates: Partial<Consultant>): Promise<void> => {
-            // If email is being updated, also update the auth user's email
+            // Auth email updates require the service role — use POST /api/consultants/update instead.
             if (updates.email !== undefined) {
-                // Get the consultant to check if they have an auth_user_id
-                const { data: consultant, error: fetchError } = await supabase
-                    .from('consultant')
-                    .select('auth_user_id')
-                    .eq('id', id)
-                    .single();
-
-                if (fetchError) throw fetchError;
-
-                // If consultant has an auth_user_id, update the auth user's email
-                if (consultant?.auth_user_id) {
-                    const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
-                        consultant.auth_user_id,
-                        { email: updates.email || undefined }
-                    );
-
-                    if (authError) {
-                        console.error('Error updating auth user email:', authError);
-                        throw new Error(`Error al actualizar el correo en el sistema de autenticación: ${authError.message}`);
-                    }
-                }
+                throw new Error(
+                    'Actualiza el correo del asesor vía /api/consultants/update (servidor).',
+                );
             }
 
-            // Update the consultant table
             const { error } = await supabase
                 .from('consultant')
                 .update(updates)
@@ -256,8 +204,7 @@ export const db = {
         },
 
         /**
-         * For HTML import: if no consultant with this code exists for the office, create auth user + consultant row
-         * (same convention as the extractor: braulinusmac+{code}@gmail.com).
+         * Lookup-only (RLS). Create missing consultants via POST /api/extractor/create-consultants first.
          */
         ensureConsultantForImport: async (
             code: string,
@@ -273,100 +220,11 @@ export const db = {
                 return { consultant: existing, created: false };
             }
 
-            const { data: globalRow } = await supabaseAdmin
-                .from('consultant')
-                .select('*')
-                .eq('consultant_code', trimmed)
-                .maybeSingle();
-
-            if (globalRow) {
-                if (globalRow.office_id === officeId) {
-                    return { consultant: globalRow as Consultant, created: false };
-                }
-                return {
-                    consultant: null,
-                    created: false,
-                    error: `El código "${trimmed}" ya está asignado a otra oficina.`,
-                };
-            }
-
-            const defaultEmail = `braulinusmac+${trimmed}@gmail.com`;
-            const defaultPassword = 'Hola123!!';
-
-            let authUserId: string | null = null;
-            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-                email: defaultEmail,
-                password: defaultPassword,
-                email_confirm: true,
-            });
-
-            if (authError) {
-                authUserId = await findAuthUserIdByEmail(defaultEmail);
-                if (!authUserId) {
-                    return {
-                        consultant: null,
-                        created: false,
-                        error: authError.message || 'No se pudo crear el usuario del asesor',
-                    };
-                }
-            } else {
-                authUserId = authData?.user?.id ?? null;
-            }
-
-            if (!authUserId) {
-                return { consultant: null, created: false, error: 'No se pudo obtener el ID de usuario del asesor' };
-            }
-
-            const { data: existingById } = await supabaseAdmin
-                .from('consultant')
-                .select('*')
-                .eq('id', authUserId)
-                .maybeSingle();
-
-            if (existingById) {
-                if (existingById.office_id === officeId) {
-                    return { consultant: existingById as Consultant, created: false };
-                }
-                return {
-                    consultant: null,
-                    created: false,
-                    error: 'El correo asociado a este código ya está registrado como asesor en otra oficina.',
-                };
-            }
-
-            const { data: anyConsultant } = await supabaseAdmin
-                .from('consultant')
-                .select('id')
-                .eq('auth_user_id', authUserId)
-                .maybeSingle();
-
-            if (anyConsultant) {
-                return {
-                    consultant: null,
-                    created: false,
-                    error: 'El usuario ya existe como asesor en el sistema con otro perfil.',
-                };
-            }
-
-            const { data: inserted, error: insErr } = await supabaseAdmin
-                .from('consultant')
-                .insert({
-                    id: authUserId,
-                    office_id: officeId,
-                    name: trimmed,
-                    email: defaultEmail,
-                    consultant_code: trimmed,
-                    auth_user_id: authUserId,
-                    status: 'PENDING',
-                })
-                .select()
-                .single();
-
-            if (insErr) {
-                return { consultant: null, created: false, error: insErr.message };
-            }
-
-            return { consultant: inserted as Consultant, created: true };
+            return {
+                consultant: null,
+                created: false,
+                error: `No hay un asesor con código "${trimmed}" en tu oficina. Créalo antes de importar.`,
+            };
         },
 
         findOrCreateConsultantByName: async (name: string, officeId: string): Promise<Consultant> => {
@@ -646,24 +504,24 @@ export const db = {
             };
 
             // Indices for contract-level columns
-            const idxCliente = getIndex(['CLIENTE'], 0);
-            const idxPoliza = getIndex(['POLIZA'], 1);
-            const idxMoneda = getIndex(['MONEDA'], 3);
-            const idxTipoCambio = getIndex(['TIPO CAMBIO'], 4);
-            const idxAsesor = getIndex(['ASESOR'], 5); // Consultant code
+            const clientNameIndex = getIndex(['CLIENTE'], 0);
+            const contractNumberIndex = getIndex(['POLIZA'], 1);
+            const currencyIndex = getIndex(['MONEDA'], 3);
+            const exchangeRateIndex = getIndex(['TIPO CAMBIO'], 4);
+            const consultantCodeIndex = getIndex(['ASESOR'], 5); // Consultant code
 
             // Indices for detail columns (by header name)
-            const idxFechaEmision = getIndex(['FECHA EMISION'], 8);
-            const idxFechaPago = getIndex(['FECHA PAGO'], 11);
-            const idxPrimaPago = getIndex(['PRIMA PAGO', 'PRIMA PAGO 1'], 12);
-            const idxFormaPago = getIndex(['FORMA DE PAGO'], 14);
-            const idxComisionHonor = getIndex(['COMISION/HONORARIOS', 'COMISION HONORARIOS'], 15);
-            const idxPctComision = getIndex(['% COMISION', 'PORCENTAJE COMISION'], 16);
-            const idxMovimiento = getIndex(['MOVIMIENTO'], 18);
-            const idxPrimaCobro = getIndex(['PRIMA COBRO'], 19);
-            const idxAntiguedad = getIndex(['ANTIGÜEDAD', 'ANTIGUEDAD'], 20);
-            const idxPrimaMeta = getIndex(['PRIMA META'], 21);
-            const idxPrimaComision = getIndex(['PRIMA COMISION'], 13);
+            const issueDateIndex = getIndex(['FECHA EMISION'], 8);
+            const paymentDateIndex = getIndex(['FECHA PAGO'], 11);
+            const premiumPaymentIndex = getIndex(['PRIMA PAGO', 'PRIMA PAGO 1'], 12);
+            const paymentMethodIndex = getIndex(['FORMA DE PAGO'], 14);
+            const commissionHonorariesIndex = getIndex(['COMISION/HONORARIOS', 'COMISION HONORARIOS'], 15);
+            const commissionPercentageIndex = getIndex(['% COMISION', 'PORCENTAJE COMISION'], 16);
+            const movementIndex = getIndex(['MOVIMIENTO'], 18);
+            const collectionPremiumIndex = getIndex(['PRIMA COBRO'], 19);
+            const seniorityIndex = getIndex(['ANTIGÜEDAD', 'ANTIGUEDAD'], 20);
+            const targetPremiumIndex = getIndex(['PRIMA META'], 21);
+            const commissionPremiumIndex = getIndex(['PRIMA COMISION'], 13);
 
             const getCell = (row: string[], index: number): string => {
                 if (index < 0 || index >= row.length) return '';
@@ -673,11 +531,11 @@ export const db = {
 
             // Group rows by contract (Cliente + Poliza + Asesor)
             type ContractGroup = {
-                cliente: string;
-                poliza: string;
-                moneda: string;
-                tipoCambio: string;
-                asesor: string;
+                clientName: string;
+                contractNumber: string;
+                currency: string;
+                exchangeRate: string;
+                consultantCode: string;
                 rows: Array<{ rowIndex: number; row: string[] }>;
             };
 
@@ -687,27 +545,27 @@ export const db = {
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 try {
-                    const cliente = getCell(row, idxCliente);
-                    const poliza = getCell(row, idxPoliza);
-                    const moneda = getCell(row, idxMoneda);
-                    const tipoCambio = getCell(row, idxTipoCambio);
-                    const asesor = getCell(row, idxAsesor); // This is the consultant_code
+                    const clientName = getCell(row, clientNameIndex);
+                    const contractNumber = getCell(row, contractNumberIndex);
+                    const currency = getCell(row, currencyIndex);
+                    const exchangeRate = getCell(row, exchangeRateIndex);
+                    const consultantCode = getCell(row, consultantCodeIndex);
 
-                    if (!cliente || !asesor) {
+                    if (!clientName || !consultantCode) {
                         errors.push({ row: i + 1, error: 'Missing Cliente or Asesor (Consultant Code)' });
                         continue;
                     }
 
                     // Create unique key for contract grouping
-                    const contractKey = `${cliente}|${poliza}|${asesor}`;
+                    const contractKey = `${clientName}|${contractNumber}|${consultantCode}`;
 
                     if (!contractGroups.has(contractKey)) {
                         contractGroups.set(contractKey, {
-                            cliente,
-                            poliza,
-                            moneda: moneda || '',
-                            tipoCambio: tipoCambio || '',
-                            asesor,
+                            clientName,
+                            contractNumber,
+                            currency: currency || '',
+                            exchangeRate: exchangeRate || '',
+                            consultantCode,
                             rows: [],
                         });
                     }
@@ -725,24 +583,24 @@ export const db = {
             const consultantCache = new Map<string, Consultant>();
             const ensureConsultantErrorByCode = new Map<string, string>();
             if (!consultantId) {
-                const uniqueAsesores = [...new Set(Array.from(contractGroups.values()).map(g => g.asesor))];
-                for (const asesor of uniqueAsesores) {
-                    let consultant = await db.consultant.findConsultantByCode(asesor, officeId);
+                const uniqueConsultantCodes = [...new Set(Array.from(contractGroups.values()).map(g => g.consultantCode))];
+                for (const consultantCode of uniqueConsultantCodes) {
+                    let consultant = await db.consultant.findConsultantByCode(consultantCode, officeId);
                     if (!consultant) {
-                        const ensured = await db.consultant.ensureConsultantForImport(asesor, officeId);
+                        const ensured = await db.consultant.ensureConsultantForImport(consultantCode, officeId);
                         consultant = ensured.consultant ?? null;
                         if (ensured.created && consultant) {
                             warnings.push({
                                 row: 0,
-                                message: `Se creó el asesor con código "${asesor.trim()}" automáticamente para importar.`,
+                                message: `Se creó el asesor con código "${consultantCode.trim()}" automáticamente para importar.`,
                             });
                         }
                         if (!consultant && ensured.error) {
-                            ensureConsultantErrorByCode.set(asesor.toLowerCase(), ensured.error);
+                            ensureConsultantErrorByCode.set(consultantCode.toLowerCase(), ensured.error);
                         }
                     }
                     if (consultant) {
-                        consultantCache.set(asesor.toLowerCase(), consultant);
+                        consultantCache.set(consultantCode.toLowerCase(), consultant);
                     }
                 }
             } else {
@@ -753,16 +611,16 @@ export const db = {
             }
 
             // Pre-fetch existing contracts in batch
-            const polizasToCheck = Array.from(contractGroups.values())
-                .map(g => g.poliza)
+            const contractNumbersToCheck = Array.from(contractGroups.values())
+                .map(g => g.contractNumber)
                 .filter((p): p is string => !!p);
 
             const existingContractsMap = new Map<string, Contract>();
-            if (polizasToCheck.length > 0) {
+            if (contractNumbersToCheck.length > 0) {
                 const { data: existingContracts } = await supabase
                     .from('contract')
                     .select('*')
-                    .in('contract_number', polizasToCheck);
+                    .in('contract_number', contractNumbersToCheck);
 
                 if (existingContracts) {
                     existingContracts.forEach((c: Contract) => {
@@ -774,8 +632,8 @@ export const db = {
             }
 
             // Pre-fetch clients in batch (single query for all clients)
-            const uniqueClientes = [...new Set(Array.from(contractGroups.values()).map(g => g.cliente))];
-            const clientCache = await db.client.findOrCreateClientsByName(uniqueClientes, officeId);
+            const uniqueClientNames = [...new Set(Array.from(contractGroups.values()).map(g => g.clientName))];
+            const clientCache = await db.client.findOrCreateClientsByName(uniqueClientNames, officeId);
 
             // Helper functions (defined here so they can be used in the loop)
             // Parse exchange rate - tipo cambio
@@ -794,68 +652,68 @@ export const db = {
                     let consultant: Consultant | undefined;
                     if (consultantId) {
                         consultant = consultantCache.get('');
-                        if (consultant && consultant.consultant_code?.toLowerCase() !== group.asesor.toLowerCase()) {
-                            errors.push({ row: group.rows[0]?.rowIndex || 0, error: `El código de asesor "${group.asesor}" no coincide con tu cuenta.` });
+                        if (consultant && consultant.consultant_code?.toLowerCase() !== group.consultantCode.toLowerCase()) {
+                            errors.push({ row: group.rows[0]?.rowIndex || 0, error: `El código de asesor "${group.consultantCode}" no coincide con tu cuenta.` });
                             continue;
                         }
                     } else {
-                        consultant = consultantCache.get(group.asesor.toLowerCase());
+                        consultant = consultantCache.get(group.consultantCode.toLowerCase());
                     }
 
                     if (!consultant) {
-                        const ensureMsg = ensureConsultantErrorByCode.get(group.asesor.toLowerCase());
+                        const ensureMsg = ensureConsultantErrorByCode.get(group.consultantCode.toLowerCase());
                         errors.push({
                             row: group.rows[0]?.rowIndex || 0,
                             error:
                                 ensureMsg ||
-                                `No hay un asesor con código "${group.asesor}" en tu oficina y no se pudo crear automáticamente.`,
+                                `No hay un asesor con código "${group.consultantCode}" en tu oficina y no se pudo crear automáticamente.`,
                         });
                         continue;
                     }
 
                     if (!consultant.id) {
-                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `El asesor "${group.asesor}" no tiene ID válido en el sistema.` });
+                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `El asesor "${group.consultantCode}" no tiene ID válido en el sistema.` });
                         continue;
                     }
 
                     // Get client from cache
-                    const client = clientCache.get(group.cliente.toLowerCase());
+                    const client = clientCache.get(group.clientName.toLowerCase());
                     if (!client) {
-                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Cliente "${group.cliente}" no encontrado` });
+                        errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Cliente "${group.clientName}" no encontrado` });
                         continue;
                     }
 
                     // Check if contract already exists (from pre-fetched map)
                     let contract: Contract;
                     let isNewContract = false;
-                    if (group.poliza) {
-                        const existing = existingContractsMap.get(group.poliza);
+                    if (group.contractNumber) {
+                        const existing = existingContractsMap.get(group.contractNumber);
                         if (existing) {
                             // Contract exists, use it
-                            warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.poliza}" ya existe. Se omitirá la creación de la póliza, se agregarán solo los detalles.` });
+                            warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.contractNumber}" ya existe. Se omitirá la creación de la póliza, se agregarán solo los detalles.` });
                             contract = existing;
                         } else {
                             // Create new contract
                             contract = await db.contract.createContract({
                                 consultant_id: consultant.id,
                                 client_id: client.id,
-                                contract_number: group.poliza,
-                                currency: group.moneda || null,
-                                exchange_rate: parseExchangeRate(group.tipoCambio),
+                                contract_number: group.contractNumber,
+                                currency: group.currency || null,
+                                exchange_rate: parseExchangeRate(group.exchangeRate),
                                 status: 'ACTIVE',
                             });
                             isNewContract = true;
                             // Add to cache for potential future use
-                            existingContractsMap.set(group.poliza, contract);
+                            existingContractsMap.set(group.contractNumber, contract);
                         }
                     } else {
-                        // No poliza, create new contract anyway
+                        // No contract number; create a new contract anyway
                         contract = await db.contract.createContract({
                             consultant_id: consultant.id,
                             client_id: client.id,
                             contract_number: null,
-                            currency: group.moneda || null,
-                            exchange_rate: parseExchangeRate(group.tipoCambio),
+                            currency: group.currency || null,
+                            exchange_rate: parseExchangeRate(group.exchangeRate),
                             status: 'ACTIVE',
                         });
                         isNewContract = true;
@@ -931,17 +789,17 @@ export const db = {
 
                             const detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'> = {
                                 contract_id: contract.id,
-                                issue_date: parseDate(getCell(row, idxFechaEmision)), // FECHA EMISION
-                                payment_date: parseDate(getCell(row, idxFechaPago)), // FECHA PAGO
-                                premium_payment: parseNumeric(getCell(row, idxPrimaPago)), // PRIMA PAGO
-                                payment_method: normalizePaymentMethod(getCell(row, idxFormaPago)), // FORMA DE PAGO
-                                commission_honoraries: parseNumeric(getCell(row, idxComisionHonor)), // COMISION/HONORARIOS
-                                commission_percentage: parseNumeric(getCell(row, idxPctComision)), // % COMISION
-                                collection_premium: parseNumeric(getCell(row, idxPrimaCobro)), // PRIMA COBRO
-                                seniority: getCell(row, idxAntiguedad), // ANTIGÜEDAD
-                                target_premium: parseNumeric(getCell(row, idxPrimaMeta)), // PRIMA META
-                                movement: getCell(row, idxMovimiento), // MOVIMIENTO
-                                commission_premium: parseNumeric(getCell(row, idxPrimaComision)), // PRIMA COMISION
+                                issue_date: parseDate(getCell(row, issueDateIndex)), // FECHA EMISION
+                                payment_date: parseDate(getCell(row, paymentDateIndex)), // FECHA PAGO
+                                premium_payment: parseNumeric(getCell(row, premiumPaymentIndex)), // PRIMA PAGO
+                                payment_method: normalizePaymentMethod(getCell(row, paymentMethodIndex)), // FORMA DE PAGO
+                                commission_honoraries: parseNumeric(getCell(row, commissionHonorariesIndex)), // COMISION/HONORARIOS
+                                commission_percentage: parseNumeric(getCell(row, commissionPercentageIndex)), // % COMISION
+                                collection_premium: parseNumeric(getCell(row, collectionPremiumIndex)), // PRIMA COBRO
+                                seniority: getCell(row, seniorityIndex), // ANTIGÜEDAD
+                                target_premium: parseNumeric(getCell(row, targetPremiumIndex)), // PRIMA META
+                                movement: getCell(row, movementIndex), // MOVIMIENTO
+                                commission_premium: parseNumeric(getCell(row, commissionPremiumIndex)), // PRIMA COMISION
                             };
 
                             detailRecords.push({ record: detail, rowInfo });
@@ -994,7 +852,7 @@ export const db = {
                     if (detailRecordsToInsert.length > 0) {
                         await db.contractDetail.createDetails(detailRecordsToInsert);
                     } else if (skippedDetails > 0 && !isNewContract) {
-                        warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `All ${skippedDetails} detail(s) for contract "${group.poliza || 'N/A'}" were duplicates and skipped.` });
+                        warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `All ${skippedDetails} detail(s) for contract "${group.contractNumber || 'N/A'}" were duplicates and skipped.` });
                     }
 
                     successCount++;

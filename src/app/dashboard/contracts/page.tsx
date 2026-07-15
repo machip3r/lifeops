@@ -7,10 +7,12 @@ import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
+import { useToast } from '@/components/toast';
 
 function ContractsPageContent() {
     const router = useRouter();
     const { profile } = useAuth();
+    const { toast } = useToast();
     const [contracts, setContracts] = useState<Array<Contract & { client_name?: string }>>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
@@ -74,7 +76,7 @@ function ContractsPageContent() {
             loadContracts();
         } catch (error) {
             console.error('Error deleting contract:', error);
-            alert('Error al eliminar la póliza');
+            toast.error('Error al eliminar la póliza');
         }
     };
 

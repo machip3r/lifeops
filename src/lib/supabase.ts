@@ -1,19 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
+import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/supabase/env';
 
-// Supabase configuration
-// Get these values from your Supabase project settings: https://app.supabase.com
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-// Service role key should NOT be public - only use server-side
-const supabaseServiceRoleKey = process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseUrl = getSupabaseUrl();
+const supabaseAnonKey = getSupabaseAnonKey();
 
-if (!supabaseUrl || !supabaseAnonKey || !supabaseServiceRoleKey) {
-    console.warn('Supabase environment variables are not set. Please add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your .env.local file');
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn(
+    'Supabase public env missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.',
+  );
 }
 
-// Create a single supabase client for interacting with your database
+/** Browser / RLS-scoped client (anon key). Never put the service role here. */
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
 // Database types
 export interface Office {

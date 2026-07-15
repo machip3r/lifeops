@@ -49,7 +49,7 @@ export default function CollectionsPage() {
       const data = await db.contractDetail.getDetailsWithContractAndClient();
       setDetails(data as DetailRow[]);
     } catch (error) {
-      console.error('Error loading cobranza data:', error);
+      console.error('Error loading collections data:', error);
     } finally {
       setLoading(false);
     }

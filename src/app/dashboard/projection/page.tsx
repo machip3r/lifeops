@@ -11,12 +11,12 @@ interface FormData {
   insuredAmount: number; // Suma Asegurada
   basicPremium: number; // Prima Básica
   paymentTerm: number; // Plazo de Pagos (5, 10, 15, 20)
-  currency: 'UDIS' | 'Dolares'; // Moneda
+  currency: 'UDIS' | 'Dollars';
   effectiveValueYear14: number;
   effectiveValueYear19: number;
   effectiveValueYear24: number;
-  currentUDIValue: number; // Valor Actual UDI o Dólar
-  projectedDevaluation: number; // Devaluación Proyectada (%)
+  currentUDIValue: number;
+  projectedDevaluation: number;
   advisor: string;
 }
 
@@ -71,7 +71,7 @@ function CotizacionPageContent() {
 
     // If currency changes, set default inflation/devaluation values
     if (name === 'currency') {
-      const newCurrency = value as 'UDIS' | 'Dolares';
+      const newCurrency = value as 'UDIS' | 'Dollars';
       setFormData(prev => ({
         ...prev,
         currency: newCurrency,
@@ -561,7 +561,7 @@ function CotizacionPageContent() {
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="UDIS">UDIS</option>
-                  <option value="Dolares">Dolares</option>
+                  <option value="Dollars">Dólares</option>
                 </select>
               </div>
 

@@ -454,7 +454,7 @@ function NewContractPageContent() {
                         >
                             <option value="">Selecciona una moneda</option>
                             <option value="Udis">Udis</option>
-                            <option value="Dolares">Dolares</option>
+                            <option value="Dollars">Dólares</option>
                             <option value="Pesos">Pesos</option>
                         </select>
                     </div>

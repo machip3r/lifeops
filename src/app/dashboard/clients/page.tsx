@@ -6,10 +6,12 @@ import { Client, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
+import { useToast } from '@/components/toast';
 
 function ClientsPageContent() {
     const router = useRouter();
     const { profile } = useAuth();
+    const { toast } = useToast();
     const [clients, setClients] = useState<Client[]>([]);
     const [contracts, setContracts] = useState<Contract[]>([]);
     const [loading, setLoading] = useState(true);
@@ -137,7 +139,7 @@ function ClientsPageContent() {
             loadClients();
         } catch (error) {
             console.error('Error deleting client:', error);
-            alert('Error al eliminar el cliente');
+            toast.error('Error al eliminar el cliente');
         }
     };
 

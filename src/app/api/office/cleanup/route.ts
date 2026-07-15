@@ -1,13 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import { officeCleanupSchema } from '@/lib/validation/actions';
+import { VALIDATION_MESSAGES, zodFieldErrors } from '@/lib/validation/field-errors';
+import {
+  assertOfficeAccess,
+  assertPromotory,
+  requireOfficeContext,
+} from '@/lib/auth/api';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
-    const { officeId } = body as { officeId?: string };
+    const auth = await requireOfficeContext(request);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
-    if (!officeId) {
-      return NextResponse.json({ error: 'officeId is required' }, { status: 400 });
+    const promotory = assertPromotory(auth.ctx);
+    if (!promotory.ok) {
+      return NextResponse.json({ error: promotory.error }, { status: promotory.status });
+    }
+
+    const body = await request.json().catch(() => ({}));
+    const parsed = officeCleanupSchema.safeParse(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          error: 'officeId inválido.',
+          fieldErrors: zodFieldErrors(parsed.error, VALIDATION_MESSAGES),
+        },
+        { status: 400 },
+      );
+    }
+
+    const { officeId } = parsed.data;
+
+    const access = assertOfficeAccess(auth.ctx, officeId);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // Get consultants for this office (need id and auth_user_id for later auth deletion)

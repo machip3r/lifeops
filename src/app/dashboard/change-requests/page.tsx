@@ -86,7 +86,7 @@ function ChangeRequestsPageContent() {
             {profile?.role === 'consultant' && (
                 <div className="flex justify-end mb-8">
                     <button
-                        onClick={() => router.push('/dashboard/policies/new')}
+                        onClick={() => router.push('/dashboard/contracts/new')}
                         className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
                     >
                         + Nueva Solicitud

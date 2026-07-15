@@ -1,19 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { getAdminOfficeById } from '@/lib/db-admin';
 import { Resend } from 'resend';
+import {
+  assertOfficeAccess,
+  assertPromotory,
+  requireOfficeContext,
+} from '@/lib/auth/api';
+import { inviteConsultantSchema } from '@/lib/validation/actions';
+import { VALIDATION_MESSAGES, zodFieldErrors } from '@/lib/validation/field-errors';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { officeId, consultantEmail, consultantName, consultantCode } = body;
+    const auth = await requireOfficeContext(request);
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
-    if (!officeId || !consultantEmail || !consultantName || !consultantCode) {
+    const promotory = assertPromotory(auth.ctx);
+    if (!promotory.ok) {
+      return NextResponse.json({ error: promotory.error }, { status: promotory.status });
+    }
+
+    const body = await request.json();
+    const parsed = inviteConsultantSchema.safeParse(body);
+
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
+        {
+          error: 'Datos de invitación inválidos.',
+          fieldErrors: zodFieldErrors(parsed.error, VALIDATION_MESSAGES),
+        },
+        { status: 400 },
       );
+    }
+
+    const { officeId, consultantEmail, consultantName, consultantCode } =
+      parsed.data;
+
+    const access = assertOfficeAccess(auth.ctx, officeId);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     // Create invitation token
@@ -26,16 +55,16 @@ export async function POST(request: NextRequest) {
         consultantName,
         consultantCode
       );
-    } catch (tokenError: any) {
+    } catch (tokenError: unknown) {
       console.error('Error creating token:', tokenError);
       return NextResponse.json(
-        { error: 'Failed to create invitation token' },
+        { error: 'No se pudo crear el token de invitación.' },
         { status: 500 }
       );
     }
 
     // Get office info
-    const officeData = await db.office.getAdminOfficeById(officeId);
+    const officeData = await getAdminOfficeById(officeId);
 
     // Create invitation URL
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
@@ -45,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     if (!officeData) {
       return NextResponse.json(
-        { error: 'Office not found' },
+        { error: 'Oficina no encontrada.' },
         { status: 404 }
       );
     }
@@ -100,7 +129,7 @@ export async function POST(request: NextRequest) {
     if (emailError) {
       console.error('Error sending email:', emailError);
       return NextResponse.json(
-        { error: 'Failed to send invitation email' },
+        { error: 'No se pudo enviar el correo de invitación.' },
         { status: 500 }
       );
     }
@@ -108,14 +137,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       token: tokenData,
-      message: 'Invitation sent successfully',
+      message: 'Invitación enviada correctamente.',
+      emailId: emailData?.id,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in invite-consultant API:', error);
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { error: 'Error interno del servidor.' },
       { status: 500 }
     );
   }
 }
-

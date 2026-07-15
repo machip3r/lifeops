@@ -4,17 +4,28 @@ A Next.js application for managing insurance operations, consultants, clients, c
 
 ## Tech Stack
 
-- **Framework**: Next.js 16.0.4 (App Router)
+- **Framework**: Next.js 16 (App Router)
 - **Language**: TypeScript 5
 - **Database**: Supabase (PostgreSQL)
 - **Authentication**: Supabase Auth
-- **Styling**: Tailwind CSS 4
+- **Styling**: Tailwind CSS 4 + shadcn
+- **Validation**: Zod (`src/lib/validation`)
 - **State Management**: React Hooks (useState, useContext)
+
+## Agent / contributor standards
+
+AI and human contributors must follow **[`AGENTS.md`](AGENTS.md)** (also pointed to by `CLAUDE.md` and `.cursor/rules/lifeops.mdc`). Product flows: [`docs/product-flows.md`](docs/product-flows.md). Schema reference: [`docs/database.md`](docs/database.md).
 
 ## Project Structure
 
 ```
 lifeops/
+├── AGENTS.md                         # Coding standards (source of truth for agents)
+├── CLAUDE.md                         # Points at AGENTS.md
+├── .cursor/rules/lifeops.mdc         # Cursor always-on project rules
+├── docs/
+│   ├── database.md                   # Schema / RPC / RLS reference
+│   └── product-flows.md              # UX flows by role
 ├── src/
 │   ├── app/                          # Next.js App Router pages
 │   │   ├── dashboard/                # Protected dashboard routes
@@ -22,21 +33,23 @@ lifeops/
 │   │   │   ├── contracts/           # Contract management
 │   │   │   ├── consultants/         # Consultant management
 │   │   │   ├── clients/              # Client management
-│   │   │   ├── policies/            # Policy management
+│   │   │   ├── collections/         # Cobranza
+│   │   │   ├── projection/          # Proyección
 │   │   │   ├── change-requests/     # Contract change requests
 │   │   │   └── profile/             # User profile
 │   │   ├── login/                   # Authentication page
 │   │   ├── invite/[token]/         # Consultant invitation acceptance
 │   │   └── api/                    # API routes
 │   ├── components/                  # Reusable React components
+│   │   └── ui/                      # Design-system primitives + FormField
 │   ├── contexts/                    # React contexts (auth)
 │   └── lib/                        # Utility functions
 │       ├── db.ts                   # Database interaction functions
-│       └── supabase.ts             # Supabase client & TypeScript types
+│       ├── supabase.ts             # Browser client & types (legacy admin export)
+│       ├── supabase/               # env + server-only admin client
+│       └── validation/             # Zod schemas + field errors
 ├── supabase/
-│   └── migrations/                 # SQL migration files
-│       ├── schema.sql              # Complete database schema
-│       └── create_contract_details_table.sql  # Contract details table
+│   └── migrations/                 # SQL migration files (append-only)
 └── public/                         # Static assets
 
 ```
@@ -243,37 +256,39 @@ Organized by table, provides CRUD operations:
 Defines interfaces for all database tables:
 - `Office`, `Consultant`, `Client`, `Contract`, `ContractDetail`, `ContractChangeRequest`, `File`, `Token`
 
-## Environment Variables
-
-Required in `.env.local`:
-```
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-```
-
 ## Database Migrations
 
 ### Running Migrations
 
-1. **Initial Setup**: Run `supabase/migrations/schema.sql` in Supabase SQL Editor
-2. **Contract Details Table**: Run `supabase/migrations/create_contract_details_table.sql`
+1. **Initial Setup**: Run `supabase/migrations/schema.sql` in Supabase SQL Editor (baseline).
+2. **Later changes**: run each new numbered file (`002_…sql`, `003_…sql`, …) once. Never edit an already-applied migration.
 
 ### Migration Files
 
-- `schema.sql`: Complete database schema (tables, indexes, RLS policies, triggers)
-- `create_contract_details_table.sql`: Creates `contract_detail` table with all columns
+- `schema.sql`: Complete baseline schema (tables, indexes, RLS policies, triggers, RPCs)
+- Further changes: append-only under `supabase/migrations/`; keep [`docs/database.md`](docs/database.md) in sync
 
 ## Important Implementation Details
 
 ### Consultant Creation During Import
 
 When importing HTML data:
-1. System checks if consultants exist by `consultant_code` (asesor)
-2. If missing, shows dialog to create them
-3. Creates auth user first via `supabaseAdmin.auth.admin.createUser`
-4. Uses auth user ID for both `id` and `auth_user_id` in consultant table
-5. Sets consultant status to 'ACTIVE' after user creation
+1. Client checks missing codes via `POST /api/extractor/missing-consultants` (Bearer auth)
+2. Creates missing consultants via `POST /api/extractor/create-consultants` (server uses service role)
+3. Auth user ID is used for both `id` and `auth_user_id` on the consultant row
+4. Status starts as `PENDING` until the adviser completes setup
+
+## Environment Variables
+
+Required in `.env` / `.env.local`:
+```
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+RESEND_API_KEY=your_resend_key
+```
+
+`SUPABASE_SERVICE_ROLE_KEY` is server-only — never use a `NEXT_PUBLIC_` prefix and never put it in `next.config.ts` `env`.
 
 ### Date Parsing
 
@@ -297,18 +312,19 @@ All tables have RLS policies:
 ### Getting Started
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
 
 ### Key Commands
 
-- `npm run dev`: Start development server
-- `npm run build`: Build for production
-- `npm run start`: Start production server
-- `npm run lint`: Run ESLint
+- `pnpm run dev`: Start development server
+- `pnpm run build`: Build for production
+- `pnpm run start`: Start production server
+- `pnpm run lint`: Run ESLint
+- `pnpm run knip`: Unused deps/exports check
 
 ## File Structure Details
 
@@ -318,7 +334,8 @@ Open [http://localhost:3000](http://localhost:3000)
 - `/dashboard/contracts`: Contract listing and management
 - `/dashboard/consultants`: Consultant management (promotory only)
 - `/dashboard/clients`: Client listing
-- `/dashboard/policies`: Policy management
+- `/dashboard/projection`: Financial projection
+- `/dashboard/collections`: Collections (cobranza)
 - `/dashboard/change-requests`: Contract change requests
 
 ### Key Components
@@ -370,8 +387,9 @@ Open [http://localhost:3000](http://localhost:3000)
 
 7. **Constraints for new development**:
    - **Schema / RPC changes**:
-     - Always update `supabase/migrations/schema.sql` **and** create a dedicated, self‑contained `.sql` file under `supabase/` (e.g. `dashboard_filters_*.sql`, `fix_*.sql`) for each change so it can be run directly in the Supabase SQL editor.
-     - SQL files must include only the statements needed for that change (typically one or more `CREATE OR REPLACE FUNCTION`, `ALTER TABLE`, or `CREATE POLICY` blocks).
+     - Append a **new** file under `supabase/migrations/` (e.g. `002_…sql`). Never edit an already-applied migration.
+     - Update [`docs/database.md`](docs/database.md) in the same change.
+     - SQL files must include only the statements needed for that change (typically `CREATE OR REPLACE FUNCTION`, `ALTER TABLE`, or `CREATE POLICY` blocks).
    - **Filters contract**:
      - Any new dashboard metric or aggregation should reuse the existing filter parameters and pattern (date basis + date range + seniority + ramo + forma de pago + consultants).
      - Prefer adding/extending RPCs over doing heavy aggregations on the client.
@@ -381,10 +399,12 @@ Open [http://localhost:3000](http://localhost:3000)
      - New tables must copy this pattern when RLS is enabled.
    - **UI/UX & language**:
      - Dashboard UI is dark with golden accent (`#FBDBAC`) and gradient titles via `dashboard-page-title`.
-     - All dashboard copy is in Spanish; code (file names, types, SQL) stays in English.
-     - Filters use Shadcn components and “pending + Aplicar” behaviour (no auto‑query on every keystroke).
+     - **English** for routes, files, variables, types, SQL, and comments; **Spanish** allowed for user-visible UI copy.
+     - Forms use `FormField` + Zod (`src/lib/validation`); filters use Shadcn and “pending + Aplicar” behaviour.
    - **Feedback & errors**:
      - Use `ToastProvider` + `useToast` for user‑facing notifications; avoid `alert()` in new code.
+   - **Security**:
+     - Prefer `SUPABASE_SERVICE_ROLE_KEY` + `src/lib/supabase/admin.ts` on the server; do not expand client service-role usage.
 
 ## Troubleshooting
 
@@ -404,29 +424,8 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ## Reusable Assistant Prompt for This Project
 
-When starting a new AI chat for this repo, you can paste the following prompt so the assistant respects the project’s conventions:
+Prefer relying on **`AGENTS.md`** (and Cursor rules) instead of pasting a long prompt. Short bootstrap if needed:
 
 ```text
-You are working in the LifeOps project (Next.js + Supabase) for an insurance office dashboard.
-
-Critical rules:
-- All user‑facing UI text in the dashboard is in Spanish; file names, types, and SQL identifiers stay in English.
-- The overview dashboard (`/dashboard`) already has a rich filter system:
-  - Date basis (`payment` vs `issue`)
-  - Date range (Shadcn Calendar, pending state + Aplicar)
-  - Seniority range (years), Ramo (VI / GM), Forma de pago, and Asesores multi‑select
-- All overview stats must use the existing SQL RPCs (`get_office_totals`, `get_top_consultants_by_sales`, `get_office_totals_by_type`, `get_office_consultants_sales`) via `db.dashboard.*`, or new RPCs that follow the same parameter contract.
-- There is a Cobranza page (`/dashboard/collections`) that computes next payment dates based on `payment_date` + `payment_method` (Mensual/Trimestral/Semestral/Anual) and shows upcoming amounts due.
-
-Database & migrations:
-- Database schema lives in `supabase/migrations/schema.sql`.
-- For **every** schema change or RPC signature change you propose, you MUST:
-  1) Show the exact SQL,
-  2) And put it into a **separate, self‑contained `.sql` file** path under `supabase/` that I can run in the Supabase SQL editor (no manual editing of `schema.sql` only).
-
-Other constraints:
-- Respect existing RLS patterns: promotory users see office‑wide data; consultants see only their own data.
-- Use the toast system (`ToastProvider` + `useToast`) for user‑facing errors/success; never use `alert()`.
-- Keep the dark UI with the golden gradient titles (`dashboard-page-title`) and clean, inline filter layouts.
-- Prefer pushing aggregations and filters into SQL RPCs instead of doing heavy work on the client.
+Follow LifeOps AGENTS.md. pnpm only. English routes/code/variables; Spanish UI copy OK. Zod + FormField for forms. Append-only supabase/migrations + docs/database.md. No alert(); use toasts. Service role server-only via src/lib/supabase/admin.ts. Prefer Server Actions / API for privileged work.
 ```

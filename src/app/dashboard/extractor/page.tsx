@@ -4,16 +4,16 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
+import { authFetch } from '@/lib/api-client';
 import { db } from '@/lib/db';
-import { supabaseAdmin, ContractDetail } from '@/lib/supabase';
 
 interface ContractorMetadata {
-  contratante?: string;
-  poliza?: string;
-  oficina?: string;
-  moneda?: string;
-  tipoCambio?: string;
-  asesor?: string;
+  policyholder?: string;
+  contractNumber?: string;
+  officeName?: string;
+  currency?: string;
+  exchangeRate?: string;
+  consultantCode?: string;
 }
 
 interface TableData {
@@ -334,18 +334,18 @@ function ExtractorPageContent() {
               const nextCell = cellElements[i + 1];
               const value = nextCell ? nextCell.textContent?.trim() || '' : '';
 
-              if (upperText.includes('CONTRATANTE')) metadata.contratante = value;
-              else if (upperText.includes('POLIZA')) metadata.poliza = value;
-              else if (upperText.includes('OFICINA')) metadata.oficina = value;
-              else if (upperText.includes('MONEDA')) metadata.moneda = value;
-              else if (upperText.includes('TIPO DE CAMBIO')) metadata.tipoCambio = value;
-              else if (upperText.includes('ASESOR')) metadata.asesor = value;
+              if (upperText.includes('CONTRATANTE')) metadata.policyholder = value;
+              else if (upperText.includes('POLIZA')) metadata.contractNumber = value;
+              else if (upperText.includes('OFICINA')) metadata.officeName = value;
+              else if (upperText.includes('MONEDA')) metadata.currency = value;
+              else if (upperText.includes('TIPO DE CAMBIO')) metadata.exchangeRate = value;
+              else if (upperText.includes('ASESOR')) metadata.consultantCode = value;
 
               i++;
             }
           }
 
-          const metadataKey = `${metadata.contratante || ''}_${metadata.poliza || ''}_${rowIndex}`;
+          const metadataKey = `${metadata.policyholder || ''}_${metadata.contractNumber || ''}_${rowIndex}`;
 
           if (!seenMetadataKeys.has(metadataKey)) {
             if (currentSection !== null && currentSection.rows.length > 0) {
@@ -395,15 +395,15 @@ function ExtractorPageContent() {
     }
 
     // Helper function to determine TIPO POLIZA from poliza number
-    const getTipoPoliza = (poliza: string | null | undefined): string => {
-      if (!poliza) return '';
-      const polizaUpper = poliza.trim().toUpperCase();
-      if (polizaUpper.startsWith('VI')) return 'VI';
-      if (polizaUpper.startsWith('GM')) return 'GMM';
+    const getPolicyType = (contractNumber: string | null | undefined): string => {
+      if (!contractNumber) return '';
+      const upper = contractNumber.trim().toUpperCase();
+      if (upper.startsWith('VI')) return 'VI';
+      if (upper.startsWith('GM')) return 'GMM';
       return '';
     };
 
-    const normalizeFormaPagoDisplay = (raw: string): string => {
+    const normalizePaymentMethodDisplay = (raw: string): string => {
       const trimmed = raw.trim();
       if (!trimmed) return '';
       const lower = trimmed.toLowerCase();
@@ -456,7 +456,7 @@ function ExtractorPageContent() {
     allSections.forEach((section) => {
       section.rows.forEach((row) => {
         const allowedCells = ALLOWED_DETAIL_COLUMNS.map((c) => (row[c.index] ?? '').trim());
-        const poliza = section.metadata.poliza || '';
+        const contractNumber = section.metadata.contractNumber || '';
 
         // Find both PRIMA PAGO columns by header, using left-to-right order in the original HTML
         const normalizeHeader = (h?: string | null): string =>
@@ -473,70 +473,70 @@ function ExtractorPageContent() {
           }
         });
 
-        const primaPago1Index = primaPagoHeaderIndices[0] ?? -1;
-        const primaPago2Index = primaPagoHeaderIndices[1] ?? -1;
+        const premiumPayment1Index = primaPagoHeaderIndices[0] ?? -1;
+        const premiumPayment2Index = primaPagoHeaderIndices[1] ?? -1;
 
-        const fechaEmision = allowedCells[0] || '';
-        let mesEmision = '';
-        let anioEmision = '';
-        if (fechaEmision) {
-          const parts = fechaEmision.split('/');
+        const issueDate = allowedCells[0] || '';
+        let issueMonth = '';
+        let issueYear = '';
+        if (issueDate) {
+          const parts = issueDate.split('/');
           if (parts.length === 3) {
-            mesEmision = parts[1]?.padStart(2, '0') || '';
-            anioEmision = parts[2] || '';
+            issueMonth = parts[1]?.padStart(2, '0') || '';
+            issueYear = parts[2] || '';
           }
         }
 
-        const fechaPago = allowedCells[1] || '';
-        let mesPago = '';
-        let anioPago = '';
-        if (fechaPago) {
-          const parts = fechaPago.split('/');
+        const paymentDate = allowedCells[1] || '';
+        let paymentMonth = '';
+        let paymentYear = '';
+        if (paymentDate) {
+          const parts = paymentDate.split('/');
           if (parts.length === 3) {
-            mesPago = parts[1]?.padStart(2, '0') || '';
-            anioPago = parts[2] || '';
+            paymentMonth = parts[1]?.padStart(2, '0') || '';
+            paymentYear = parts[2] || '';
           }
         }
 
-        const primaPago1 =
-          primaPago1Index >= 0 ? (row[primaPago1Index] ?? '').trim() : allowedCells[2] || '';
-        const formaPagoRaw = allowedCells[3] || '';
-        const formaPago = normalizeFormaPagoDisplay(formaPagoRaw);
-        const comisionHonorarios = allowedCells[4] || '';
-        const porcentajeComision = allowedCells[5] || '';
-        const primaCobro = allowedCells[6] || '';
-        const antiguedad = allowedCells[7] || '';
-        const primaMeta = allowedCells[8] || '';
-        const movimiento = allowedCells[9] || '';
-        const primaComision = allowedCells[10] || '';
-        const primaPago2 =
-          primaPago2Index >= 0 ? (row[primaPago2Index] ?? '').trim() : primaPago1;
+        const premiumPayment1 =
+          premiumPayment1Index >= 0 ? (row[premiumPayment1Index] ?? '').trim() : allowedCells[2] || '';
+        const paymentMethodRaw = allowedCells[3] || '';
+        const paymentMethod = normalizePaymentMethodDisplay(paymentMethodRaw);
+        const commissionHonoraries = allowedCells[4] || '';
+        const commissionPercentage = allowedCells[5] || '';
+        const collectionPremium = allowedCells[6] || '';
+        const seniority = allowedCells[7] || '';
+        const targetPremium = allowedCells[8] || '';
+        const movement = allowedCells[9] || '';
+        const commissionPremium = allowedCells[10] || '';
+        const premiumPayment2 =
+          premiumPayment2Index >= 0 ? (row[premiumPayment2Index] ?? '').trim() : premiumPayment1;
 
         combinedRows.push([
-          section.metadata.contratante || '',
-          poliza,
-          getTipoPoliza(poliza),
-          section.metadata.moneda || '',
-          section.metadata.tipoCambio || '',
-          section.metadata.asesor || '',
-          '', // Nombre Asesor (editable)
-          '', // Reclutador (editable)
-          fechaEmision,
-          mesEmision,
-          anioEmision,
-          fechaPago,
-          mesPago,
-          anioPago,
-          primaPago1,
-          formaPago,
-          primaComision,
-          comisionHonorarios,
-          porcentajeComision,
-          movimiento,
-          primaCobro,
-          antiguedad,
-          primaPago2,
-          primaMeta,
+          section.metadata.policyholder || '',
+          contractNumber,
+          getPolicyType(contractNumber),
+          section.metadata.currency || '',
+          section.metadata.exchangeRate || '',
+          section.metadata.consultantCode || '',
+          '', // Consultant name (editable)
+          '', // Recruiter (editable)
+          issueDate,
+          issueMonth,
+          issueYear,
+          paymentDate,
+          paymentMonth,
+          paymentYear,
+          premiumPayment1,
+          paymentMethod,
+          commissionPremium,
+          commissionHonoraries,
+          commissionPercentage,
+          movement,
+          collectionPremium,
+          seniority,
+          premiumPayment2,
+          targetPremium,
         ]);
       });
     });
@@ -770,32 +770,6 @@ function ExtractorPageContent() {
     }
   };
 
-  /** Fetch existing auth user ids for the given emails (to avoid duplicate user creation). */
-  const getExistingAuthUserIdsByEmails = useCallback(async (emails: string[]): Promise<Map<string, string>> => {
-    const emailSet = new Set(emails.map((e) => e.toLowerCase()));
-    const result = new Map<string, string>();
-    if (emailSet.size === 0) return result;
-    const perPage = 1000;
-    let page = 1;
-    let hasMore = true;
-    while (hasMore) {
-      const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
-      if (error) {
-        console.warn('Error listing auth users for duplicate check:', error);
-        break;
-      }
-      const users = data?.users ?? [];
-      for (const user of users) {
-        if (user.email && emailSet.has(user.email.toLowerCase())) {
-          result.set(user.email.toLowerCase(), user.id);
-        }
-      }
-      if (users.length < perPage) hasMore = false;
-      else page += 1;
-    }
-    return result;
-  }, []);
-
   const checkMissingConsultants = async (rows: string[][], officeId: string): Promise<string[]> => {
     const consultantCodes = new Set<string>();
 
@@ -808,36 +782,29 @@ function ExtractorPageContent() {
 
     if (consultantCodes.size === 0) return [];
 
-    // Batch check all consultants at once
-    const codesArray = Array.from(consultantCodes);
-    const { data: existingConsultants } = await supabaseAdmin
-      .from('consultant')
-      .select('consultant_code')
-      .eq('office_id', officeId)
-      .in('consultant_code', codesArray);
-
-    const existingCodes = new Set(
-      (existingConsultants || [])
-        .map((c: any) => c.consultant_code?.toLowerCase())
-        .filter((code: string) => code)
-    );
-
-    // Find missing consultants
-    const missing = codesArray.filter(code => !existingCodes.has(code.toLowerCase()));
-
-    return missing;
+    const codes = Array.from(consultantCodes);
+    const res = await authFetch('/api/extractor/missing-consultants', {
+      method: 'POST',
+      body: JSON.stringify({ officeId, codes }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'No se pudieron verificar los asesores.');
+    }
+    return data.missing as string[];
   };
 
-  const checkDuplicates = async (rows: string[][]): Promise<{ contracts: string[]; details: Array<{ contract: string; ticket: string; row: number }> }> => {
-    const duplicateDetails: Array<{ contract: string; ticket: string; row: number }> = [];
-
+  const checkDuplicates = async (
+    rows: string[][],
+    officeId: string,
+  ): Promise<{ contracts: string[]; details: Array<{ contract: string; ticket: string; row: number }> }> => {
     // Group rows by contract (same logic as import)
     type ContractGroup = {
-      cliente: string;
-      poliza: string;
-      moneda: string;
-      tipoCambio: string;
-      asesor: string;
+      clientName: string;
+      contractNumber: string;
+      currency: string;
+      exchangeRate: string;
+      consultantCode: string;
       rows: Array<{ rowIndex: number; data: string[] }>;
     };
 
@@ -847,22 +814,22 @@ function ExtractorPageContent() {
       const row = rows[i];
       if (row.length < 17) continue; // 6 metadata (Cliente, Poliza, TIPO POLIZA, Moneda, Tipo Cambio, Asesor) + 11 detail columns
 
-      const cliente = row[0]?.trim();
-      const poliza = row[1]?.trim();
-      const moneda = row[3]?.trim();
-      const tipoCambio = row[4]?.trim();
-      const asesor = row[5]?.trim();
+      const clientName = row[0]?.trim();
+      const contractNumber = row[1]?.trim();
+      const currency = row[3]?.trim();
+      const exchangeRate = row[4]?.trim();
+      const consultantCode = row[5]?.trim();
 
-      if (!cliente || !asesor) continue;
+      if (!clientName || !consultantCode) continue;
 
-      const contractKey = `${cliente}|${poliza}|${asesor}`;
+      const contractKey = `${clientName}|${contractNumber}|${consultantCode}`;
       if (!contractGroups.has(contractKey)) {
         contractGroups.set(contractKey, {
-          cliente,
-          poliza,
-          moneda: moneda || '',
-          tipoCambio: tipoCambio || '',
-          asesor,
+          clientName,
+          contractNumber,
+          currency: currency || '',
+          exchangeRate: exchangeRate || '',
+          consultantCode,
           rows: [],
         });
       }
@@ -872,24 +839,9 @@ function ExtractorPageContent() {
       });
     }
 
-    // Check which contracts exist to get their IDs (for checking ticket numbers)
-    const polizasToCheck = Array.from(contractGroups.values())
-      .map(g => g.poliza)
+    const contractNumbers = Array.from(contractGroups.values())
+      .map(g => g.contractNumber)
       .filter((p): p is string => !!p);
-
-    const existingContractsMap = new Map<string, { id: string; contract_number: string }>();
-    if (polizasToCheck.length > 0) {
-      const { data: existingContracts } = await supabaseAdmin
-        .from('contract')
-        .select('id, contract_number')
-        .in('contract_number', polizasToCheck);
-
-      if (existingContracts) {
-        existingContracts.forEach((c: any) => {
-          existingContractsMap.set(c.contract_number, c);
-        });
-      }
-    }
 
     // Helper functions to parse data (same as import function)
     const mapColumn = (detailData: string[], index: number): string | null => {
@@ -917,85 +869,43 @@ function ExtractorPageContent() {
       return isNaN(parsed) ? null : parsed;
     };
 
-    const normalizePaymentMethod = (value: string | null): string | null => {
-      if (!value) return null;
-      const raw = value.trim().toLowerCase();
-      switch (raw) {
-        case '1':
-        case '01':
-        case 'anual':
-          return 'Anual';
-        case '2':
-        case '02':
-        case 'semestral':
-          return 'Semestral';
-        case '4':
-        case '04':
-        case 'trimestral':
-          return 'Trimestral';
-        case '5':
-        case '05':
-        case 'mensual':
-          return 'Mensual';
-        default:
-          return value.trim();
-      }
-    };
-
-    // detailData is 11 columns in order: FECHA EMISION, FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, COMISION/HONORARIOS, % COMISION, PRIMA COBRO, ANTIGÜEDAD, PRIMA META, MOVIMIENTO, PRIMA COMISION
-    const detailChecks: Array<{ contractId: string; detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'>; contract: string; row: number }> = [];
+    // detailData is 11 columns in order: FECHA EMISION, FECHA PAGO, PRIMA PAGO, …
+    const details: Array<{
+      contractNumber: string;
+      paymentDate: string | null;
+      premiumPayment: number | null;
+      row: number;
+    }> = [];
 
     for (const [, group] of contractGroups.entries()) {
-      if (group.poliza) {
-        const existingContract = existingContractsMap.get(group.poliza);
-        if (existingContract) {
-          for (const rowInfo of group.rows) {
-            try {
-              const detailData = rowInfo.data;
-              const detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at' | 'contract_id'> = {
-                issue_date: parseDate(mapColumn(detailData, 0)),
-                payment_date: parseDate(mapColumn(detailData, 1)),
-                premium_payment: parseNumeric(mapColumn(detailData, 2)),
-                payment_method: normalizePaymentMethod(mapColumn(detailData, 3)),
-                commission_honoraries: parseNumeric(mapColumn(detailData, 4)),
-                commission_percentage: parseNumeric(mapColumn(detailData, 5)),
-                collection_premium: parseNumeric(mapColumn(detailData, 6)),
-                seniority: mapColumn(detailData, 7),
-                target_premium: parseNumeric(mapColumn(detailData, 8)),
-                movement: mapColumn(detailData, 9),
-                commission_premium: parseNumeric(mapColumn(detailData, 10)),
-              };
-
-              detailChecks.push({
-                contractId: existingContract.id,
-                detail,
-                contract: group.poliza,
-                row: rowInfo.rowIndex,
-              });
-            } catch (error) {
-              console.error('Error parsing detail row:', error);
-            }
-          }
+      if (!group.contractNumber) continue;
+      for (const rowInfo of group.rows) {
+        try {
+          const detailData = rowInfo.data;
+          details.push({
+            contractNumber: group.contractNumber,
+            paymentDate: parseDate(mapColumn(detailData, 1)),
+            premiumPayment: parseNumeric(mapColumn(detailData, 2)),
+            row: rowInfo.rowIndex,
+          });
+        } catch (error) {
+          console.error('Error parsing detail row:', error);
         }
       }
     }
 
-    // Batch check all details by comparing all columns (only for existing contracts)
-    if (detailChecks.length > 0) {
-      const duplicateIndices = await db.contractDetail.checkDetailsExistByAllColumns(
-        detailChecks.map(({ contractId, detail }) => ({ contractId, detail }))
-      );
-
-      detailChecks.forEach(({ contract, row, detail }, index) => {
-        if (duplicateIndices.has(index)) {
-          const ticket = [detail.issue_date, detail.payment_date].filter(Boolean).join(' ') || 'Fila';
-          duplicateDetails.push({ contract, ticket, row });
-        }
-      });
+    const res = await authFetch('/api/extractor/check-duplicates', {
+      method: 'POST',
+      body: JSON.stringify({ officeId, contractNumbers, details }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'No se pudieron verificar duplicados.');
     }
-
-    // Return empty contracts array since we no longer check for duplicate contracts
-    return { contracts: [], details: duplicateDetails };
+    return {
+      contracts: data.contracts as string[],
+      details: data.details as Array<{ contract: string; ticket: string; row: number }>,
+    };
   };
 
   const handleImport = async () => {
@@ -1023,71 +933,13 @@ function ExtractorPageContent() {
     if (missing.length > 0) {
       // Auto-create consultants with default emails (bypass dialog temporarily)
       try {
-        const defaultEmails = missing.map((code) => `braulinusmac+${code}@gmail.com`);
-        const existingAuthByEmail = await getExistingAuthUserIdsByEmails(defaultEmails);
-
-        for (const consultantCode of missing) {
-          const defaultEmail = `braulinusmac+${consultantCode}@gmail.com`;
-          const defaultPassword = 'Hola123!!';
-          const emailLower = defaultEmail.toLowerCase();
-          let authUserId: string | null = existingAuthByEmail.get(emailLower) ?? null;
-
-          if (!authUserId) {
-            const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-              email: defaultEmail,
-              password: defaultPassword,
-              email_confirm: true,
-            });
-
-            if (authError) {
-              console.error(`Error al crear usuario para ${consultantCode}:`, authError);
-              continue;
-            }
-
-            if (!authData?.user) {
-              console.error(`Error: No se pudo crear usuario para ${consultantCode}`);
-              continue;
-            }
-
-            authUserId = authData.user.id;
-          } else {
-            // User already exists (e.g. from another office); check if already a consultant for this office
-            const { data: existingConsultant } = await supabaseAdmin
-              .from('consultant')
-              .select('id')
-              .eq('id', authUserId)
-              .eq('office_id', officeId)
-              .maybeSingle();
-
-            if (existingConsultant) {
-              continue; // Already consultant in this office, skip
-            }
-            // Existing user but no consultant row for this office: consultant.id = auth user id is unique, so we can't add same id for another office. Skip.
-            const { data: anyConsultant } = await supabaseAdmin
-              .from('consultant')
-              .select('id')
-              .eq('id', authUserId)
-              .maybeSingle();
-            if (anyConsultant) {
-              continue; // Already consultant elsewhere, skip
-            }
-          }
-
-          const { error: consultantError } = await supabaseAdmin
-            .from('consultant')
-            .insert({
-              id: authUserId,
-              office_id: officeId,
-              name: consultantCode,
-              email: defaultEmail,
-              consultant_code: consultantCode,
-              auth_user_id: authUserId,
-              status: 'PENDING',
-            });
-
-          if (consultantError) {
-            console.error(`Error al crear asesor ${consultantCode}:`, consultantError);
-          }
+        const res = await authFetch('/api/extractor/create-consultants', {
+          method: 'POST',
+          body: JSON.stringify({ mode: 'auto', officeId, codes: missing }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'No se pudieron crear los asesores.');
         }
       } catch (error: any) {
         console.error('Error auto-creating consultants:', error);
@@ -1097,7 +949,7 @@ function ExtractorPageContent() {
     // Check for duplicates
     setIsCheckingDuplicates(true);
     try {
-      const duplicateData = await checkDuplicates(tables[0].rows);
+      const duplicateData = await checkDuplicates(tables[0].rows, officeId);
 
       setIsCheckingDuplicates(false);
 
@@ -1146,58 +998,22 @@ function ExtractorPageContent() {
         }
       }
 
-      const emails = missingConsultants.map((c) => c.email);
-      const existingAuthByEmail = await getExistingAuthUserIdsByEmails(emails);
-
-      for (const consultant of missingConsultants) {
-        const emailLower = consultant.email.toLowerCase();
-        let authUserId: string | null = existingAuthByEmail.get(emailLower) ?? null;
-
-        if (!authUserId) {
-          const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-            email: consultant.email,
-            password: consultant.password,
-            email_confirm: true,
-          });
-
-          if (authError) {
-            throw new Error(`Error al crear usuario para ${consultant.consultantCode}: ${authError.message}`);
-          }
-
-          if (!authData.user) {
-            throw new Error(`Error al crear usuario para ${consultant.consultantCode}`);
-          }
-
-          authUserId = authData.user.id;
-        } else {
-          const { data: existingConsultant } = await supabaseAdmin
-            .from('consultant')
-            .select('id')
-            .eq('id', authUserId)
-            .maybeSingle();
-
-          if (existingConsultant) {
-            throw new Error(
-              `El correo ${consultant.email} ya está registrado como asesor. Use otro correo para ${consultant.consultantCode}.`
-            );
-          }
-        }
-
-        const { error: consultantError } = await supabaseAdmin
-          .from('consultant')
-          .insert({
-            id: authUserId,
-            office_id: officeId,
-            name: consultant.name,
-            email: consultant.email,
-            consultant_code: consultant.consultantCode,
-            auth_user_id: authUserId,
-            status: 'PENDING',
-          });
-
-        if (consultantError) {
-          throw new Error(`Error al crear asesor ${consultant.consultantCode}: ${consultantError.message}`);
-        }
+      const res = await authFetch('/api/extractor/create-consultants', {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'manual',
+          officeId,
+          consultants: missingConsultants.map(c => ({
+            consultantCode: c.consultantCode,
+            name: c.name || c.consultantCode,
+            email: c.email,
+            password: c.password,
+          })),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'No se pudieron crear los asesores.');
       }
 
       // Close dialog
@@ -1207,7 +1023,7 @@ function ExtractorPageContent() {
       // Check for duplicates before importing
       setIsCheckingDuplicates(true);
       try {
-        const duplicateData = await checkDuplicates(tables[0].rows);
+        const duplicateData = await checkDuplicates(tables[0].rows, officeId);
 
         setIsCheckingDuplicates(false);
 
