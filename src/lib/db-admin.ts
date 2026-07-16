@@ -281,3 +281,25 @@ export async function findContractsByNumbers(
   }
   return out;
 }
+
+/** Promotory invite: create token via service role (after assertOfficeAccess in the route). */
+export async function createInvitationTokenAdmin(
+  type: string,
+  officeId: string,
+  consultantEmail: string,
+  consultantName: string,
+  consultantCode: string,
+): Promise<string> {
+  const { data, error } = await supabaseAdmin.rpc("create_invitation_token", {
+    type,
+    office_id: officeId,
+    consultant_email: consultantEmail,
+    consultant_name: consultantName,
+    consultant_code: consultantCode,
+  });
+  if (error) throw new Error(error.message);
+  if (typeof data !== "string" || !data) {
+    throw new Error("No se pudo crear el token de invitación.");
+  }
+  return data;
+}

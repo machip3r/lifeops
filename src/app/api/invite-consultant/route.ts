@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { getAdminOfficeById } from '@/lib/db-admin';
+import { createInvitationTokenAdmin, getAdminOfficeById } from '@/lib/db-admin';
 import { Resend } from 'resend';
 import {
   assertOfficeAccess,
@@ -45,10 +44,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
-    // Create invitation token
+    // Create invitation token (service role after office auth checks above)
     let tokenData: string;
     try {
-      tokenData = await db.token.createInvitationToken(
+      tokenData = await createInvitationTokenAdmin(
         'CONSULTANT_INVITATION',
         officeId,
         consultantEmail,

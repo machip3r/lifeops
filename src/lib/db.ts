@@ -1,10 +1,14 @@
 import { supabase } from './supabase';
 import type { Office, Consultant, Client, Contract, ContractChangeRequest, File, ContractDetail } from './supabase';
 import {
-    syncPaymentsFromImportedDetails,
+    syncPaymentsFromImportedDetailsBatch,
     writeImportSyncAudit,
 } from '@/lib/collections/service';
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/lib/extractor/batch';
+import {
+    importProgressPercent,
+    type ImportProgress,
+} from '@/lib/extractor/import-progress';
 import {
     emptyPageResult,
     normalizePageParams,
@@ -643,16 +647,61 @@ export const db = {
             rows: string[][],
             officeId: string,
             consultantId?: string, // Optional: if provided, only import for this consultant
-            headers?: string[] // Table headers to map columns correctly
+            headers?: string[], // Table headers to map columns correctly
+            onProgress?: (progress: ImportProgress) => void,
         ): Promise<{ success: number; errors: Array<{ row: number; error: string }>; warnings: Array<{ row: number; message: string }> }> => {
             const errors: Array<{ row: number; error: string }> = [];
             const warnings: Array<{ row: number; message: string }> = [];
             let successCount = 0;
             let detailsInsertedTotal = 0;
             let paymentsUpsertedTotal = 0;
+            const pendingCobranza: Array<{
+                contractId: string;
+                details: Array<{
+                    payment_date?: string | null;
+                    collection_premium?: number | null;
+                }>;
+            }> = [];
             const {
                 data: { user: importActor },
             } = await supabase.auth.getUser();
+
+            const startedAt = Date.now();
+            let lastTickAt = startedAt;
+            let lastTickCurrent = 0;
+
+            const report = (
+                phase: ImportProgress["phase"],
+                current: number,
+                total: number,
+                message: string,
+            ) => {
+                if (!onProgress) return;
+                const now = Date.now();
+                let etaSeconds: number | null = null;
+                if (phase === "contracts" && current > 0 && total > 0) {
+                    // Prefer recent pace for ETA (last ~progress delta)
+                    const deltaCurrent = Math.max(1, current - lastTickCurrent);
+                    const deltaMs = Math.max(1, now - lastTickAt);
+                    const msPerUnit =
+                        current >= 3
+                            ? (now - startedAt) / current
+                            : deltaMs / deltaCurrent;
+                    etaSeconds = Math.round(((total - current) * msPerUnit) / 1000);
+                    lastTickAt = now;
+                    lastTickCurrent = current;
+                }
+                onProgress({
+                    phase,
+                    current,
+                    total,
+                    percent: importProgressPercent(phase, current, total),
+                    etaSeconds,
+                    message,
+                });
+            };
+
+            report("grouping", 0, 1, "Agrupando filas por póliza…");
 
             // Normalize header names to a canonical form (uppercase, no accents, no spaces/punctuation)
             const normalizeHeader = (h?: string | null): string =>
@@ -753,11 +802,25 @@ export const db = {
                 }
             }
 
+            report(
+                "grouping",
+                1,
+                1,
+                `${contractGroups.size} póliza(s) desde ${rows.length} fila(s)`,
+            );
+
             // Pre-fetch consultants in batch (if not using consultantId); create missing for this office
             const consultantCache = new Map<string, Consultant>();
             const ensureConsultantErrorByCode = new Map<string, string>();
             if (!consultantId) {
                 const uniqueConsultantCodes = [...new Set(Array.from(contractGroups.values()).map(g => g.consultantCode))];
+                report(
+                    "consultants",
+                    0,
+                    uniqueConsultantCodes.length,
+                    `Verificando asesores (0/${uniqueConsultantCodes.length})…`,
+                );
+                let consultantDone = 0;
                 for (const consultantCode of uniqueConsultantCodes) {
                     let consultant = await db.consultant.findConsultantByCode(consultantCode, officeId);
                     if (!consultant) {
@@ -776,12 +839,26 @@ export const db = {
                     if (consultant) {
                         consultantCache.set(consultantCode.toLowerCase(), consultant);
                     }
+                    consultantDone += 1;
+                    if (
+                        consultantDone === uniqueConsultantCodes.length ||
+                        consultantDone % 10 === 0
+                    ) {
+                        report(
+                            "consultants",
+                            consultantDone,
+                            uniqueConsultantCodes.length,
+                            `Verificando asesores (${consultantDone}/${uniqueConsultantCodes.length})…`,
+                        );
+                    }
                 }
             } else {
+                report("consultants", 0, 1, "Cargando asesor…");
                 const consultant = await db.consultant.getConsultantById(consultantId);
                 if (consultant) {
                     consultantCache.set(consultant.consultant_code?.toLowerCase() || '', consultant);
                 }
+                report("consultants", 1, 1, "Asesor listo");
             }
 
             // Pre-fetch existing contracts in batch (office-scoped via consultant ids)
@@ -794,28 +871,39 @@ export const db = {
                 const officeConsultantIds = [...consultantCache.values()]
                     .map((c) => c.id)
                     .filter(Boolean);
-                let existingQuery = supabase
-                    .from('contract')
-                    .select('*')
-                    .in('contract_number', contractNumbersToCheck);
-                if (officeConsultantIds.length > 0) {
-                    existingQuery = existingQuery.in('consultant_id', officeConsultantIds);
-                } else if (consultantId) {
-                    existingQuery = existingQuery.eq('consultant_id', consultantId);
-                }
-                const { data: existingContracts } = await existingQuery;
+                for (const numberChunk of chunkArray(
+                    [...new Set(contractNumbersToCheck)],
+                    IMPORT_BATCH_SIZE,
+                )) {
+                    let existingQuery = supabase
+                        .from('contract')
+                        .select('*')
+                        .in('contract_number', numberChunk);
+                    if (officeConsultantIds.length > 0) {
+                        existingQuery = existingQuery.in('consultant_id', officeConsultantIds);
+                    } else if (consultantId) {
+                        existingQuery = existingQuery.eq('consultant_id', consultantId);
+                    }
+                    const { data: existingContracts } = await existingQuery;
 
-                if (existingContracts) {
-                    existingContracts.forEach((c: Contract) => {
-                        if (c.contract_number) {
-                            existingContractsMap.set(c.contract_number, c);
-                        }
-                    });
+                    if (existingContracts) {
+                        existingContracts.forEach((c: Contract) => {
+                            if (c.contract_number) {
+                                existingContractsMap.set(c.contract_number, c);
+                            }
+                        });
+                    }
                 }
             }
 
             // Pre-fetch / create clients in batch
             const uniqueClientNames = [...new Set(Array.from(contractGroups.values()).map(g => g.clientName))];
+            report(
+                "clients",
+                0,
+                uniqueClientNames.length || 1,
+                `Creando/buscando clientes (${uniqueClientNames.length})…`,
+            );
             let clientCache: Map<string, Client>;
             try {
                 clientCache = await db.client.findOrCreateClientsByName(uniqueClientNames, officeId);
@@ -826,6 +914,12 @@ export const db = {
                         : 'Error al crear/buscar clientes durante la importación.',
                 );
             }
+            report(
+                "clients",
+                uniqueClientNames.length || 1,
+                uniqueClientNames.length || 1,
+                "Clientes listos",
+            );
 
             // Helper functions (defined here so they can be used in the loop)
             // Parse exchange rate - tipo cambio
@@ -864,7 +958,17 @@ export const db = {
             };
 
             // Process each contract group
-            for (const [contractKey, group] of contractGroups.entries()) {
+            const contractGroupList = Array.from(contractGroups.entries());
+            const contractTotal = contractGroupList.length;
+            report(
+                "contracts",
+                0,
+                Math.max(contractTotal, 1),
+                `Importando pólizas (0/${contractTotal})…`,
+            );
+
+            for (let groupIndex = 0; groupIndex < contractGroupList.length; groupIndex++) {
+                const [, group] = contractGroupList[groupIndex];
                 try {
                     // Find consultant from cache
                     let consultant: Consultant | undefined;
@@ -1048,25 +1152,14 @@ export const db = {
                         await db.contractDetail.createDetails(detailRecordsToInsert);
                         detailsInsertedTotal += detailRecordsToInsert.length;
 
-                        // Seed cobranza month marks from imported payment dates (never overwrite manual)
-                        try {
-                            const upserted = await syncPaymentsFromImportedDetails(supabase, {
-                                officeId,
-                                actorUserId: importActor?.id ?? null,
-                                contractId: contract.id,
-                                details: detailRecordsToInsert.map((d) => ({
-                                    payment_date: d.payment_date ?? null,
-                                    collection_premium: d.collection_premium ?? null,
-                                })),
-                            });
-                            paymentsUpsertedTotal += upserted;
-                        } catch (syncErr) {
-                            console.error('Cobranza import sync failed', syncErr);
-                            warnings.push({
-                                row: group.rows[0]?.rowIndex || 0,
-                                message: 'Detalles importados, pero no se pudo sincronizar cobranza para este contrato.',
-                            });
-                        }
+                        // Defer cobranza sync — one batched pass after all contracts
+                        pendingCobranza.push({
+                            contractId: contract.id,
+                            details: detailRecordsToInsert.map((d) => ({
+                                payment_date: d.payment_date ?? null,
+                                collection_premium: d.collection_premium ?? null,
+                            })),
+                        });
                     } else if (skippedDetails > 0 && !isNewContract) {
                         warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `All ${skippedDetails} detail(s) for contract "${group.contractNumber || 'N/A'}" were duplicates and skipped.` });
                     }
@@ -1075,8 +1168,42 @@ export const db = {
                 } catch (error: any) {
                     errors.push({ row: group.rows[0]?.rowIndex || 0, error: error.message || 'Unknown error creating contract' });
                 }
+
+                const done = groupIndex + 1;
+                if (done === contractTotal || done % 5 === 0 || done === 1) {
+                    report(
+                        "contracts",
+                        done,
+                        Math.max(contractTotal, 1),
+                        `Importando pólizas (${done}/${contractTotal})…`,
+                    );
+                    // Yield so the UI can paint progress updates
+                    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+                }
             }
 
+            report("finalize", 0, 1, "Sincronizando cobranza…");
+            if (pendingCobranza.length > 0) {
+                try {
+                    paymentsUpsertedTotal = await syncPaymentsFromImportedDetailsBatch(
+                        supabase,
+                        {
+                            officeId,
+                            actorUserId: importActor?.id ?? null,
+                            items: pendingCobranza,
+                        },
+                    );
+                } catch (syncErr) {
+                    console.error('Cobranza import sync failed', syncErr);
+                    warnings.push({
+                        row: 0,
+                        message:
+                            'Detalles importados, pero no se pudo sincronizar cobranza en lote.',
+                    });
+                }
+            }
+
+            report("finalize", 1, 2, "Guardando auditoría de importación…");
             if (detailsInsertedTotal > 0 || paymentsUpsertedTotal > 0 || successCount > 0) {
                 try {
                     await writeImportSyncAudit(supabase, {
@@ -1091,6 +1218,12 @@ export const db = {
                 }
             }
 
+            report(
+                "done",
+                1,
+                1,
+                `Listo: ${successCount} póliza(s), ${detailsInsertedTotal} detalle(s)`,
+            );
             return { success: successCount, errors, warnings };
         },
     },

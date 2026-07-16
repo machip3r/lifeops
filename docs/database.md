@@ -10,6 +10,7 @@ English reference for the Postgres schema (Supabase). Source of truth: migration
 | `004_collection_project_name_audit.sql` | Extends `collection_audit_log.action_type` with `project_name_change` |
 | `005_consultant_code_per_office.sql` | `consultant_code` unique per `office_id` (same code allowed across offices) |
 | `006_drop_global_consultant_code_constraint.sql` | Drops leftover global UNIQUE `consultant_consultant_code_key` so 005’s per-office index actually applies |
+| `007_security_advisor_hardening.sql` | Fix `handle_updated_at` search_path; tighten client/file/token RLS; revoke anon EXECUTE on SECURITY DEFINER RPCs; auth guards on privileged RPCs |
 
 **Rule:** never edit an applied migration. Append `002_…`, `003_…`, etc.
 
@@ -178,7 +179,10 @@ Prefer **extending RPCs** over client-side heavy aggregation. Any signature chan
 - Consultants read/update their own profile and own contracts.
 - `contract_collection_payment`: same office/consultant contract tenancy (SELECT/INSERT/UPDATE/DELETE).
 - `collection_audit_log`: append-only (SELECT/INSERT). Office sees all for `office_id`; consultants see rows for their contracts (or bulk rows they authored with null `contract_id`).
-- Token policies allow invite redemption flows (read by token value when unused).
+- `client` mutations are office-scoped (or via own contracts); no always-true INSERT/UPDATE/DELETE policies.
+- `file` mutations require a matching `office` row for `auth.uid()` (promotory); SELECT remains open to authenticated until files gain tenancy columns.
+- Token policies allow invite redemption flows (read by token value when unused); authenticated inserts require `metadata.office_id = auth.uid()`.
+- Dashboard / invite **SECURITY DEFINER** RPCs: `EXECUTE` revoked from `PUBLIC` and `anon`; granted to `authenticated` + `service_role`. Bodies check office/consultant access when `auth.uid()` is present.
 
 When adding tables: copy the office/consultant isolation pattern.
 

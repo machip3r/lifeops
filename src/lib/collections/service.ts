@@ -6,6 +6,7 @@ import type {
   CollectionStatus,
   ContractCollectionPayment,
 } from "@/lib/supabase";
+import { chunkArray, IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
 import {
   emptyPageResult,
   normalizePageParams,
@@ -681,7 +682,7 @@ export async function getCollectionAuditLog(
   return { ok: true, data: entries };
 }
 
-/** Used by HTML import: upsert import payments and write import_sync audit. */
+/** Used by HTML/Excel import: upsert import payments and never overwrite manual paid cells. */
 export async function syncPaymentsFromImportedDetails(
   client: SupabaseClient,
   input: {
@@ -694,66 +695,136 @@ export async function syncPaymentsFromImportedDetails(
     }>;
   },
 ): Promise<number> {
-  let upserted = 0;
-  const paymentSummaries: Array<Record<string, unknown>> = [];
-
-  for (const detail of input.details) {
-    if (!detail.payment_date) continue;
-    const paidAt = detail.payment_date;
-    const year = Number.parseInt(paidAt.slice(0, 4), 10);
-    const month = Number.parseInt(paidAt.slice(5, 7), 10);
-    const day = Number.parseInt(paidAt.slice(8, 10), 10);
-    if (!year || !month || !day) continue;
-
-    const { data: existing } = await client
-      .from("contract_collection_payment")
-      .select("id, source, paid_at")
-      .eq("contract_id", input.contractId)
-      .eq("year", year)
-      .eq("month", month)
-      .maybeSingle();
-
-    if (existing?.source === "manual" && existing.paid_at) {
-      continue;
-    }
-
-    const { error } = await client.from("contract_collection_payment").upsert(
+  return syncPaymentsFromImportedDetailsBatch(client, {
+    officeId: input.officeId,
+    actorUserId: input.actorUserId,
+    items: [
       {
-        contract_id: input.contractId,
+        contractId: input.contractId,
+        details: input.details,
+      },
+    ],
+  });
+}
+
+type ImportPaymentDetail = {
+  payment_date?: string | null;
+  collection_premium?: number | null;
+};
+
+/** Batch cobranza sync for many contracts (few selects + chunked upserts). */
+export async function syncPaymentsFromImportedDetailsBatch(
+  client: SupabaseClient,
+  input: {
+    officeId: string;
+    actorUserId: string | null;
+    items: Array<{
+      contractId: string;
+      details: ImportPaymentDetail[];
+    }>;
+  },
+): Promise<number> {
+  type Candidate = {
+    contract_id: string;
+    year: number;
+    month: number;
+    scheduled_day: number;
+    paid_at: string;
+    amount: number | null;
+  };
+
+  const byContractYm = new Map<string, Candidate>();
+  const collectionDayHint = new Map<string, number>();
+
+  for (const item of input.items) {
+    for (const detail of item.details) {
+      if (!detail.payment_date) continue;
+      const paidAt = detail.payment_date;
+      const year = Number.parseInt(paidAt.slice(0, 4), 10);
+      const month = Number.parseInt(paidAt.slice(5, 7), 10);
+      const day = Number.parseInt(paidAt.slice(8, 10), 10);
+      if (!year || !month || !day) continue;
+      const key = `${item.contractId}|${year}|${month}`;
+      byContractYm.set(key, {
+        contract_id: item.contractId,
         year,
         month,
         scheduled_day: day,
         paid_at: paidAt,
         amount: detail.collection_premium ?? null,
-        source: "import",
-        updated_by: input.actorUserId,
-        created_by: input.actorUserId,
-      },
-      { onConflict: "contract_id,year,month" },
-    );
-
-    if (!error) {
-      upserted += 1;
-      paymentSummaries.push({ year, month, paid_at: paidAt, day });
+      });
+      if (!collectionDayHint.has(item.contractId)) {
+        collectionDayHint.set(item.contractId, day);
+      }
     }
   }
 
-  if (upserted > 0) {
-    const { data: contract } = await client
-      .from("contract")
-      .select("collection_day")
-      .eq("id", input.contractId)
-      .maybeSingle();
+  if (byContractYm.size === 0) return 0;
 
-    if (contract && contract.collection_day == null) {
-      const first = paymentSummaries[0];
-      if (first?.day != null) {
-        await client
-          .from("contract")
-          .update({ collection_day: first.day })
-          .eq("id", input.contractId);
+  const contractIds = [
+    ...new Set([...byContractYm.values()].map((c) => c.contract_id)),
+  ];
+
+  const skipManual = new Set<string>();
+  for (const idChunk of chunkArray(contractIds, IMPORT_BATCH_SIZE)) {
+    const { data: existingRows, error: existingError } = await client
+      .from("contract_collection_payment")
+      .select("contract_id, source, paid_at, year, month")
+      .in("contract_id", idChunk);
+    if (existingError) throw existingError;
+    for (const row of existingRows || []) {
+      if (row.source === "manual" && row.paid_at) {
+        skipManual.add(`${row.contract_id}|${row.year}|${row.month}`);
       }
     }
+  }
+
+  const toUpsert = [...byContractYm.entries()]
+    .filter(([key]) => !skipManual.has(key))
+    .map(([, c]) => ({
+      contract_id: c.contract_id,
+      year: c.year,
+      month: c.month,
+      scheduled_day: c.scheduled_day,
+      paid_at: c.paid_at,
+      amount: c.amount,
+      source: "import" as const,
+      updated_by: input.actorUserId,
+      created_by: input.actorUserId,
+    }));
+
+  let upserted = 0;
+  for (const chunk of chunkArray(toUpsert, IMPORT_BATCH_SIZE)) {
+    const { error } = await client.from("contract_collection_payment").upsert(chunk, {
+      onConflict: "contract_id,year,month",
+    });
+    if (error) throw error;
+    upserted += chunk.length;
+  }
+
+  // Set collection_day only where still null (chunked updates)
+  const hintIds = [...collectionDayHint.keys()];
+  for (const idChunk of chunkArray(hintIds, IMPORT_BATCH_SIZE)) {
+    const { data: contracts } = await client
+      .from("contract")
+      .select("id, collection_day")
+      .in("id", idChunk)
+      .is("collection_day", null);
+    const updates = (contracts || [])
+      .map((contract) => {
+        const day = collectionDayHint.get(contract.id);
+        return day == null ? null : { id: contract.id, collection_day: day };
+      })
+      .filter((u): u is { id: string; collection_day: number } => u != null);
+
+    await Promise.all(
+      updates.map((u) =>
+        client
+          .from("contract")
+          .update({ collection_day: u.collection_day })
+          .eq("id", u.id),
+      ),
+    );
   }
 
   return upserted;

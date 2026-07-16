@@ -12,6 +12,10 @@ import {
   EXTRACTOR_CONTRACT_NUMBER_BATCH,
   EXTRACTOR_DETAIL_CHECK_BATCH,
 } from '@/lib/extractor/batch';
+import {
+  formatEtaSeconds,
+  type ImportProgress,
+} from '@/lib/extractor/import-progress';
 import { parsePagosXlsx } from '@/lib/extractor/parse-pagos-xlsx';
 
 interface ContractorMetadata {
@@ -136,6 +140,7 @@ function ExtractorPageContent() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [isImportingExcel, setIsImportingExcel] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const [importResult, setImportResult] = useState<{ success: number; errors: Array<{ row: number; error: string }>; warnings: Array<{ row: number; message: string }> } | null>(null);
   const [showConsultantDialog, setShowConsultantDialog] = useState(false);
@@ -1253,13 +1258,36 @@ function ExtractorPageContent() {
   const performImport = async (officeId: string) => {
     setIsImporting(true);
     setImportResult(null);
+    setImportProgress({
+      phase: 'grouping',
+      current: 0,
+      total: 1,
+      percent: 0,
+      etaSeconds: null,
+      message: 'Preparando importación…',
+    });
 
     try {
       let result;
+      const onProgress = (progress: ImportProgress) => {
+        setImportProgress(progress);
+      };
       if (profile?.role === 'consultant') {
-        result = await db.contract.importContractsFromTable(tables[0].rows, officeId, profile.id, tables[0].headers);
+        result = await db.contract.importContractsFromTable(
+          tables[0].rows,
+          officeId,
+          profile.id,
+          tables[0].headers,
+          onProgress,
+        );
       } else {
-        result = await db.contract.importContractsFromTable(tables[0].rows, officeId, undefined, tables[0].headers);
+        result = await db.contract.importContractsFromTable(
+          tables[0].rows,
+          officeId,
+          undefined,
+          tables[0].headers,
+          onProgress,
+        );
       }
       setImportResult(result);
     } catch (error: any) {
@@ -1271,6 +1299,7 @@ function ExtractorPageContent() {
       });
     } finally {
       setIsImporting(false);
+      setImportProgress(null);
     }
   };
 
@@ -1611,15 +1640,51 @@ function ExtractorPageContent() {
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                {isExtracting ? 'Extrayendo datos' : isCheckingDuplicates ? 'Verificando Duplicados' : 'Importando Datos'}
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400">
                 {isExtracting
-                  ? 'Procesando archivos y ordenando por cliente...'
+                  ? 'Extrayendo datos'
                   : isCheckingDuplicates
-                    ? 'Por favor espera mientras verificamos la base de datos por registros existentes...'
-                    : 'Por favor espera mientras importamos tus datos...'}
-              </p>
+                    ? 'Verificando Duplicados'
+                    : 'Importando Datos'}
+              </h3>
+              {isImporting && importProgress ? (
+                <div className="space-y-3 text-left">
+                  <p className="text-sm text-gray-700 dark:text-gray-300">
+                    {importProgress.message}
+                  </p>
+                  <div
+                    className="h-2.5 w-full rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={importProgress.percent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label="Progreso de importación"
+                  >
+                    <div
+                      className="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out"
+                      style={{ width: `${importProgress.percent}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>{importProgress.percent}%</span>
+                    <span>
+                      {importProgress.total > 0
+                        ? `${importProgress.current} / ${importProgress.total}`
+                        : null}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Tiempo restante: {formatEtaSeconds(importProgress.etaSeconds)}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-gray-600 dark:text-gray-400">
+                  {isExtracting
+                    ? 'Procesando archivos y ordenando por cliente...'
+                    : isCheckingDuplicates
+                      ? 'Por favor espera mientras verificamos la base de datos por registros existentes...'
+                      : 'Por favor espera mientras importamos tus datos...'}
+                </p>
+              )}
             </div>
           </div>
         </div>

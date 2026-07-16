@@ -239,6 +239,7 @@ CREATE INDEX IF NOT EXISTS idx_file_created_at ON file (created_at DESC);
 CREATE OR REPLACE FUNCTION public.handle_updated_at()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SET search_path = public
 AS $$
 BEGIN
     NEW.updated_at = NOW();
@@ -804,7 +805,10 @@ CREATE POLICY "Authenticated users can insert tokens" ON token FOR
 INSERT
     TO authenticated
 WITH
-    CHECK (true);
+    CHECK (
+        (metadata ? 'office_id')
+        AND (metadata ->> 'office_id')::uuid = auth.uid ()
+    );
 
 CREATE POLICY "Anyone can view unused tokens by token value" ON token FOR
 SELECT TO anon USING (
@@ -874,7 +878,10 @@ USING (
     OR id IN (SELECT client_id FROM contract WHERE consultant_id = auth.uid() AND client_id IS NOT NULL)
 )
 WITH
-    CHECK (true);
+    CHECK (
+        office_id IN (SELECT id FROM office WHERE id = auth.uid())
+        OR office_id IN (SELECT office_id FROM consultant WHERE id = auth.uid())
+    );
 
 CREATE POLICY "Authenticated users can delete clients" ON client FOR DELETE TO authenticated
 USING (
@@ -1209,11 +1216,12 @@ CREATE POLICY "Authenticated users can insert files" ON file FOR
 INSERT
     TO authenticated
 WITH
-    CHECK (true);
+    CHECK (EXISTS (SELECT 1 FROM office WHERE id = auth.uid ()));
 
 CREATE POLICY "Authenticated users can update files" ON file FOR
-UPDATE TO authenticated USING (true)
+UPDATE TO authenticated USING (EXISTS (SELECT 1 FROM office WHERE id = auth.uid ()))
 WITH
-    CHECK (true);
+    CHECK (EXISTS (SELECT 1 FROM office WHERE id = auth.uid ()));
 
-CREATE POLICY "Authenticated users can delete files" ON file FOR DELETE TO authenticated USING (true);
+CREATE POLICY "Authenticated users can delete files" ON file FOR DELETE TO authenticated
+USING (EXISTS (SELECT 1 FROM office WHERE id = auth.uid ()));
