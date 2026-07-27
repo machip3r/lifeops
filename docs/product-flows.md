@@ -35,6 +35,7 @@ office (promotory) ── owns ──► consultants (asesores)
 - Prefer server session checks for new privileged mutations (Server Actions / API).
 - Promotory **Zona de peligro** (Perfil): full office wipe also clears cobranza payments and audit log.
 - List tables (asesores, clientes, pólizas, solicitudes, cobranza, detail sub-tables) paginate from Supabase (`.range` + `count`, default 25 rows / page).
+- Promotory can create office tags (`section = consultant`), assign them to asesores, and filter the asesores list by one or more tags (OR match).
 
 ---
 
@@ -84,6 +85,7 @@ office (promotory) ── owns ──► consultants (asesores)
 ### Solicitudes de cambio (`/dashboard/change-requests`)
 
 - Promotory reviews office requests; consultants create CHANGE / CORRECT against own contracts.
+- **Nueva Solicitud** (Asesores dialog + contract CHANGE/CORRECT pages): attach documents in-form (name + file); on submit, create the contract or change request, then upload to private Storage `documents` under `{officeId}/{consultantId}/{contractId}/{contractCode}/`. Client/contract selectors autofill related fields. No Google Drive links.
 
 ### Proyección (`/dashboard/projection`)
 

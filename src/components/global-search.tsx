@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { db } from '@/lib/db';
 import { Contract, Consultant, Client } from '@/lib/supabase';
 import { useAuth } from '@/contexts/auth-context';
+import {
+    TABLE_FILTER_DEBOUNCE_MS,
+    useDebouncedValue,
+} from '@/hooks/use-debounced-value';
 
 interface SearchResult {
     type: 'contract' | 'consultant' | 'client';
@@ -17,6 +21,7 @@ export default function GlobalSearch() {
     const router = useRouter();
     const { profile } = useAuth();
     const [query, setQuery] = useState('');
+    const debouncedQuery = useDebouncedValue(query, TABLE_FILTER_DEBOUNCE_MS);
     const [results, setResults] = useState<SearchResult[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -35,61 +40,67 @@ export default function GlobalSearch() {
     }, []);
 
     useEffect(() => {
-        if (query.trim().length < 2) {
+        if (debouncedQuery.trim().length < 2) {
             setResults([]);
             setIsOpen(false);
+            setLoading(false);
             return;
         }
 
-        // Only search if profile is loaded
         if (!profile) {
             return;
         }
 
-        const search = async () => {
+        let cancelled = false;
+        const run = async () => {
             setLoading(true);
             try {
-                const officeId = profile.role === 'promotory' ? profile.id : undefined;
+                const officeId = profile.role === 'promotory' ? profile.id : profile.office_id || undefined;
+
                 const [contracts, consultants, clients] = await Promise.all([
-                    db.search.searchContracts(query, officeId),
-                    db.search.searchConsultants(query, officeId),
-                    db.search.searchClients(query, officeId),
+                    db.search.searchContracts(debouncedQuery, officeId),
+                    db.search.searchConsultants(debouncedQuery, officeId),
+                    db.search.searchClients(debouncedQuery, officeId),
                 ]);
 
                 const searchResults: SearchResult[] = [
-                    ...contracts.map((c: Contract) => ({
+                    ...contracts.slice(0, 5).map((c: Contract) => ({
                         type: 'contract' as const,
                         id: c.id,
                         title: c.contract_number || 'Sin número',
-                        subtitle: c.project_name || 'Sin proyecto',
+                        subtitle: c.project_name || undefined,
                     })),
-                    ...consultants.map((c: Consultant) => ({
+                    ...consultants.slice(0, 5).map((c: Consultant) => ({
                         type: 'consultant' as const,
                         id: c.id,
                         title: c.name,
                         subtitle: c.consultant_code || c.email || undefined,
                     })),
-                    ...clients.map((c: Client) => ({
+                    ...clients.slice(0, 5).map((c: Client) => ({
                         type: 'client' as const,
                         id: c.id,
                         title: c.name,
-                        subtitle: c.birth_date ? new Date(c.birth_date).toLocaleDateString('es-MX') : undefined,
+                        subtitle: c.birth_date || undefined,
                     })),
                 ];
 
-                setResults(searchResults);
-                setIsOpen(searchResults.length > 0);
+                if (!cancelled) {
+                    setResults(searchResults);
+                    setIsOpen(searchResults.length > 0);
+                }
             } catch (error) {
                 console.error('Error searching:', error);
-                setResults([]);
+                if (!cancelled) setResults([]);
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
 
-        const debounce = setTimeout(search, 300);
-        return () => clearTimeout(debounce);
-    }, [query, profile?.id, profile?.role]);
+        void run();
+        return () => {
+            cancelled = true;
+        };
+    }, [debouncedQuery, profile]);
 
     const handleSelect = (result: SearchResult) => {
         setIsOpen(false);

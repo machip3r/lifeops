@@ -10,8 +10,13 @@ export const LIMITS = {
   search: 100,
   contractNumber: 64,
   consultantCode: 64,
+  tagName: 40,
   notes: 2000,
   currency: 16,
+  documentDisplayName: 120,
+  documentFileBytes: 20 * 1024 * 1024,
+  changeDetails: 4000,
+  folioNumber: 64,
 } as const;
 
 /** Lowercase email local+domain shape (after trim + lowercasing). */
@@ -43,6 +48,10 @@ export const CONTRACT_NUMBER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/\-]*$/;
 
 /** Asesor code from HTML import. */
 export const CONSULTANT_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-]*$/;
+
+/** Tag labels — letters, numbers, spaces, safe punctuation; no angle brackets. */
+export const TAG_NAME_PATTERN =
+  /^(?!.*[<>])[\p{L}\p{M}\p{N}](?:[\p{L}\p{M}\p{N}\s.&'+_/\-()]*[\p{L}\p{M}\p{N}.])?$/u;
 
 export const emailSchema = z
   .string()
@@ -78,6 +87,15 @@ export const entityNameSchema = z
   .min(1)
   .max(LIMITS.entityName)
   .regex(ENTITY_NAME_PATTERN);
+
+export const tagNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(LIMITS.tagName)
+  .regex(TAG_NAME_PATTERN);
+
+export const tagSectionSchema = z.enum(['consultant', 'client']);
 
 export const otpSchema = z
   .string()
@@ -231,4 +249,103 @@ export const getCollectionsGridSchema = z.object({
 export const getCollectionAuditLogSchema = z.object({
   contractId: uuidSchema.optional().nullable(),
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+});
+
+/** User-facing document label on solicitud attachments. */
+export const DOCUMENT_DISPLAY_NAME_PATTERN =
+  /^(?!.*[<>])[\p{L}\p{M}\p{N}](?:[\p{L}\p{M}\p{N}\s.&'+_/\-()]*[\p{L}\p{M}\p{N}.])?$/u;
+
+export const documentDisplayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(LIMITS.documentDisplayName)
+  .regex(DOCUMENT_DISPLAY_NAME_PATTERN);
+
+export const DOCUMENT_ALLOWED_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+] as const;
+
+export const documentMimeTypeSchema = z.enum(DOCUMENT_ALLOWED_MIME_TYPES);
+
+export const folioNumberSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(LIMITS.folioNumber)
+  .regex(CONTRACT_NUMBER_PATTERN);
+
+export const changeDetailsSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(LIMITS.changeDetails)
+  .regex(MESSAGE_PATTERN);
+
+export const CHANGE_TYPE_OPTIONS = [
+  "Cambio Agente",
+  "Forma de pago",
+  "Domicilio",
+  "Contratante",
+  "Disminución de SA",
+  "Inclusión/exclusión de coberturas",
+  "Corrección de Nombre, Sexo, Fecha de nacimiento, etc.",
+  "Rehabilitación primeros 90 días",
+  "Alta/Cambio/Baja de Cargo Automático",
+  "Otro",
+] as const;
+
+export const changeTypeSchema = z.enum(CHANGE_TYPE_OPTIONS);
+
+export const documentUploadMetaSchema = z.object({
+  contractId: uuidSchema,
+  changeRequestId: uuidSchema.optional().nullable(),
+  displayName: documentDisplayNameSchema,
+});
+
+export const emitSolicitudSchema = z.object({
+  clientId: uuidSchema.optional().nullable(),
+  clientName: personNameSchema.optional(),
+  projectName: entityNameSchema.optional().nullable(),
+  contractNumber: contractNumberSchema.optional().nullable(),
+  notes: notesSchema.optional().nullable(),
+}).refine((v) => Boolean(v.clientId) || Boolean(v.clientName), {
+  message: "required",
+  path: ["clientName"],
+});
+
+export const changeSolicitudSchema = z.object({
+  contractId: uuidSchema,
+  changeType: changeTypeSchema,
+  otherChangeType: z
+    .string()
+    .trim()
+    .max(LIMITS.entityName)
+    .regex(ENTITY_NAME_PATTERN)
+    .optional()
+    .nullable(),
+  folioNumber: folioNumberSchema.optional().nullable(),
+  details: changeDetailsSchema,
+  notes: notesSchema.optional().nullable(),
+}).superRefine((v, ctx) => {
+  if (v.changeType === "Otro" && !v.otherChangeType?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "required",
+      path: ["otherChangeType"],
+    });
+  }
+});
+
+export const correctSolicitudSchema = z.object({
+  contractId: uuidSchema,
+  folioNumber: folioNumberSchema,
+  details: changeDetailsSchema,
+  notes: notesSchema.optional().nullable(),
 });

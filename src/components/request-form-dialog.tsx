@@ -1,282 +1,673 @@
 'use client';
 
-import { useState } from 'react';
-import { Consultant, Policy, Contract } from '@/lib/supabase';
+import { useEffect, useMemo, useState } from 'react';
+import type { Client, Consultant, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
+import { useToast } from '@/components/toast';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { DocumentAttachmentsField } from '@/components/document-attachments-field';
+import {
+  ClientSelectField,
+  ContractSelectField,
+} from '@/components/client-contract-select';
+import { ProjectNameSelectField } from '@/components/project-name-select';
+import {
+  type PendingDocument,
+  uploadSolicitudDocuments,
+} from '@/lib/documents/upload';
+import {
+  CHANGE_TYPE_OPTIONS,
+  LIMITS,
+  changeSolicitudSchema,
+  correctSolicitudSchema,
+  documentDisplayNameSchema,
+  emitSolicitudSchema,
+} from '@/lib/validation/schemas';
+import { VALIDATION_MESSAGES, zodFieldErrors } from '@/lib/validation/field-errors';
+import { cn } from '@/lib/utils';
 
 interface RequestFormDialogProps {
-    consultant: Consultant;
-    onClose: () => void;
+  consultant: Consultant;
+  onClose: () => void;
+}
+
+type RequestType = 'EMIT' | 'CHANGE' | 'CORRECT';
+
+const REQUEST_TYPE_OPTIONS: Array<{
+  value: RequestType;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'EMIT',
+    label: 'Emitir',
+    description: 'Registrar emisión de póliza',
+  },
+  {
+    value: 'CHANGE',
+    label: 'Cambio',
+    description: 'Cambio sobre póliza existente',
+  },
+  {
+    value: 'CORRECT',
+    label: 'Corregir folio',
+    description: 'Corrección de folio',
+  },
+];
+
+const fieldControlClass =
+  'h-9 w-full rounded-md border border-[#3a4049] bg-[#1a1d23] text-white px-2.5 text-sm placeholder:text-[#6b7280] focus-visible:border-[#FBDBAC] focus-visible:ring-2 focus-visible:ring-[#FBDBAC]/40 disabled:opacity-50';
+
+const textareaControlClass =
+  'min-h-20 w-full rounded-md border border-[#3a4049] bg-[#1a1d23] text-white px-2.5 py-2 text-sm placeholder:text-[#6b7280] focus-visible:border-[#FBDBAC] focus-visible:ring-2 focus-visible:ring-[#FBDBAC]/40 disabled:opacity-50 resize-y';
+
+function validatePendingDocuments(documents: PendingDocument[]): Record<string, string> {
+  const errors: Record<string, string> = {};
+  documents.forEach((doc, index) => {
+    if (!doc.file) {
+      errors[`documents.${index}.file`] = VALIDATION_MESSAGES.required;
+    }
+    const nameParsed = documentDisplayNameSchema.safeParse(doc.displayName);
+    if (!nameParsed.success) {
+      errors[`documents.${index}.displayName`] =
+        zodFieldErrors(nameParsed.error, VALIDATION_MESSAGES).displayName ||
+        VALIDATION_MESSAGES.entityName;
+    }
+  });
+  return errors;
 }
 
 export default function RequestFormDialog({ consultant, onClose }: RequestFormDialogProps) {
-    const [formData, setFormData] = useState<Partial<Policy>>({
-        request_type: undefined,
-        consultant_id: consultant.id,
-        consultant_name: consultant.name,
-        consultant_code: consultant.consultant_code || undefined,
-    });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [submitStatus, setSubmitStatus] = useState<'success' | 'error' | null>(null);
-    const [errorMessage, setErrorMessage] = useState('');
+  const { toast } = useToast();
+  const [requestType, setRequestType] = useState<RequestType | ''>('');
+  const [clients, setClients] = useState<Client[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [loadingLists, setLoadingLists] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState('');
+  const [documents, setDocuments] = useState<PendingDocument[]>([]);
 
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
+  // EMIT
+  const [clientSelect, setClientSelect] = useState('');
+  const [newClientName, setNewClientName] = useState('');
+  const [projectName, setProjectName] = useState('');
+  const [contractNumber, setContractNumber] = useState('');
+  const [notes, setNotes] = useState('');
 
-    // Request type is now a string, no need for text conversion
+  // CHANGE / CORRECT
+  const [contractId, setContractId] = useState('');
+  const [changeType, setChangeType] = useState('');
+  const [otherChangeType, setOtherChangeType] = useState('');
+  const [folioNumber, setFolioNumber] = useState('');
+  const [details, setDetails] = useState('');
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        setSubmitStatus(null);
-        setErrorMessage('');
+  const officeId = consultant.office_id;
 
-        try {
-            if (!formData.request_type) {
-                throw new Error('Por favor selecciona un tipo de solicitud');
-            }
-
-            const contractData = {
-                ...formData,
-                request_type: formData.request_type as 'EMIT' | 'CHANGE' | 'CORRECT',
-                consultant_id: consultant.id,
-                consultant_name: consultant.name,
-                consultant_code: consultant.consultant_code || undefined,
-                status: 'PENDING',
-            };
-
-            try {
-                await db.contract.createContract(contractData as Omit<Contract, 'id' | 'created_at' | 'updated_at'>);
-                setSubmitStatus('success');
-                setTimeout(() => {
-                    onClose();
-                }, 1500);
-            } catch (error: any) {
-                console.error('Error submitting form:', error);
-                setErrorMessage('Error al guardar la información. Por favor, inténtalo de nuevo.');
-                setSubmitStatus('error');
-            }
-        } catch (error: any) {
-            console.error('Error:', error);
-            setErrorMessage(error.message || 'Ocurrió un error inesperado. Por favor, inténtalo de nuevo.');
-            setSubmitStatus('error');
-        } finally {
-            setIsSubmitting(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingLists(true);
+      try {
+        const [clientsData, contractsData] = await Promise.all([
+          officeId
+            ? db.client.getAllClients(officeId)
+            : db.client.getClientsByConsultant(consultant.id),
+          db.contract.getContractsByConsultant(consultant.id),
+        ]);
+        if (!cancelled) {
+          setClients(clientsData);
+          setContracts(contractsData);
         }
+      } catch (error) {
+        console.error('Error loading solicitud lists:', error);
+        if (!cancelled) {
+          setFormError('Error al cargar clientes y pólizas.');
+        }
+      } finally {
+        if (!cancelled) setLoadingLists(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
+  }, [consultant.id, officeId]);
 
-    return (
-        <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Request Type */}
-            <div>
-                <label htmlFor="request_type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    ¿Qué necesitas? *
-                </label>
-                <select
-                    id="request_type"
-                    name="request_type"
-                    value={formData.request_type || ''}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                    <option value="">Selecciona una opción</option>
-                    <option value="EMIT">Emitir una póliza / Registrar la emisión de una póliza</option>
-                    <option value="CHANGE">Hacer un cambio / Registrar un cambio (de una póliza existente)</option>
-                    <option value="CORRECT">Corregir un folio</option>
-                </select>
-            </div>
+  const selectedContract = useMemo(
+    () => contracts.find((c) => c.id === contractId) || null,
+    [contracts, contractId],
+  );
 
-            {/* Type 1: Emit Policy Fields */}
-            {formData.request_type === 'EMIT' && (
-                <>
-                    <div>
-                        <label htmlFor="client_full_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Nombre Completo del Cliente
-                        </label>
-                        <input
-                            type="text"
-                            id="client_full_name"
-                            name="client_full_name"
-                            value={formData.client_full_name || ''}
-                            onChange={handleInputChange}
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="project_name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Nombre del Proyecto
-                        </label>
-                        <input
-                            type="text"
-                            id="project_name"
-                            name="project_name"
-                            value={formData.project_name || ''}
-                            onChange={handleInputChange}
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="contract_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Número de Contrato
-                        </label>
-                        <input
-                            type="text"
-                            id="contract_number"
-                            name="contract_number"
-                            value={formData.contract_number || ''}
-                            onChange={handleInputChange}
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                </>
-            )}
+  const requiredReady = useMemo(() => {
+    if (!requestType) return false;
+    if (requestType === 'EMIT') {
+      const hasClient =
+        (clientSelect && clientSelect !== '__new__') ||
+        (clientSelect === '__new__' && newClientName.trim().length > 0);
+      return hasClient;
+    }
+    if (requestType === 'CHANGE') {
+      return Boolean(contractId && changeType && details.trim());
+    }
+    return Boolean(contractId && folioNumber.trim() && details.trim());
+  }, [
+    requestType,
+    clientSelect,
+    newClientName,
+    contractId,
+    changeType,
+    details,
+    folioNumber,
+  ]);
 
-            {/* Type 2: Change Policy Fields */}
-            {formData.request_type === 'CHANGE' && (
-                <>
-                    <div>
-                        <label htmlFor="policy_number" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Número de Póliza *
-                        </label>
-                        <input
-                            type="text"
-                            id="policy_number"
-                            name="policy_number"
-                            value={formData.policy_number || ''}
-                            onChange={handleInputChange}
-                            required
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="change_type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Tipo de Cambio
-                        </label>
-                        <input
-                            type="text"
-                            id="change_type"
-                            name="change_type"
-                            value={formData.change_type || ''}
-                            onChange={handleInputChange}
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="change_description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Descripción del Cambio
-                        </label>
-                        <textarea
-                            id="change_description"
-                            name="change_description"
-                            value={formData.change_description || ''}
-                            onChange={handleInputChange}
-                            rows={4}
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                </>
-            )}
+  const canSubmit = requiredReady && !isSubmitting && !loadingLists;
 
-            {/* Type 3: Correct Folio Fields */}
-            {formData.request_type === 'CORRECT' && (
-                <>
-                    <div>
-                        <label htmlFor="folio_to_correct" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Folio a Corregir *
-                        </label>
-                        <input
-                            type="text"
-                            id="folio_to_correct"
-                            name="folio_to_correct"
-                            value={formData.folio_to_correct || ''}
-                            onChange={handleInputChange}
-                            required
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="correction_description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                            Descripción de la Corrección
-                        </label>
-                        <textarea
-                            id="correction_description"
-                            name="correction_description"
-                            value={formData.correction_description || ''}
-                            onChange={handleInputChange}
-                            rows={4}
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                        />
-                    </div>
-                </>
-            )}
+  const selectRequestType = (next: RequestType) => {
+    setRequestType(next);
+    setFieldErrors({});
+    setFormError('');
+    setDocuments([]);
+    setNotes('');
+    setClientSelect('');
+    setNewClientName('');
+    setProjectName('');
+    setContractNumber('');
+    setContractId('');
+    setChangeType('');
+    setOtherChangeType('');
+    setFolioNumber('');
+    setDetails('');
+  };
 
-            {/* Common Fields */}
-            <div>
-                <label htmlFor="drive_link" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Link de Google Drive
-                </label>
-                <input
-                    type="url"
-                    id="drive_link"
-                    name="drive_link"
-                    value={formData.drive_link || ''}
-                    onChange={handleInputChange}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                    placeholder="https://drive.google.com/..."
-                />
-            </div>
+  const handleContractChange = (id: string) => {
+    setContractId(id);
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next.contractId;
+      return next;
+    });
+  };
 
-            <div>
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Notas Adicionales
-                </label>
-                <textarea
-                    id="notes"
-                    name="notes"
-                    value={formData.notes || ''}
-                    onChange={handleInputChange}
-                    rows={3}
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-            </div>
-
-            {/* Error Message */}
-            {errorMessage && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                    <p className="text-sm text-red-800 dark:text-red-200">{errorMessage}</p>
-                </div>
-            )}
-
-            {/* Success Message */}
-            {submitStatus === 'success' && (
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                    <p className="text-sm text-green-800 dark:text-green-200">
-                        ¡Solicitud enviada exitosamente!
-                    </p>
-                </div>
-            )}
-
-            {/* Submit Button */}
-            <div className="flex justify-end space-x-4">
-                <button
-                    type="button"
-                    onClick={onClose}
-                    className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                    Cancelar
-                </button>
-                <button
-                    type="submit"
-                    disabled={isSubmitting}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {isSubmitting ? 'Enviando...' : 'Enviar Solicitud'}
-                </button>
-            </div>
-        </form>
+  const reportUploadFailures = (
+    failures: Array<{ displayName: string; error: string }>,
+  ) => {
+    if (failures.length === 0) return;
+    toast.error(
+      `Solicitud creada, pero ${failures.length} documento(s) no se subieron: ${failures
+        .map((f) => f.displayName)
+        .join(', ')}`,
     );
-}
+  };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+    setFieldErrors({});
+
+    if (!requestType) {
+      setFieldErrors({ requestType: VALIDATION_MESSAGES.required });
+      return;
+    }
+
+    const docErrors = validatePendingDocuments(documents);
+    if (Object.keys(docErrors).length > 0) {
+      setFieldErrors(docErrors);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (requestType === 'EMIT') {
+        const parsed = emitSolicitudSchema.safeParse({
+          clientId: clientSelect && clientSelect !== '__new__' ? clientSelect : null,
+          clientName:
+            clientSelect === '__new__'
+              ? newClientName
+              : clients.find((c) => c.id === clientSelect)?.name,
+          projectName: projectName || null,
+          contractNumber: contractNumber || null,
+          notes: notes || null,
+        });
+        if (!parsed.success) {
+          setFieldErrors(zodFieldErrors(parsed.error, VALIDATION_MESSAGES));
+          return;
+        }
+
+        let clientId = parsed.data.clientId || null;
+        if (!clientId) {
+          const created = await db.client.findOrCreateClientByName(
+            parsed.data.clientName!,
+            officeId,
+          );
+          clientId = created.id;
+        }
+
+        const contract = await db.contract.createContract({
+          consultant_id: consultant.id,
+          client_id: clientId,
+          contract_number: parsed.data.contractNumber || null,
+          project_name: parsed.data.projectName || null,
+          status: 'PENDING',
+          metadata: {
+            source: 'solicitud_emit',
+            notes: parsed.data.notes || null,
+          },
+        });
+
+        if (documents.length > 0) {
+          const uploadResult = await uploadSolicitudDocuments({
+            contractId: contract.id,
+            documents,
+          });
+          reportUploadFailures(uploadResult.failures);
+          if (uploadResult.failures.length === 0) {
+            toast.success('Solicitud de emisión enviada.');
+          }
+        } else {
+          toast.success('Solicitud de emisión enviada.');
+        }
+        onClose();
+        return;
+      }
+
+      if (requestType === 'CHANGE') {
+        const parsed = changeSolicitudSchema.safeParse({
+          contractId,
+          changeType,
+          otherChangeType: otherChangeType || null,
+          folioNumber: folioNumber || null,
+          details,
+          notes: notes || null,
+        });
+        if (!parsed.success) {
+          setFieldErrors(zodFieldErrors(parsed.error, VALIDATION_MESSAGES));
+          return;
+        }
+
+        const changeTypeText =
+          parsed.data.changeType === 'Otro'
+            ? parsed.data.otherChangeType || 'Otro'
+            : parsed.data.changeType;
+        const detailsText = `Tipo de cambio: ${changeTypeText}\n\n${parsed.data.details}`;
+
+        const changeRequest = await db.contractChangeRequest.createChangeRequest({
+          contract_id: parsed.data.contractId,
+          request_type: 'CHANGE',
+          folio_number: parsed.data.folioNumber || null,
+          details: detailsText,
+          notes: parsed.data.notes || null,
+          folder_key: null,
+          status: 'PENDING',
+          metadata: {},
+        });
+
+        if (documents.length > 0) {
+          const uploadResult = await uploadSolicitudDocuments({
+            contractId: parsed.data.contractId,
+            changeRequestId: changeRequest.id,
+            documents,
+          });
+          reportUploadFailures(uploadResult.failures);
+          if (uploadResult.failures.length === 0) {
+            toast.success('Solicitud de cambio enviada.');
+          }
+        } else {
+          toast.success('Solicitud de cambio enviada.');
+        }
+        onClose();
+        return;
+      }
+
+      const parsed = correctSolicitudSchema.safeParse({
+        contractId,
+        folioNumber,
+        details,
+        notes: notes || null,
+      });
+      if (!parsed.success) {
+        setFieldErrors(zodFieldErrors(parsed.error, VALIDATION_MESSAGES));
+        return;
+      }
+
+      const changeRequest = await db.contractChangeRequest.createChangeRequest({
+        contract_id: parsed.data.contractId,
+        request_type: 'CORRECT',
+        folio_number: parsed.data.folioNumber,
+        details: parsed.data.details,
+        notes: parsed.data.notes || null,
+        folder_key: null,
+        status: 'PENDING',
+        metadata: {},
+      });
+
+      if (documents.length > 0) {
+        const uploadResult = await uploadSolicitudDocuments({
+          contractId: parsed.data.contractId,
+          changeRequestId: changeRequest.id,
+          documents,
+        });
+        reportUploadFailures(uploadResult.failures);
+        if (uploadResult.failures.length === 0) {
+          toast.success('Solicitud de corrección enviada.');
+        }
+      } else {
+        toast.success('Solicitud de corrección enviada.');
+      }
+      onClose();
+    } catch (error: unknown) {
+      console.error('Error submitting solicitud:', error);
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : 'Ocurrió un error al enviar la solicitud. Inténtalo de nuevo.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="rounded-lg border border-[#3a4049] bg-[#1a1d23]/60 px-3 py-2.5">
+        <p className="text-xs text-[#9ca3af]">Asesor</p>
+        <p className="text-sm font-medium text-white">
+          {consultant.name}
+          {consultant.consultant_code ? (
+            <span className="text-[#FBDBAC]"> · {consultant.consultant_code}</span>
+          ) : null}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-sm text-[#9ca3af] mb-2" id="request-type-label">
+          Tipo de solicitud
+        </p>
+        <div
+          role="group"
+          aria-labelledby="request-type-label"
+          className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+        >
+          {REQUEST_TYPE_OPTIONS.map((opt) => {
+            const active = requestType === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={isSubmitting || loadingLists}
+                aria-pressed={active}
+                onClick={() => selectRequestType(opt.value)}
+                className={cn(
+                  'rounded-lg border px-3 py-3 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] disabled:opacity-50',
+                  active
+                    ? 'bg-[#FBDBAC]/15 text-[#FBDBAC] border-[#FBDBAC]/50'
+                    : 'bg-[#1a1d23] text-[#9ca3af] border-[#3a4049] hover:border-[#FBDBAC]/40 hover:text-white',
+                )}
+              >
+                <span className="block text-sm font-semibold text-inherit">{opt.label}</span>
+                <span
+                  className={cn(
+                    'mt-0.5 block text-xs leading-snug',
+                    active ? 'text-[#FBDBAC]/80' : 'text-[#6b7280]',
+                  )}
+                >
+                  {opt.description}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {fieldErrors.requestType && (
+          <p className="mt-1.5 text-sm font-medium text-destructive" role="alert">
+            {fieldErrors.requestType}
+          </p>
+        )}
+      </div>
+
+      {!requestType && (
+        <p className="text-sm text-[#6b7280]">
+          Elige un tipo de solicitud para continuar.
+        </p>
+      )}
+
+      {requestType === 'EMIT' && (
+        <section className="space-y-4 rounded-lg border border-[#3a4049] bg-[#242830]/50 p-4">
+          <h3 className="text-sm font-semibold text-[#FBDBAC]">Datos de emisión</h3>
+          <ClientSelectField
+            clients={clients}
+            value={clientSelect}
+            allowNew
+            disabled={isSubmitting || loadingLists}
+            error={fieldErrors.clientName || fieldErrors.clientId}
+            onChange={(id) => {
+              setClientSelect(id);
+              if (id !== '__new__') setNewClientName('');
+            }}
+          />
+          {clientSelect === '__new__' && (
+            <FormField
+              label="Nombre del nuevo cliente"
+              htmlFor="new_client_name"
+              error={fieldErrors.clientName}
+            >
+              <Input
+                id="new_client_name"
+                value={newClientName}
+                maxLength={LIMITS.personName}
+                disabled={isSubmitting}
+                className={fieldControlClass}
+                onChange={(e) => setNewClientName(e.target.value)}
+              />
+            </FormField>
+          )}
+          <ProjectNameSelectField
+            value={projectName}
+            disabled={isSubmitting}
+            error={fieldErrors.projectName}
+            onChange={setProjectName}
+          />
+          <FormField
+            label="Número de contrato"
+            htmlFor="contract_number"
+            error={fieldErrors.contractNumber}
+          >
+            <Input
+              id="contract_number"
+              value={contractNumber}
+              maxLength={LIMITS.contractNumber}
+              disabled={isSubmitting}
+              className={fieldControlClass}
+              placeholder="Opcional"
+              onChange={(e) => setContractNumber(e.target.value)}
+            />
+          </FormField>
+        </section>
+      )}
+
+      {(requestType === 'CHANGE' || requestType === 'CORRECT') && (
+        <section className="space-y-4 rounded-lg border border-[#3a4049] bg-[#242830]/50 p-4">
+          <h3 className="text-sm font-semibold text-[#FBDBAC]">
+            {requestType === 'CHANGE' ? 'Datos del cambio' : 'Datos de la corrección'}
+          </h3>
+          <ContractSelectField
+            contracts={contracts}
+            clients={clients}
+            value={contractId}
+            disabled={isSubmitting || loadingLists}
+            error={fieldErrors.contractId}
+            onChange={handleContractChange}
+          />
+          {selectedContract && (
+            <div className="rounded-md border border-[#3a4049] bg-[#1a1d23] px-3 py-2.5 text-sm space-y-1">
+              <p className="text-white">
+                <span className="text-[#9ca3af]">Proyecto: </span>
+                {selectedContract.project_name || 'N/A'}
+              </p>
+              <p className="text-white">
+                <span className="text-[#9ca3af]">Cliente: </span>
+                {clients.find((c) => c.id === selectedContract.client_id)?.name || 'N/A'}
+              </p>
+            </div>
+          )}
+
+          {requestType === 'CHANGE' && (
+            <>
+              <FormField
+                label="Tipo de cambio"
+                htmlFor="change_type"
+                error={fieldErrors.changeType}
+              >
+                <select
+                  id="change_type"
+                  value={changeType}
+                  disabled={isSubmitting}
+                  onChange={(e) => setChangeType(e.target.value)}
+                  className="h-9 w-full rounded-md border border-[#3a4049] bg-[#1a1d23] text-white px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#FBDBAC] disabled:opacity-50"
+                >
+                  <option value="">Selecciona un tipo de cambio</option>
+                  {CHANGE_TYPE_OPTIONS.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              {changeType === 'Otro' && (
+                <FormField
+                  label="Especifica el tipo de cambio"
+                  htmlFor="other_change_type"
+                  error={fieldErrors.otherChangeType}
+                >
+                  <Input
+                    id="other_change_type"
+                    value={otherChangeType}
+                    maxLength={LIMITS.entityName}
+                    disabled={isSubmitting}
+                    className={fieldControlClass}
+                    onChange={(e) => setOtherChangeType(e.target.value)}
+                  />
+                </FormField>
+              )}
+              <FormField
+                label="Folio (opcional)"
+                htmlFor="folio_number"
+                error={fieldErrors.folioNumber}
+              >
+                <Input
+                  id="folio_number"
+                  value={folioNumber}
+                  maxLength={LIMITS.folioNumber}
+                  disabled={isSubmitting}
+                  className={fieldControlClass}
+                  onChange={(e) => setFolioNumber(e.target.value)}
+                />
+              </FormField>
+              <FormField
+                label="Descripción del cambio"
+                htmlFor="details"
+                error={fieldErrors.details}
+              >
+                <Textarea
+                  id="details"
+                  value={details}
+                  maxLength={LIMITS.changeDetails}
+                  disabled={isSubmitting}
+                  rows={4}
+                  className={textareaControlClass}
+                  placeholder="Describe el cambio y el motivo…"
+                  onChange={(e) => setDetails(e.target.value)}
+                />
+              </FormField>
+            </>
+          )}
+
+          {requestType === 'CORRECT' && (
+            <>
+              <FormField
+                label="Folio a corregir"
+                htmlFor="folio_to_correct"
+                error={fieldErrors.folioNumber}
+              >
+                <Input
+                  id="folio_to_correct"
+                  value={folioNumber}
+                  maxLength={LIMITS.folioNumber}
+                  disabled={isSubmitting}
+                  className={fieldControlClass}
+                  onChange={(e) => setFolioNumber(e.target.value)}
+                />
+              </FormField>
+              <FormField
+                label="Descripción de la corrección"
+                htmlFor="correction_details"
+                error={fieldErrors.details}
+              >
+                <Textarea
+                  id="correction_details"
+                  value={details}
+                  maxLength={LIMITS.changeDetails}
+                  disabled={isSubmitting}
+                  rows={4}
+                  className={textareaControlClass}
+                  placeholder="Describe la corrección…"
+                  onChange={(e) => setDetails(e.target.value)}
+                />
+              </FormField>
+            </>
+          )}
+        </section>
+      )}
+
+      {requestType && (
+        <section className="space-y-4 rounded-lg border border-[#3a4049] bg-[#242830]/50 p-4">
+          <h3 className="text-sm font-semibold text-[#FBDBAC]">Documentos y notas</h3>
+          <DocumentAttachmentsField
+            documents={documents}
+            onChange={setDocuments}
+            errors={fieldErrors}
+            disabled={isSubmitting}
+          />
+          <FormField label="Notas adicionales" htmlFor="notes" error={fieldErrors.notes}>
+            <Textarea
+              id="notes"
+              value={notes}
+              maxLength={LIMITS.notes}
+              disabled={isSubmitting}
+              rows={3}
+              className={textareaControlClass}
+              placeholder="Opcional"
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </FormField>
+        </section>
+      )}
+
+      {formError && (
+        <p className="text-sm text-destructive" role="alert">
+          {formError}
+        </p>
+      )}
+
+      <div className="flex justify-end gap-3 border-t border-[#3a4049] pt-4">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onClose}
+          disabled={isSubmitting}
+          className="border-[#3a4049] bg-transparent text-white hover:bg-[#1a1d23] hover:text-[#FBDBAC]"
+        >
+          Cancelar
+        </Button>
+        <Button
+          type="submit"
+          disabled={!canSubmit}
+          className="bg-[#FBDBAC] text-[#1a1d23] hover:bg-[#E8C89B] disabled:opacity-50"
+        >
+          {isSubmitting ? 'Enviando…' : 'Enviar solicitud'}
+        </Button>
+      </div>
+    </form>
+  );
+}

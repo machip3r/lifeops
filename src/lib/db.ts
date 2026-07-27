@@ -1,5 +1,16 @@
 import { supabase } from './supabase';
-import type { Office, Consultant, Client, Contract, ContractChangeRequest, File, ContractDetail } from './supabase';
+import type {
+    Office,
+    Consultant,
+    ConsultantWithTags,
+    Client,
+    Contract,
+    ContractChangeRequest,
+    File,
+    ContractDetail,
+    Tag,
+    TagSection,
+} from './supabase';
 import {
     syncPaymentsFromImportedDetailsBatch,
     writeImportSyncAudit,
@@ -17,7 +28,33 @@ import {
     type PageResult,
     type SortOrder,
 } from '@/lib/pagination';
+import { tagNameSchema, tagSectionSchema } from '@/lib/validation/schemas';
 
+type ConsultantTagEmbed = {
+    tag_id: string;
+    tag: Tag | Tag[] | null;
+};
+
+function tagsFromConsultantEmbed(rows: ConsultantTagEmbed[] | null | undefined): Tag[] {
+    if (!rows?.length) return [];
+    const out: Tag[] = [];
+    for (const row of rows) {
+        const raw = row.tag;
+        const tag = Array.isArray(raw) ? raw[0] : raw;
+        if (tag?.id) out.push(tag);
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'es'));
+}
+
+function mapConsultantWithTags(
+    row: Consultant & { consultant_tag?: ConsultantTagEmbed[] | null },
+): ConsultantWithTags {
+    const { consultant_tag, ...consultant } = row;
+    return {
+        ...(consultant as Consultant),
+        tags: tagsFromConsultantEmbed(consultant_tag),
+    };
+}
 async function attachContractCounts(
     clients: Client[],
 ): Promise<Array<Client & { contract_count?: number }>> {
@@ -163,9 +200,11 @@ export const db = {
             params: Partial<PageParams> & {
                 search?: string;
                 status?: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ALL';
+                /** Match consultants that have any of these tag ids (OR). */
+                tagIds?: string[];
                 sort?: SortOrder;
             } = {},
-        ): Promise<PageResult<Consultant>> => {
+        ): Promise<PageResult<ConsultantWithTags>> => {
             const { page, pageSize } = normalizePageParams(params);
             const { from, to } = toRange(page, pageSize);
             const sortCol = params.sort?.column &&
@@ -174,12 +213,30 @@ export const db = {
                 : 'created_at';
             const ascending = params.sort?.ascending ?? false;
 
+            const tagIds = (params.tagIds || []).filter(Boolean);
+            let tagFilteredIds: string[] | null = null;
+            if (tagIds.length > 0) {
+                const { data: links, error: tagErr } = await supabase
+                    .from('consultant_tag')
+                    .select('consultant_id')
+                    .in('tag_id', tagIds);
+                if (tagErr) throw tagErr;
+                tagFilteredIds = [...new Set((links || []).map((r) => r.consultant_id as string))];
+                if (tagFilteredIds.length === 0) {
+                    return emptyPageResult({ page, pageSize });
+                }
+            }
+
             let query = supabase
                 .from('consultant')
-                .select('*', { count: 'exact' })
+                .select('*, consultant_tag(tag_id, tag(*))', { count: 'exact' })
                 .eq('office_id', officeId)
                 .order(sortCol, { ascending, nullsFirst: false })
                 .range(from, to);
+
+            if (tagFilteredIds) {
+                query = query.in('id', tagFilteredIds);
+            }
 
             if (params.status && params.status !== 'ALL') {
                 query = query.eq('status', params.status);
@@ -196,13 +253,42 @@ export const db = {
             const { data, error, count } = await query;
             if (error) throw error;
             return {
-                rows: (data as Consultant[]) || [],
+                rows: ((data as Array<Consultant & { consultant_tag?: ConsultantTagEmbed[] }>) || []).map(
+                    mapConsultantWithTags,
+                ),
                 total: count ?? 0,
                 page,
                 pageSize,
             };
         },
 
+        getConsultantTags: async (consultantId: string): Promise<Tag[]> => {
+            const { data, error } = await supabase
+                .from('consultant_tag')
+                .select('tag_id, tag(*)')
+                .eq('consultant_id', consultantId);
+            if (error) throw error;
+            return tagsFromConsultantEmbed((data as ConsultantTagEmbed[]) || []);
+        },
+
+        setConsultantTags: async (consultantId: string, tagIds: string[]): Promise<Tag[]> => {
+            const uniqueIds = [...new Set(tagIds.filter(Boolean))];
+
+            const { error: delErr } = await supabase
+                .from('consultant_tag')
+                .delete()
+                .eq('consultant_id', consultantId);
+            if (delErr) throw delErr;
+
+            if (uniqueIds.length > 0) {
+                const { error: insErr } = await supabase.from('consultant_tag').insert(
+                    uniqueIds.map((tag_id) => ({ consultant_id: consultantId, tag_id })),
+                );
+                if (insErr) throw insErr;
+            }
+
+            return db.consultant.getConsultantTags(consultantId);
+        },
         createConsultant: async (
             user_id: string,
             email: string,
@@ -345,6 +431,82 @@ export const db = {
 
             if (error) throw error;
             return data;
+        },
+    },
+
+    tag: {
+        listByOffice: async (officeId: string, section: TagSection = 'consultant'): Promise<Tag[]> => {
+            const parsedSection = tagSectionSchema.parse(section);
+            const { data, error } = await supabase
+                .from('tag')
+                .select('*')
+                .eq('office_id', officeId)
+                .eq('section', parsedSection)
+                .order('name', { ascending: true });
+            if (error) throw error;
+            return (data as Tag[]) || [];
+        },
+
+        create: async (
+            officeId: string,
+            name: string,
+            section: TagSection = 'consultant',
+        ): Promise<Tag> => {
+            const parsedName = tagNameSchema.safeParse(name);
+            if (!parsedName.success) {
+                throw new Error('Nombre de etiqueta inválido (máx. 40 caracteres).');
+            }
+            const parsedSection = tagSectionSchema.parse(section);
+            const { data, error } = await supabase
+                .from('tag')
+                .insert({
+                    office_id: officeId,
+                    name: parsedName.data,
+                    section: parsedSection,
+                })
+                .select()
+                .single();
+            if (error) {
+                if (error.code === '23505') {
+                    throw new Error('Ya existe una etiqueta con ese nombre.');
+                }
+                throw error;
+            }
+            return data as Tag;
+        },
+
+        delete: async (tagId: string): Promise<void> => {
+            const { error } = await supabase.from('tag').delete().eq('id', tagId);
+            if (error) throw error;
+        },
+
+        rename: async (tagId: string, name: string): Promise<Tag> => {
+            const parsedName = tagNameSchema.parse(name);
+            const { data, error } = await supabase
+                .from('tag')
+                .update({ name: parsedName })
+                .eq('id', tagId)
+                .select()
+                .single();
+            if (error) {
+                if (error.code === '23505') {
+                    throw new Error('Ya existe una etiqueta con ese nombre.');
+                }
+                throw error;
+            }
+            return data as Tag;
+        },
+
+        /** Consultant ids that have any of the given tags (OR). */
+        getConsultantIdsByTags: async (tagIds: string[]): Promise<string[]> => {
+            const ids = [...new Set(tagIds.filter(Boolean))];
+            if (ids.length === 0) return [];
+            const { data, error } = await supabase
+                .from('consultant_tag')
+                .select('consultant_id')
+                .in('tag_id', ids);
+            if (error) throw error;
+            return [...new Set((data || []).map((r) => r.consultant_id as string))];
         },
     },
 
@@ -1403,6 +1565,28 @@ export const db = {
 
             if (error) throw error;
             return data;
+        },
+
+        getFilesByContractId: async (contractId: string): Promise<File[]> => {
+            const { data, error } = await supabase
+                .from('file')
+                .select('*')
+                .eq('contract_id', contractId)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return data || [];
+        },
+
+        getFilesByChangeRequestId: async (changeRequestId: string): Promise<File[]> => {
+            const { data, error } = await supabase
+                .from('file')
+                .select('*')
+                .eq('change_request_id', changeRequestId)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return data || [];
         },
 
         updateFile: async (id: string, updates: Partial<File>): Promise<File> => {

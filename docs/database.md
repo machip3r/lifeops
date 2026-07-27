@@ -11,6 +11,8 @@ English reference for the Postgres schema (Supabase). Source of truth: migration
 | `005_consultant_code_per_office.sql` | `consultant_code` unique per `office_id` (same code allowed across offices) |
 | `006_drop_global_consultant_code_constraint.sql` | Drops leftover global UNIQUE `consultant_consultant_code_key` so 005’s per-office index actually applies |
 | `007_security_advisor_hardening.sql` | Fix `handle_updated_at` search_path; tighten client/file/token RLS; revoke anon EXECUTE on SECURITY DEFINER RPCs; auth guards on privileged RPCs |
+| `008_office_tags.sql` | Office-scoped `tag` catalog (`section`: `consultant` \| `client`) + `consultant_tag` assignments; RLS + section/office guard trigger |
+| `009_solicitud_documents.sql` | Private Storage bucket `documents`; tenancy columns on `file` (`office_id`, `consultant_id`, `contract_id`, `change_request_id`, `display_name`); office/consultant RLS |
 
 **Rule:** never edit an applied migration. Append `002_…`, `003_…`, etc.
 
@@ -26,13 +28,16 @@ auth.users
  └── consultant.auth_user_id → auth.users → role: consultant
 
 office (1) ──< (many) consultant
+office (1) ──< (many) tag
+consultant (1) ──< (many) consultant_tag >── tag
 consultant (1) ──< (many) contract
 client (1) ──< (many) contract
 contract (1) ──< (many) contract_detail
 contract (1) ──< (many) contract_collection_payment
 contract (1) ──< (many) collection_audit_log
 contract (1) ──< (many) contract_change_request
-contract (1) ──< (many) file (via folder_key / ownership patterns)
+contract (1) ──< (many) file
+contract_change_request (1) ──< (many) file (optional; NULL for EMIT docs)
 ```
 
 | Boundary | Table | Meaning |
@@ -40,6 +45,8 @@ contract (1) ──< (many) file (via folder_key / ownership patterns)
 | Office | `office` | Promotoría / insurance office account |
 | Agent | `consultant` | Asesor; belongs to one office |
 | Customer | `client` | Insured / client person |
+| Tag | `tag` | Office-scoped label; `section` = `consultant` or `client` |
+| Consultant tags | `consultant_tag` | Many-to-many: consultant ↔ tag (`section` must be `consultant`) |
 | Policy | `contract` | Póliza; `contract_number` = poliza id from HTML |
 | Line items | `contract_detail` | Commission/table rows for a contract |
 | Collection marks | `contract_collection_payment` | Per year/month paid mark + scheduled day |
@@ -81,6 +88,27 @@ contract (1) ──< (many) file (via folder_key / ownership patterns)
 | `office_id` | Optional FK → `office` |
 | `name` | Required |
 | `birth_date` | Optional |
+
+### `tag`
+
+Office-scoped label catalog. `section` reserves the same table for future client tags; only `consultant` is used in the product UI today.
+
+| Column | Notes |
+| ------ | ----- |
+| `id` | PK |
+| `office_id` | FK → `office` (CASCADE) |
+| `name` | Display label; unique per office + section (case-insensitive trim) |
+| `section` | `consultant` \| `client` |
+| `created_at`, `updated_at` | |
+
+### `consultant_tag`
+
+| Column | Notes |
+| ------ | ----- |
+| `consultant_id` | FK → `consultant` (CASCADE) |
+| `tag_id` | FK → `tag` (CASCADE); must be same office and `section = consultant` (trigger) |
+| `created_at` | |
+| PK | `(consultant_id, tag_id)` |
 
 ### `token`
 
@@ -147,7 +175,17 @@ Append-only history for cobranza edits and import sync.
 
 ### `file`
 
-Uploaded files tied to contracts / folders (see migration for columns and policies).
+Uploaded solicitud / contract documents. Storage objects live in the private `documents` bucket under
+`{officeId}/{consultantId}/{contractId}/{contractCode}/…`. Rows store metadata; downloads use short-lived signed URLs (API), not permanent public URLs.
+
+| Column | Notes |
+| ------ | ----- |
+| `office_id`, `consultant_id`, `contract_id` | Required tenancy FKs |
+| `change_request_id` | Optional; set for CHANGE/CORRECT attachments; NULL for EMIT |
+| `display_name` | User-facing document label |
+| `file_name`, `file_path`, `file_type`, `file_size` | Storage object metadata |
+| `file_url` | Legacy; prefer signed URLs at read time |
+| `status` | Default `ACTIVE` |
 
 ---
 
@@ -174,13 +212,14 @@ Prefer **extending RPCs** over client-side heavy aggregation. Any signature chan
 
 ## RLS summary
 
-- RLS enabled on core tables (`office`, `consultant`, `client`, `contract`, `contract_detail`, `contract_collection_payment`, `collection_audit_log`, `contract_change_request`, `token`, `file`).
+- RLS enabled on core tables (`office`, `consultant`, `client`, `contract`, `contract_detail`, `contract_collection_payment`, `collection_audit_log`, `contract_change_request`, `token`, `file`, `tag`, `consultant_tag`).
 - Offices manage their own profile and their consultants’ data.
+- `tag` / `consultant_tag`: promotory CRUD for own office; consultants may SELECT office tags and their own assignments (no mutate).
 - Consultants read/update their own profile and own contracts.
 - `contract_collection_payment`: same office/consultant contract tenancy (SELECT/INSERT/UPDATE/DELETE).
 - `collection_audit_log`: append-only (SELECT/INSERT). Office sees all for `office_id`; consultants see rows for their contracts (or bulk rows they authored with null `contract_id`).
 - `client` mutations are office-scoped (or via own contracts); no always-true INSERT/UPDATE/DELETE policies.
-- `file` mutations require a matching `office` row for `auth.uid()` (promotory); SELECT remains open to authenticated until files gain tenancy columns.
+- `file`: office sees own `office_id`; consultants SELECT/INSERT/UPDATE/DELETE only for their `consultant_id`. Uploads go through authenticated APIs using the service role into private Storage bucket `documents`.
 - Token policies allow invite redemption flows (read by token value when unused); authenticated inserts require `metadata.office_id = auth.uid()`.
 - Dashboard / invite **SECURITY DEFINER** RPCs: `EXECUTE` revoked from `PUBLIC` and `anon`; granted to `authenticated` + `service_role`. Bodies check office/consultant access when `auth.uid()` is present.
 

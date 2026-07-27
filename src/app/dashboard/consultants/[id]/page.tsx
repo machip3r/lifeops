@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { Consultant, Contract, ContractDetail } from '@/lib/supabase';
+import { Consultant, Contract, ContractDetail, Tag } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { authFetch } from '@/lib/api-client';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ContractsFilters, ContractsFilterState, filterContracts } from '@/components/contracts-filters';
+import { ConsultantTagsEditor, TagChips } from '@/components/consultant-tags';
 import { SortableTh } from '@/components/sortable-th';
 import { TablePagination } from '@/components/table-pagination';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
@@ -42,6 +43,8 @@ function ConsultantDetailsPageContent() {
     const [pendingDateStart, setPendingDateStart] = useState(defaultStart);
     const [pendingDateEnd, setPendingDateEnd] = useState(defaultEnd);
     const [consultant, setConsultant] = useState<Consultant | null>(null);
+    const [consultantTags, setConsultantTags] = useState<Tag[]>([]);
+    const [editingTags, setEditingTags] = useState(false);
     const [contracts, setContracts] = useState<Array<Contract & { client_name?: string }>>([]);
     const [contractsTotal, setContractsTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -142,10 +145,11 @@ function ConsultantDetailsPageContent() {
     const loadConsultantData = useCallback(async () => {
         try {
             setLoading(true);
-            const [consultantData, totals, totalsByType] = await Promise.all([
+            const [consultantData, totals, totalsByType, tags] = await Promise.all([
                 db.consultant.getConsultantById(consultantId),
                 db.dashboard.getConsultantTotals(consultantId, dateStart, dateEnd, seniorityFilter || null),
                 db.dashboard.getConsultantTotalsByType(consultantId, dateStart, dateEnd, seniorityFilter || null),
+                db.consultant.getConsultantTags(consultantId),
             ]);
 
             if (!consultantData) {
@@ -153,6 +157,7 @@ function ConsultantDetailsPageContent() {
             }
 
             setConsultant(consultantData);
+            setConsultantTags(tags);
             setEditName(consultantData.name);
             setEditEmail(consultantData.email || '');
             setTotalPrimaPago(totals.totalPrimaPago);
@@ -606,6 +611,37 @@ function ConsultantDetailsPageContent() {
                         </div>
                     </div>
                 )}
+
+                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Etiquetas
+                        </h3>
+                        {profile?.role === 'promotory' && !editingTags && (
+                            <button
+                                type="button"
+                                onClick={() => setEditingTags(true)}
+                                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                                Editar etiquetas
+                            </button>
+                        )}
+                    </div>
+                    {editingTags && profile?.role === 'promotory' && profile.id ? (
+                        <ConsultantTagsEditor
+                            officeId={profile.id}
+                            consultantId={consultant.id}
+                            initialTagIds={consultantTags.map((t) => t.id)}
+                            onCancel={() => setEditingTags(false)}
+                            onSaved={(tags) => {
+                                setConsultantTags(tags);
+                                setEditingTags(false);
+                            }}
+                        />
+                    ) : (
+                        <TagChips tags={consultantTags} />
+                    )}
+                </div>
             </div>
 
             {/* Sales Chart */}

@@ -57,7 +57,30 @@ export async function POST(request: NextRequest) {
       .filter((id): id is string => !!id);
 
     if (consultantIds.length === 0) {
-      // Still delete clients + cobranza audit for this office when there are no consultants
+      // Still delete clients + cobranza audit + documents for this office when there are no consultants
+      const { data: officeFiles, error: filesFetchError } = await supabaseAdmin
+        .from('file')
+        .select('file_path')
+        .eq('office_id', officeId);
+      if (filesFetchError) {
+        console.error('Error fetching file rows for cleanup:', filesFetchError);
+        return NextResponse.json({ error: 'Failed to fetch documents' }, { status: 500 });
+      }
+      const filePaths = (officeFiles || [])
+        .map((f: { file_path?: string }) => f.file_path)
+        .filter((p): p is string => !!p);
+      if (filePaths.length > 0) {
+        await supabaseAdmin.storage.from('documents').remove(filePaths);
+      }
+      const { error: filesDeleteError } = await supabaseAdmin
+        .from('file')
+        .delete()
+        .eq('office_id', officeId);
+      if (filesDeleteError) {
+        console.error('Error deleting file rows:', filesDeleteError);
+        return NextResponse.json({ error: 'Failed to delete documents' }, { status: 500 });
+      }
+
       const { error: auditDeleteError } = await supabaseAdmin
         .from('collection_audit_log')
         .delete()
@@ -97,6 +120,41 @@ export async function POST(request: NextRequest) {
     }
 
     const contractIds = (contracts || []).map((c: any) => c.id);
+
+    // Delete documents (DB + Storage) before contracts / change requests cascade
+    const { data: officeFiles, error: filesFetchError } = await supabaseAdmin
+      .from('file')
+      .select('id, file_path')
+      .eq('office_id', officeId);
+
+    if (filesFetchError) {
+      console.error('Error fetching file rows for cleanup:', filesFetchError);
+      return NextResponse.json({ error: 'Failed to fetch documents' }, { status: 500 });
+    }
+
+    const filePaths = (officeFiles || [])
+      .map((f: { file_path?: string }) => f.file_path)
+      .filter((p): p is string => !!p);
+
+    if (filePaths.length > 0) {
+      const { error: storageDeleteError } = await supabaseAdmin.storage
+        .from('documents')
+        .remove(filePaths);
+      if (storageDeleteError) {
+        console.error('Error deleting storage objects:', storageDeleteError);
+        // Continue — still remove DB rows
+      }
+    }
+
+    const { error: filesDeleteError } = await supabaseAdmin
+      .from('file')
+      .delete()
+      .eq('office_id', officeId);
+
+    if (filesDeleteError) {
+      console.error('Error deleting file rows:', filesDeleteError);
+      return NextResponse.json({ error: 'Failed to delete documents' }, { status: 500 });
+    }
 
     // Delete collection payments, change requests, details, and contracts
     if (contractIds.length > 0) {

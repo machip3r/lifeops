@@ -9,6 +9,10 @@ import ProtectedRoute from '@/components/protected-route';
 import { useToast } from '@/components/toast';
 import { SortableTh } from '@/components/sortable-th';
 import { TablePagination } from '@/components/table-pagination';
+import {
+    TABLE_FILTER_DEBOUNCE_MS,
+    useDebouncedValue,
+} from '@/hooks/use-debounced-value';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 
@@ -36,9 +40,10 @@ function ClientsPageContent() {
     const [registeredFrom, setRegisteredFrom] = useState('');
     const [registeredTo, setRegisteredTo] = useState('');
     const [minContracts, setMinContracts] = useState('');
-    const [appliedSearch, setAppliedSearch] = useState('');
-    const [appliedFrom, setAppliedFrom] = useState('');
-    const [appliedTo, setAppliedTo] = useState('');
+    const debouncedSearch = useDebouncedValue(search, TABLE_FILTER_DEBOUNCE_MS);
+    const debouncedFrom = useDebouncedValue(registeredFrom, TABLE_FILTER_DEBOUNCE_MS);
+    const debouncedTo = useDebouncedValue(registeredTo, TABLE_FILTER_DEBOUNCE_MS);
+    const debouncedMinContracts = useDebouncedValue(minContracts, TABLE_FILTER_DEBOUNCE_MS);
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
     const [total, setTotal] = useState(0);
@@ -54,9 +59,9 @@ function ClientsPageContent() {
             const result = await db.client.getClientsPage({
                 page,
                 pageSize,
-                search: appliedSearch,
-                registeredFrom: appliedFrom || undefined,
-                registeredTo: appliedTo || undefined,
+                search: debouncedSearch.trim(),
+                registeredFrom: debouncedFrom || undefined,
+                registeredTo: debouncedTo || undefined,
                 sort: dbSort,
                 officeId: profile.role === 'promotory' ? profile.id : undefined,
                 consultantId: profile.role === 'consultant' ? profile.id : undefined,
@@ -68,7 +73,16 @@ function ClientsPageContent() {
         } finally {
             setLoading(false);
         }
-    }, [profile, page, pageSize, appliedSearch, appliedFrom, appliedTo, sortKey, sortDir]);
+    }, [
+        profile,
+        page,
+        pageSize,
+        debouncedSearch,
+        debouncedFrom,
+        debouncedTo,
+        sortKey,
+        sortDir,
+    ]);
 
     useEffect(() => {
         if (profile && (profile.role === 'consultant' || profile.role === 'promotory')) {
@@ -78,7 +92,7 @@ function ClientsPageContent() {
 
     useEffect(() => {
         setPage(1);
-    }, [appliedSearch, appliedFrom, appliedTo, pageSize, sortKey, sortDir]);
+    }, [debouncedSearch, debouncedFrom, debouncedTo, pageSize, sortKey, sortDir]);
 
     const getContractCount = (client: ClientRow) => client.contract_count ?? 0;
 
@@ -184,10 +198,12 @@ function ClientsPageContent() {
     };
 
     const filteredClients = useMemo(() => {
-        const minContractsNumber = minContracts ? parseInt(minContracts, 10) || 0 : 0;
+        const minContractsNumber = debouncedMinContracts
+            ? parseInt(debouncedMinContracts, 10) || 0
+            : 0;
         if (minContractsNumber <= 0) return clients;
         return clients.filter((client) => getContractCount(client) >= minContractsNumber);
-    }, [clients, minContracts]);
+    }, [clients, debouncedMinContracts]);
 
     const sortedClients = useMemo(
         () =>
@@ -303,25 +319,10 @@ function ClientsPageContent() {
                 <button
                     type="button"
                     onClick={() => {
-                        setAppliedSearch(search.trim());
-                        setAppliedFrom(registeredFrom);
-                        setAppliedTo(registeredTo);
-                        setPage(1);
-                    }}
-                    className="px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-                >
-                    Aplicar
-                </button>
-                <button
-                    type="button"
-                    onClick={() => {
                         setSearch('');
                         setRegisteredFrom('');
                         setRegisteredTo('');
                         setMinContracts('');
-                        setAppliedSearch('');
-                        setAppliedFrom('');
-                        setAppliedTo('');
                         setPage(1);
                     }}
                     className="px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -412,7 +413,7 @@ function ClientsPageContent() {
             )}
 
             {/* Clients List */}
-            {total === 0 && !loading && !appliedSearch && !appliedFrom && !appliedTo ? (
+            {total === 0 && !loading && !debouncedSearch.trim() && !debouncedFrom && !debouncedTo ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
                     <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
                         No tienes clientes registrados aún

@@ -34,6 +34,28 @@ export interface Consultant {
     updated_at?: string;
 }
 
+/** Office-scoped label; `section` selects which entity type it applies to. */
+export type TagSection = 'consultant' | 'client';
+
+export interface Tag {
+    id: string;
+    office_id: string;
+    name: string;
+    section: TagSection;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface ConsultantTag {
+    consultant_id: string;
+    tag_id: string;
+    created_at?: string;
+}
+
+export interface ConsultantWithTags extends Consultant {
+    tags: Tag[];
+}
+
 export interface Client {
     id: string;
     office_id?: string | null;
@@ -148,6 +170,11 @@ export interface ContractDetail {
 
 export interface File {
     id: string;
+    office_id: string;
+    consultant_id: string;
+    contract_id: string;
+    change_request_id?: string | null;
+    display_name: string;
     file_name: string;
     file_path: string;
     file_type?: string | null;

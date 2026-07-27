@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
-import { Consultant } from '@/lib/supabase';
+import { Consultant, Tag } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -70,9 +70,13 @@ export default function DashboardPage() {
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
   const [pendingPaymentMethod, setPendingPaymentMethod] = useState<string | null>(null);
   const [consultants, setConsultants] = useState<Consultant[]>([]);
+  const [officeTags, setOfficeTags] = useState<Tag[]>([]);
   const [selectedConsultants, setSelectedConsultants] = useState<string[]>([]);
   const [pendingSelectedConsultants, setPendingSelectedConsultants] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [pendingSelectedTagIds, setPendingSelectedTagIds] = useState<string[]>([]);
   const [consultantDropdownOpen, setConsultantDropdownOpen] = useState(false);
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [filtersCollapsed, setFiltersCollapsed] = useState(true);
   const [topConsultants, setTopConsultants] = useState<Array<{ consultant: Consultant; sales: number }>>([]);
   const [totalPrimaPago, setTotalPrimaPago] = useState(0);
@@ -84,8 +88,12 @@ export default function DashboardPage() {
   const loadConsultants = useCallback(async () => {
     if (!profile?.id || profile.role !== 'promotory') return;
     try {
-      const list = await db.consultant.getConsultantsByOffice(profile.id);
+      const [list, tags] = await Promise.all([
+        db.consultant.getConsultantsByOffice(profile.id),
+        db.tag.listByOffice(profile.id, 'consultant'),
+      ]);
       setConsultants(list);
+      setOfficeTags(tags);
     } catch (e) {
       console.error(e);
     }
@@ -100,8 +108,20 @@ export default function DashboardPage() {
       setStatsLoading(true);
       const seniorityMinParam = seniorityMin === '' ? null : Number(seniorityMin);
       const seniorityMaxParam = seniorityMax === '' ? null : Number(seniorityMax);
-      const consultantIdsParam = selectedConsultants.length > 0 ? selectedConsultants : null;
       const contractTypeParam = ramo === 'all' ? null : ramo;
+
+      let consultantIdsParam: string[] | null =
+        selectedConsultants.length > 0 ? selectedConsultants : null;
+
+      if (selectedTagIds.length > 0) {
+        const taggedIds = await db.tag.getConsultantIdsByTags(selectedTagIds);
+        if (consultantIdsParam) {
+          const taggedSet = new Set(taggedIds);
+          consultantIdsParam = consultantIdsParam.filter((id) => taggedSet.has(id));
+        } else {
+          consultantIdsParam = taggedIds;
+        }
+      }
 
       const [totals, topConsultantsData, totalsByType] = await Promise.all([
         db.dashboard.getOfficeTotals(
@@ -161,6 +181,7 @@ export default function DashboardPage() {
     ramo,
     paymentMethod,
     selectedConsultants,
+    selectedTagIds,
   ]);
 
   useEffect(() => {
@@ -188,6 +209,7 @@ export default function DashboardPage() {
     setRamo(pendingRamo);
     setPaymentMethod(pendingPaymentMethod);
     setSelectedConsultants(pendingSelectedConsultants);
+    setSelectedTagIds(pendingSelectedTagIds);
   };
 
   if (loading) {
@@ -451,6 +473,59 @@ export default function DashboardPage() {
                                 className="mr-2"
                               />
                               {c.name} {c.consultant_code ? `(${c.consultant_code})` : ''}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              {/* Tags */}
+              <div className="flex flex-col gap-2">
+                <Label className="text-xs font-semibold uppercase tracking-wide text-[#FBDBAC]/80">
+                  Etiquetas
+                </Label>
+                <Popover open={tagDropdownOpen} onOpenChange={setTagDropdownOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="h-9 min-w-[180px] justify-between font-normal border-white] bg-[#242830] text-white hover:bg-[#2f3540]"
+                    >
+                      {pendingSelectedTagIds.length === 0
+                        ? 'Todas'
+                        : `${pendingSelectedTagIds.length} seleccionada(s)`}
+                      <ChevronDown className="h-4 w-4 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[280px] p-0 bg-[#2a2f38] border-white]" align="start">
+                    <Command className="bg-[#2a2f38]">
+                      <CommandInput placeholder="Buscar etiqueta..." className="text-white placeholder:text-gray-500" />
+                      <CommandList>
+                        <CommandEmpty>
+                          {officeTags.length === 0
+                            ? 'Sin etiquetas. Créalas en Asesores.'
+                            : 'Sin resultados'}
+                        </CommandEmpty>
+                        <CommandGroup>
+                          {officeTags.map((tag) => (
+                            <CommandItem
+                              key={tag.id}
+                              onSelect={() => {
+                                setPendingSelectedTagIds((prev) =>
+                                  prev.includes(tag.id)
+                                    ? prev.filter((id) => id !== tag.id)
+                                    : [...prev, tag.id]
+                                );
+                              }}
+                              className="text-white focus:bg-white]"
+                            >
+                              <Checkbox
+                                checked={pendingSelectedTagIds.includes(tag.id)}
+                                className="mr-2"
+                              />
+                              {tag.name}
                             </CommandItem>
                           ))}
                         </CommandGroup>

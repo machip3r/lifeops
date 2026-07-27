@@ -47,6 +47,13 @@ const FIELD_KIND: Record<string, keyof ValidationMessages> = {
   consultantCode: "consultantCode",
   notes: "notes",
   details: "notes",
+  displayName: "entityName",
+  clientName: "personName",
+  projectName: "entityName",
+  folioNumber: "contractNumber",
+  changeType: "required",
+  otherChangeType: "entityName",
+  contractId: "required",
 };
 
 /** Map Zod issues to per-field Spanish messages. */

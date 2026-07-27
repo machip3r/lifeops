@@ -66,6 +66,15 @@ lifeops/
   - `email` (TEXT, UNIQUE)
 - **Relationships**: One office has many consultants
 
+#### 2b. `tag` / `consultant_tag`
+- **Purpose**: Office-scoped labels for grouping asesores (and later clients)
+- **Key Fields** (`tag`):
+  - `office_id` (UUID, FK → `office.id`)
+  - `name` (TEXT) — unique per office + `section` (case-insensitive)
+  - `section` (`consultant` \| `client`) — which entity type the tag applies to
+- **Assignments**: `consultant_tag` many-to-many (`consultant_id`, `tag_id`); tag must be same office and `section = consultant`
+- **UI**: Promotory can create/assign tags and filter the asesores list by one or more tags (match any selected)
+
 #### 2. `consultant`
 - **Purpose**: Insurance consultants/agents
 - **Key Fields**:
@@ -145,7 +154,12 @@ lifeops/
   - `status` (TEXT, default 'PENDING')
   - Additional fields: `folio_number`, `details`, `notes`, `folder_key`
 
-#### 7. `token`
+#### 7. `file`
+- **Purpose**: Metadata for documents uploaded with solicitudes (EMIT / CHANGE / CORRECT)
+- **Key Fields**: `office_id`, `consultant_id`, `contract_id`, optional `change_request_id`, `display_name`, `file_path`
+- **Storage**: private Supabase bucket `documents` at `{officeId}/{consultantId}/{contractId}/{contractCode}/…`; downloads via signed URLs
+
+#### 8. `token`
 - **Purpose**: Manages invitation tokens and other temporary tokens
 - **Key Fields**:
   - `id` (UUID, PK)
@@ -162,12 +176,14 @@ consultant (1) ──< (many) contract
 client (1) ──< (many) contract
 contract (1) ──< (many) contract_detail
 contract (1) ──< (many) contract_change_request
+contract (1) ──< (many) file
 ```
 
 **Key Rules**:
 - One client can have many contracts
 - One consultant can have many contracts (and clients)
 - One contract has exactly one client and one consultant
+- Solicitud documents attach to a contract; CHANGE/CORRECT also link `change_request_id`
 - One contract can have many contract_detail rows (from HTML import)
 
 ## Key Features
@@ -222,7 +238,7 @@ contract (1) ──< (many) contract_change_request
 - Profile stored in `office` or `consultant` tables
 - `ProtectedRoute` component enforces role-based access
 - Consultant invitations create tokens that can be used to sign up
-- Promotory full wipe (`POST /api/office/cleanup` from Perfil) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment` and `collection_audit_log`)
+- Promotory full wipe (`POST /api/office/cleanup` from Perfil) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment` and `collection_audit_log`), `file` rows, and Storage objects under the office `documents/` prefix
 
 **Key Files**:
 - `src/contexts/auth-context.tsx`: Provides `useAuth()` hook
@@ -333,7 +349,7 @@ Open [http://localhost:3000](http://localhost:3000)
 
 - `/dashboard/extractor`: HTML / Excel import and data extraction
 - `/dashboard/contracts`: Contract listing and management
-- `/dashboard/consultants`: Consultant management (promotory only)
+- `/dashboard/consultants`: Consultant management (promotory only), including office tags and tag filters
 - `/dashboard/clients`: Client listing
 - `/dashboard/projection`: Financial projection
 - `/dashboard/collections`: Collections (cobranza) payment-control grid
@@ -343,7 +359,8 @@ Open [http://localhost:3000](http://localhost:3000)
 ### Key Components
 
 - `ProtectedRoute`: Enforces authentication and role-based access
-- `RequestFormDialog`: Dialog for creating change requests
+- `RequestFormDialog`: Nueva Solicitud (EMIT / CHANGE / CORRECT) with client/contract autofill and deferred document uploads to `documents`
+- `DocumentAttachmentsField`: Pending file + display-name rows for solicitud forms
 
 ### Database Layer
 
@@ -379,7 +396,7 @@ Open [http://localhost:3000](http://localhost:3000)
    - Overview dashboard (`/dashboard`) with:
      - Date basis selector (fecha de pago vs fecha de emisión).
      - Date range picker (Shadcn Calendar, pending state + Aplicar).
-     - Filters: antigüedad (min/max years), ramo (VI / GM / todos), forma de pago, and asesores multi‑select.
+     - Filters: antigüedad (min/max years), ramo (VI / GM / todos), forma de pago, asesores multi‑select, and etiquetas (tags) multi‑select (OR; intersects with asesores when both set).
      - Summary section showing total prima pago, total prima meta, and prima meta split by VI/GM with inner borders only (no card chrome).
    - Cobranza (`/dashboard/collections`):
      - Year-scoped grid of **active** contracts for payment control and reminder analysis.

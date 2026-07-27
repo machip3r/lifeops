@@ -77,6 +77,9 @@ export async function requireOfficeContext(
   return { ok: false, status: 403, error: "Perfil no encontrado." };
 }
 
+/** Validate JWT and load office tenancy (promotory or consultant). */
+export const requireUserContext = requireOfficeContext;
+
 /** Ensure body officeId matches the caller's office (promotory or consultant). */
 export function assertOfficeAccess(
   ctx: OfficeContext,

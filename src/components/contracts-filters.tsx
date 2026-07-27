@@ -1,7 +1,11 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Contract } from '@/lib/supabase';
+import {
+  TABLE_FILTER_DEBOUNCE_MS,
+  useDebouncedValue,
+} from '@/hooks/use-debounced-value';
 
 export interface ContractsFilterState {
   search: string;
@@ -77,6 +81,9 @@ export function ContractsFilters({
   availableCurrencies,
   availablePaymentMethods,
 }: ContractsFiltersProps) {
+  const [searchInput, setSearchInput] = useState(filters.search);
+  const debouncedSearch = useDebouncedValue(searchInput, TABLE_FILTER_DEBOUNCE_MS);
+
   const sortedCurrencies = useMemo(
     () => Array.from(new Set(availableCurrencies.filter(Boolean))).sort(),
     [availableCurrencies]
@@ -87,8 +94,19 @@ export function ContractsFilters({
     [availablePaymentMethods]
   );
 
+  // Keep local search in sync when parent clears / resets filters
+  useEffect(() => {
+    setSearchInput(filters.search);
+  }, [filters.search]);
+
+  useEffect(() => {
+    if (debouncedSearch === filters.search) return;
+    onChange({ ...filters, search: debouncedSearch });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- emit debounced search only
+  }, [debouncedSearch]);
+
   const update = (patch: Partial<ContractsFilterState>) => {
-    onChange({ ...filters, ...patch });
+    onChange({ ...filters, search: searchInput, ...patch });
   };
 
   return (
@@ -99,8 +117,8 @@ export function ContractsFilters({
         </label>
         <input
           type="text"
-          value={filters.search}
-          onChange={(e) => update({ search: e.target.value })}
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Buscar por cliente o póliza..."
           className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
         />
@@ -169,15 +187,16 @@ export function ContractsFilters({
 
       <button
         type="button"
-        onClick={() =>
+        onClick={() => {
+          setSearchInput('');
           onChange({
             search: '',
             currency: '',
             paymentMethod: '',
             captureDateFrom: '',
             captureDateTo: '',
-          })
-        }
+          });
+        }}
         className="ml-auto px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         Limpiar filtros
@@ -185,4 +204,3 @@ export function ContractsFilters({
     </div>
   );
 }
-

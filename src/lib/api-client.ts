@@ -13,7 +13,10 @@ export async function authFetch(
   if (session?.access_token) {
     headers.set("Authorization", `Bearer ${session.access_token}`);
   }
-  if (!headers.has("Content-Type") && init.body) {
+  // Let the browser set multipart boundary for FormData; only default JSON when needed.
+  const isFormData =
+    typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (!headers.has("Content-Type") && init.body && !isFormData) {
     headers.set("Content-Type", "application/json");
   }
 
