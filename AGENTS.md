@@ -36,9 +36,12 @@ src/
     …                     # shared app components (ProtectedRoute, toast, …)
   contexts/               # React contexts (auth)
   lib/
-    supabase/             # preferred: clients, admin, env helpers
+    supabase/             # clients, admin, env helpers (low-level only)
+    auth/                 # Auth adapters: client.ts, admin.ts, token.ts, api.ts (Bearer)
+    storage/              # Storage adapters: admin.ts (documents bucket, server only)
     validation/           # Zod schemas, field-error mapping
-    db.ts                 # data access (legacy-heavy; prefer server boundary for privileged ops)
+    db.ts                 # RLS-scoped table access (output adapter)
+    db-admin.ts           # privileged table access (output adapter; wraps Auth/Storage when needed)
     utils.ts
   types/                  # shared domain types / DTOs (prefer over growing supabase.ts)
 supabase/migrations/      # SQL only — schema / RPC / RLS changes go here
@@ -60,7 +63,7 @@ docs/
 - Every schema / RPC / RLS change is a **new file** under `supabase/migrations/` (e.g. `002_…sql`, `003_…sql`).
 - **Never** edit an already-created migration that may have been applied — append a new migration instead.
 - Keep migrations SQL-only; name them descriptively after the change.
-- Baseline: `supabase/migrations/schema.sql` (initial full schema). New work appends numbered files after that.
+- Baseline: `supabase/migrations/001_baseline_schema.sql` (initial full schema; must be numbered so `supabase db push` / reset apply it). New work appends `002_…`, `003_…`, etc.
 - **Keep [`docs/database.md`](docs/database.md) in sync** with every migration and any other database change (tables, columns, constraints, RPCs, triggers, RLS policies, enums). Update that English doc in the **same change** as the SQL — do not leave schema docs stale.
 - Prefer pushing aggregations and filters into SQL RPCs (reuse the dashboard filter contract: date basis, range, seniority, ramo, payment method, consultants) instead of heavy client-side aggregation.
 - **Always verify the target Supabase project before pushing or applying migrations** (`supabase db push`, `supabase migration up`, linked remote SQL, Dashboard SQL against a remote, etc.).
@@ -88,6 +91,15 @@ docs/
 - Server-returned messages shown to users may be Spanish; never leak raw DB/Auth stack traces.
 - Full i18n dictionaries (`es`/`en`) are not required today; if adding locales later, every key ships for **all** locales in the same change.
 
+### Spanish product copy — human, few anglicisms
+
+When writing **user-visible Spanish** (UI, toasts, empty states, validation, emails, product docs aimed at the office):
+
+- Prefer **natural Mexican Spanish** people would say in a promotoría — short, direct, warm when it helps, never stiff “translated from English”.
+- Prefer clear Spanish words over unnecessary anglicisms when the Spanish term is common in the product: `correo` (not “email” in UI), `iniciar sesión` / `cerrar sesión` (not “login/logout”), `enlace` (not “link”), `archivo` / `documento` (not “file” in copy), `contraseña` (not “password”), `cargar` / `subir` according to context. Keep industry-standard terms: **póliza**, **asesor**, **cobranza**, **promotoría**, PDF, Excel.
+- Avoid Spanglish and calques (`loguearse`, “has sido tagged”, “upload falló”, “session expirada” as UI copy). Code, routes, and identifiers stay English; only the words the user reads need this care.
+- Prefer verbs and outcomes over jargon: “No se pudo subir el documento” over “Error de upload”; “Revisa el correo e intenta de nuevo” over “Retry auth flow”.
+
 ---
 
 ## Validation, schemas / DTOs, sanitization
@@ -106,6 +118,16 @@ docs/
 - **Sanitize / escape outputs**: rely on React text escaping; never inject unsanitized user HTML (`dangerouslySetInnerHTML`) with client/consultant-provided content. Encode when embedding user data in URLs or emails.
 - Trim strings; reject empty required fields; constrain lengths and enums (`ACTIVE`/`INACTIVE`/`PENDING`, `CHANGE`/`CORRECT`, payment methods, etc.).
 
+### File uploads (especially images)
+
+User-uploaded files (payment evidence, document attachments, etc.) must be treated as untrusted:
+
+- **Validate** MIME type + size limits on the server (`documentMimeTypeSchema`, `LIMITS.documentFileBytes`); never trust the client `Content-Type` alone — check magic bytes / decode result.
+- **Images must be processed and normalized** before Storage: decode with a real image decoder, strip EXIF/metadata, resize to a sane max dimension, and re-encode (e.g. JPEG/WebP/PNG) so polyglot or oversized originals are not stored as-is.
+- Reject files that fail decode, exceed post-process size caps, or are not in the allowed formats after re-encode.
+- Prefer a shared helper under `src/lib/documents/` (called from the upload route / storage adapter) over ad-hoc processing in each route.
+- PDFs and other non-image docs: keep strict size + MIME allowlists; do not execute or render unsandboxed content server-side.
+
 ---
 
 ## Backend: Server Actions, APIs, errors
@@ -114,16 +136,27 @@ docs/
 - **Today:** most reads/writes still go through `src/lib/db.ts` (anon + RLS) from client components. Privileged Auth/admin work is on `/api/**` with Bearer auth — do not reintroduce service-role usage on the client.
 - **Route Handlers** (`src/app/api/**/route.ts`): use for invites (Resend), OCR, cleanup, webhooks, or public HTTP — follow **REST** (correct methods, status codes, JSON error body). Do not add GraphQL unless explicitly requested.
 - **Service role** (`src/lib/supabase/admin.ts`): **server only** via env `SUPABASE_SERVICE_ROLE_KEY`. Never put it in `NEXT_PUBLIC_*` or in `next.config.ts` `env` (that inlines into the client). Never import `supabaseAdmin` in client components.
-- Privileged Route Handlers must call `requireOfficeContext` (`Authorization: Bearer <access_token>`; client helper `authFetch`) then authorize tenancy before using `supabaseAdmin` / `db-admin`.
+- Privileged Route Handlers must call `requireOfficeContext` (`Authorization: Bearer <access_token>`; client helper `authFetch`) then authorize tenancy before using `db-admin` / Auth Admin / Storage Admin.
 - Client data access uses RLS-scoped `supabase` from `src/lib/supabase.ts` + `src/lib/db.ts`. Admin Auth / cross-tenant work goes through `/api/**` (extractor create/missing consultants, consultant email update, office cleanup, invites).
 - **Errors**: handle consistently — map failures to safe user-facing messages (Spanish UI copy is fine); return `{ error: string }` (or a shared result type); do not leak raw DB/Auth stack traces. Log server-side detail when useful; show safe copy to users.
 - After successful mutations: `revalidatePath` / `redirect` as appropriate when using Server Actions; keep success and failure paths explicit (no silent `catch`).
+
+### Auth / Storage / DB adapters (concentrate I/O)
+
+Hexagonal light: pages and route handlers are **input**; persistence lives in adapters.
+
+- **Browser Auth** — only via `src/lib/auth/client.ts` (`getSession`, `signInWithPassword`, `signUp`, `verifyOtp`, `resendOtp`, `signOut`, `onAuthStateChange`). Do **not** call `supabase.auth.*` from pages, contexts, or components.
+- **JWT on the server** — validate Bearer tokens via `src/lib/auth/token.ts` (`getUserFromAccessToken`); `requireOfficeContext` in `src/lib/auth/api.ts` stays the HTTP boundary.
+- **Auth Admin** (create/update/delete/list users) — only via `src/lib/auth/admin.ts`. Do **not** call `supabaseAdmin.auth.admin.*` from route handlers; `db-admin` may wrap these helpers for multi-step flows.
+- **Storage** (documents bucket upload / signed URL / remove) — only via `src/lib/storage/admin.ts`. Do **not** call `supabaseAdmin.storage.*` from routes.
+- **Tables** — prefer `src/lib/db.ts` (RLS) and `src/lib/db-admin.ts` (service role). New privileged queries/mutations belong in `db-admin`, not inline `.from()` in routes when the same concern already has (or should have) an adapter.
 
 ---
 
 ## UI: design system, responsive, a11y
 
 - Use shared design tokens / CSS variables in `src/app/globals.css` and existing Tailwind / shadcn patterns — no one-off color systems per page.
+- Primary CTAs use shared `Button` with `variant="brand"` (golden accent `#FBDBAC`); avoid ad-hoc `bg-blue-600` / one-off button styles on dashboard pages.
 - **Responsive** by default (mobile → desktop); auth and dashboard layouts must work on small screens.
 - **Accessibility basics**: label every input (`htmlFor` / `FormField`), meaningful button text, `aria-label` for icon-only controls, visible focus, sufficient contrast, do not rely on color alone for errors.
 - Prefer semantic HTML (`button`, `label`, `nav`, headings in order).

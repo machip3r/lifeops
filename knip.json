@@ -1,7 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "tags": ["-lintignore"],
+  "ignore": ["src/parked/**"],
   "ignoreIssues": {
-    "src/lib/validation/schemas.ts": ["exports"]
+    "src/lib/validation/schemas.ts": ["exports"],
+    "src/lib/auth/api.ts": ["duplicates"],
+    "src/components/ui/button.tsx": ["exports"]
   }
 }

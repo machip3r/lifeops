@@ -6,13 +6,13 @@ import {
   requireOfficeContext,
 } from "@/lib/auth/api";
 import { findMissingConsultantCodes } from "@/lib/db-admin";
-import { EXTRACTOR_CONTRACT_NUMBER_BATCH } from "@/lib/extractor/batch";
+import { IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
 import { consultantCodeSchema } from "@/lib/validation/schemas";
 
 const bodySchema = z.object({
   officeId: z.string().uuid(),
   /** Accept raw strings; validate per-code so one bad value does not blank the import. */
-  codes: z.array(z.string()).max(EXTRACTOR_CONTRACT_NUMBER_BATCH),
+  codes: z.array(z.string()).max(IMPORT_BATCH_SIZE),
 });
 
 export async function POST(request: NextRequest) {

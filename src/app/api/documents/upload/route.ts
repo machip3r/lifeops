@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { requireUserContext } from "@/lib/auth/api";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  changeRequestBelongsToContractAdmin,
+  collectionPaymentBelongsToContractAdmin,
+  getContractForDocumentUploadAdmin,
+  insertFileRecordAdmin,
+} from "@/lib/db-admin";
+import {
+  removeDocumentObjects,
+  uploadDocumentObject,
+} from "@/lib/storage/admin";
 import {
   DOCUMENT_ALLOWED_MIME_TYPES,
   LIMITS,
@@ -11,8 +20,6 @@ import {
 } from "@/lib/validation/schemas";
 import { VALIDATION_MESSAGES, zodFieldErrors } from "@/lib/validation/field-errors";
 import { z } from "zod";
-
-const DOCUMENTS_BUCKET = "documents";
 
 function sanitizePathSegment(value: string): string {
   const cleaned = value
@@ -39,6 +46,10 @@ const formMetaSchema = z.object({
     if (v === undefined || v === null || v === "") return null;
     return v;
   }, uuidSchema.nullable()),
+  collectionPaymentId: z.preprocess((v) => {
+    if (v === undefined || v === null || v === "") return null;
+    return v;
+  }, uuidSchema.nullable()),
   displayName: documentDisplayNameSchema,
 });
 
@@ -61,6 +72,7 @@ export async function POST(request: NextRequest) {
     const parsedMeta = formMetaSchema.safeParse({
       contractId: form.get("contractId"),
       changeRequestId: form.get("changeRequestId"),
+      collectionPaymentId: form.get("collectionPaymentId"),
       displayName: form.get("displayName"),
     });
 
@@ -74,7 +86,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { contractId, changeRequestId, displayName } = parsedMeta.data;
+    const { contractId, changeRequestId, collectionPaymentId, displayName } =
+      parsedMeta.data;
 
     if (file.size <= 0 || file.size > LIMITS.documentFileBytes) {
       return NextResponse.json(
@@ -99,22 +112,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: contract, error: contractError } = await supabaseAdmin
-      .from("contract")
-      .select("id, contract_number, consultant_id, consultant:consultant_id(id, office_id)")
-      .eq("id", contractId)
-      .maybeSingle();
-
-    if (contractError || !contract) {
+    const contract = await getContractForDocumentUploadAdmin(contractId);
+    if (!contract) {
       return NextResponse.json({ error: "Contrato no encontrado." }, { status: 404 });
     }
 
-    const consultant = Array.isArray(contract.consultant)
-      ? contract.consultant[0]
-      : contract.consultant;
-
-    const officeId = (consultant as { office_id?: string } | null)?.office_id;
-    const consultantId = contract.consultant_id as string;
+    const officeId = contract.office_id;
+    const consultantId = contract.consultant_id;
 
     if (!officeId || officeId !== auth.ctx.officeId) {
       return NextResponse.json({ error: "No autorizado para este contrato." }, { status: 403 });
@@ -125,15 +129,23 @@ export async function POST(request: NextRequest) {
     }
 
     if (changeRequestId) {
-      const { data: changeRequest, error: crError } = await supabaseAdmin
-        .from("contract_change_request")
-        .select("id, contract_id")
-        .eq("id", changeRequestId)
-        .maybeSingle();
-
-      if (crError || !changeRequest || changeRequest.contract_id !== contractId) {
+      const ok = await changeRequestBelongsToContractAdmin(changeRequestId, contractId);
+      if (!ok) {
         return NextResponse.json(
           { error: "Solicitud de cambio no encontrada para este contrato." },
+          { status: 404 },
+        );
+      }
+    }
+
+    if (collectionPaymentId) {
+      const ok = await collectionPaymentBelongsToContractAdmin(
+        collectionPaymentId,
+        contractId,
+      );
+      if (!ok) {
+        return NextResponse.json(
+          { error: "Pago de cobranza no encontrado para este contrato." },
           { status: 404 },
         );
       }
@@ -144,40 +156,34 @@ export async function POST(request: NextRequest) {
     const filePath = `${officeId}/${consultantId}/${contractId}/${contractCode}/${objectName}`;
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from(DOCUMENTS_BUCKET)
-      .upload(filePath, buffer, {
-        contentType: mimeParsed.data,
-        upsert: false,
-      });
+    const { error: uploadError } = await uploadDocumentObject({
+      path: filePath,
+      body: buffer,
+      contentType: mimeParsed.data,
+      upsert: false,
+    });
 
     if (uploadError) {
       console.error("Error uploading document:", uploadError);
       return NextResponse.json({ error: "No se pudo subir el archivo." }, { status: 500 });
     }
 
-    const { data: fileRow, error: insertError } = await supabaseAdmin
-      .from("file")
-      .insert({
-        office_id: officeId,
-        consultant_id: consultantId,
-        contract_id: contractId,
-        change_request_id: changeRequestId,
-        display_name: displayName,
-        file_name: sanitizeFileName(file.name),
-        file_path: filePath,
-        file_type: mimeParsed.data,
-        file_size: file.size,
-        file_url: null,
-        status: "ACTIVE",
-        metadata: {},
-      })
-      .select()
-      .single();
+    const { data: fileRow, error: insertError } = await insertFileRecordAdmin({
+      officeId,
+      consultantId,
+      contractId,
+      changeRequestId,
+      collectionPaymentId,
+      displayName,
+      fileName: sanitizeFileName(file.name),
+      filePath,
+      fileType: mimeParsed.data,
+      fileSize: file.size,
+    });
 
     if (insertError || !fileRow) {
       console.error("Error inserting file row:", insertError);
-      await supabaseAdmin.storage.from(DOCUMENTS_BUCKET).remove([filePath]);
+      await removeDocumentObjects([filePath]);
       return NextResponse.json({ error: "No se pudo registrar el documento." }, { status: 500 });
     }
 

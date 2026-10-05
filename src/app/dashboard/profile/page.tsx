@@ -5,11 +5,13 @@ import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { authFetch } from '@/lib/api-client';
 import ProtectedRoute from '@/components/protected-route';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 
 function ProfilePageContent() {
   const { profile, loading: authLoading } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [officeName, setOfficeName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [cleaning, setCleaning] = useState(false);
@@ -20,6 +22,27 @@ function ProfilePageContent() {
       setName(profile.name || '');
       setEmail(profile.email || '');
     }
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile || profile.role !== 'consultant' || !profile.office_id) {
+      setOfficeName(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const office = await db.office.getOfficeById(profile.office_id!);
+        if (!cancelled) {
+          setOfficeName(office?.name?.trim() || null);
+        }
+      } catch {
+        if (!cancelled) setOfficeName(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [profile]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -119,6 +142,43 @@ function ProfilePageContent() {
             </p>
           </div>
 
+          {profile.role === 'consultant' && (
+            <>
+              <div>
+                <label
+                  htmlFor="profile-office"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                >
+                  Promotoría
+                </label>
+                <input
+                  id="profile-office"
+                  type="text"
+                  value={officeName || '—'}
+                  disabled
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
+                />
+              </div>
+              {profile.consultant_code ? (
+                <div>
+                  <label
+                    htmlFor="profile-consultant-code"
+                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                  >
+                    Código de asesor
+                  </label>
+                  <input
+                    id="profile-consultant-code"
+                    type="text"
+                    value={profile.consultant_code}
+                    disabled
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
+                  />
+                </div>
+              ) : null}
+            </>
+          )}
+
           {message && (
             <div className={`p-4 rounded-lg ${message.type === 'success'
               ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
@@ -149,7 +209,7 @@ function ProfilePageContent() {
                 </h2>
                 <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
                   Esta acción eliminará todas las pólizas, detalles, cobranza (pagos e historial),
-                  clientes y asesores asociados a esta oficina. No se pueden deshacer estos cambios.
+                  clientes y asesores asociados a esta promotoría. No se pueden deshacer estos cambios.
                 </p>
                 <button
                   type="button"
@@ -165,72 +225,53 @@ function ProfilePageContent() {
         </form>
       </div>
 
-      {/* Cleanup Confirmation Dialog */}
-      {showCleanupDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                Confirmar eliminación
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                ¿Estás seguro de que quieres borrar TODAS las pólizas, detalles, datos de cobranza,
-                clientes y asesores de esta oficina?
-                <br />
-                <br />
-                <strong className="text-red-600 dark:text-red-400">Esta acción no se puede deshacer.</strong>
-              </p>
-
-              <div className="flex justify-end gap-4 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowCleanupDialog(false)}
-                  disabled={cleaning}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!profile?.id) return;
-
-                    setCleaning(true);
-                    setShowCleanupDialog(false);
-                    setMessage(null);
-                    try {
-                      const res = await authFetch('/api/office/cleanup', {
-                        method: 'POST',
-                        body: JSON.stringify({ officeId: profile.id }),
-                      });
-                      const data = await res.json();
-                      if (!res.ok || !data.success) {
-                        throw new Error(data.error || 'Error al limpiar los datos de la oficina');
-                      }
-                      setMessage({
-                        type: 'success',
-                        text: 'Datos de la oficina eliminados correctamente.',
-                      });
-                    } catch (error: any) {
-                      console.error('Error cleaning office data:', error);
-                      setMessage({
-                        type: 'error',
-                        text: error.message || 'Error al limpiar los datos de la oficina',
-                      });
-                    } finally {
-                      setCleaning(false);
-                    }
-                  }}
-                  disabled={cleaning}
-                  className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
-                >
-                  {cleaning ? 'Limpiando...' : 'Confirmar eliminación'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showCleanupDialog}
+        title="Confirmar eliminación"
+        description={`¿Estás seguro de que quieres borrar TODAS las pólizas, detalles, datos de cobranza, clientes y asesores de esta promotoría?\n\nEsta acción no se puede deshacer.`}
+        confirmLabel="Confirmar eliminación"
+        cancelLabel="Cancelar"
+        loadingLabel="Limpiando…"
+        loading={cleaning}
+        onCancel={() => {
+          if (!cleaning) setShowCleanupDialog(false);
+        }}
+        onConfirm={() => {
+          void (async () => {
+            if (!profile?.id) return;
+            setCleaning(true);
+            setMessage(null);
+            try {
+              const res = await authFetch('/api/office/cleanup', {
+                method: 'POST',
+                body: JSON.stringify({ officeId: profile.id }),
+              });
+              const data = await res.json();
+              if (!res.ok || !data.success) {
+                throw new Error(
+                  data.error || 'Error al limpiar los datos de la promotoría',
+                );
+              }
+              setShowCleanupDialog(false);
+              setMessage({
+                type: 'success',
+                text: 'Datos de la promotoría eliminados correctamente.',
+              });
+            } catch (error: unknown) {
+              console.error('Error cleaning office data:', error);
+              setMessage({
+                type: 'error',
+                text:
+                  error instanceof Error
+                    ? error.message
+                    : 'Error al limpiar los datos de la promotoría',
+              });
+            } finally {
+              setCleaning(false);
+            }
+          })();
+        }}
+      />
     </div>
   );
 }

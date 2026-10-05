@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo } from 'react';
+import { useState, useRef, useLayoutEffect, useCallback, memo } from 'react';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
@@ -8,15 +8,15 @@ import { authFetch } from '@/lib/api-client';
 import { db } from '@/lib/db';
 import {
   chunkArray,
-  EXTRACTOR_CONSULTANT_CREATE_BATCH,
-  EXTRACTOR_CONTRACT_NUMBER_BATCH,
-  EXTRACTOR_DETAIL_CHECK_BATCH,
+  IMPORT_BATCH_SIZE,
 } from '@/lib/extractor/batch';
 import {
   formatEtaSeconds,
   type ImportProgress,
 } from '@/lib/extractor/import-progress';
-import { parsePagosXlsx } from '@/lib/extractor/parse-pagos-xlsx';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 
 interface ContractorMetadata {
   policyholder?: string;
@@ -39,6 +39,76 @@ interface MissingConsultant {
   name: string;
   email: string;
   password: string;
+}
+
+type NewPolicyDateRow = {
+  key: string;
+  contractNumber: string;
+  clientName: string;
+  priorPaymentDate: string;
+};
+
+type MissingIssueDateRow = {
+  key: string;
+  contractNumber: string;
+  clientName: string;
+  rowIndexes: number[];
+  issueDate: string;
+};
+
+function normalizeHeaderKey(h?: string | null): string {
+  return (h || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+/** Parse DD/MM/YYYY, D/M/YYYY or ISO → YYYY-MM-DD */
+function parseFlexibleDateToIso(value: string): string | null {
+  const t = value.trim();
+  if (!t) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
+  const m = t.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/);
+  if (!m) return null;
+  const dd = m[1].padStart(2, '0');
+  const mm = m[2].padStart(2, '0');
+  return `${m[3]}-${mm}-${dd}`;
+}
+
+function isoToDdMmYyyy(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
+/** Most common FECHA PAGO in the table (tie → latest). */
+function suggestFileIssueDateFromPaymentColumn(
+  headers: string[],
+  rows: string[][],
+): string {
+  const map = new Map(headers.map((h, i) => [normalizeHeaderKey(h), i]));
+  const idx = map.get('FECHAPAGO') ?? 11;
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const iso = parseFlexibleDateToIso(row[idx] ?? '');
+    if (!iso) continue;
+    counts.set(iso, (counts.get(iso) ?? 0) + 1);
+  }
+  if (counts.size === 0) return '';
+  let best = '';
+  let bestCount = -1;
+  for (const [iso, count] of counts) {
+    if (count > bestCount || (count === bestCount && iso > best)) {
+      best = iso;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+function headerIndexMap(headers: string[]): Map<string, number> {
+  return new Map(headers.map((h, i) => [normalizeHeaderKey(h), i]));
 }
 
 // Only these columns are extracted, shown in table, and saved to DB (order matches HTML table indices)
@@ -130,6 +200,10 @@ const EditableCell = memo(function EditableCell({
   );
 });
 
+/** When true, promotoría must enter email/password for new asesores instead of auto-create. */
+const REQUIRE_MANUAL_CONSULTANT_CREDENTIALS =
+  process.env.NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS === 'true';
+
 function ExtractorPageContent() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -138,7 +212,6 @@ function ExtractorPageContent() {
   const [fileName, setFileName] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [isImportingExcel, setIsImportingExcel] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
@@ -152,7 +225,16 @@ function ExtractorPageContent() {
   const [allCellsEditable, setAllCellsEditable] = useState(false);
   const [focusedEmptyCell, setFocusedEmptyCell] = useState<{ tableIndex: number; rowIndex: number; cellIndex: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const excelInputRef = useRef<HTMLInputElement>(null);
+  const [showImportDatesDialog, setShowImportDatesDialog] = useState(false);
+  const [dialogFileIssueDate, setDialogFileIssueDate] = useState('');
+  const [newPolicyDateRows, setNewPolicyDateRows] = useState<NewPolicyDateRow[]>([]);
+  const [missingIssueDateRows, setMissingIssueDateRows] = useState<MissingIssueDateRow[]>([]);
+  const [importDateErrors, setImportDateErrors] = useState<Record<string, string>>({});
+  const [confirmedImportMeta, setConfirmedImportMeta] = useState<{
+    fileIssueDate: string;
+    priorPaymentByContract: Record<string, string>;
+  } | null>(null);
+
 
   const readFileAsText = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -741,8 +823,8 @@ function ExtractorPageContent() {
     setFileName('');
   };
 
-  const handleExtract = () => {
-    if (uploadedFiles.length === 0) {
+  const extractFromFiles = (files: UploadedFile[]) => {
+    if (files.length === 0) {
       toast.error('Sube al menos un archivo HTML y luego haz clic en Extraer');
       return;
     }
@@ -751,7 +833,7 @@ function ExtractorPageContent() {
       const allRows: string[][] = [];
       let combinedHeaders: string[] = [];
 
-      for (const { content, name } of uploadedFiles) {
+      for (const { content, name } of files) {
         const htmlContent = extractHtmlFromMhtml(content);
         let fileTables = parseHTMLTables(htmlContent);
         const isMhtml = /\.mht(ml)?$/i.test(name || '');
@@ -769,12 +851,12 @@ function ExtractorPageContent() {
       if (combinedHeaders.length === 0) {
         setTables([]);
         setIsExtracting(false);
-        toast.error('No se encontraron tablas válidas en los archivos. Revisa que el archivo sea una página guardada con tablas de comisiones.');
+        toast.error('No se encontraron tablas válidas. Abre el reporte de comisiones en el navegador (o sube un HTML guardado) e intenta de nuevo.');
         return;
       }
 
       // Preserve original row order from the uploaded files
-      setFileName(uploadedFiles.map(f => f.name.replace(/\.[^/.]+$/, '')).join('_'));
+      setFileName(files.map(f => f.name.replace(/\.[^/.]+$/, '')).join('_'));
       setTables([{ headers: combinedHeaders, rows: allRows, metadata: undefined, sectionName: 'combined' }]);
       setImportResult(null);
     } catch (err) {
@@ -785,38 +867,8 @@ function ExtractorPageContent() {
     }
   };
 
-  const handleExcelFile = async (file: File) => {
-    if (!/\.xlsx$/i.test(file.name)) {
-      toast.error('Selecciona un archivo .xlsx de pagos/comisiones.');
-      return;
-    }
-    setIsImportingExcel(true);
-    setImportResult(null);
-    try {
-      const buffer = await file.arrayBuffer();
-      const parsed = parsePagosXlsx(buffer);
-      setUploadedFiles([]);
-      setFileName(file.name.replace(/\.xlsx$/i, ''));
-      setTables([
-        {
-          headers: parsed.headers,
-          rows: parsed.rows,
-          metadata: undefined,
-          sectionName: `excel:${parsed.sheetName}`,
-        },
-      ]);
-      toast.success(
-        `Excel leído: ${parsed.rows.length.toLocaleString('es-MX')} filas desde "${parsed.sheetName}". Revisa la vista previa e importa.`,
-      );
-    } catch (err) {
-      console.error(err);
-      const message =
-        err instanceof Error ? err.message : 'No se pudo leer el archivo Excel.';
-      toast.error(message);
-    } finally {
-      setIsImportingExcel(false);
-      if (excelInputRef.current) excelInputRef.current.value = '';
-    }
+  const handleExtract = () => {
+    extractFromFiles(uploadedFiles);
   };
 
   const normalizeHeaderKey = (h?: string | null): string =>
@@ -878,7 +930,7 @@ function ExtractorPageContent() {
 
     const codes = consultants.map((c) => c.code);
     const missing: string[] = [];
-    for (const codeBatch of chunkArray(codes, EXTRACTOR_CONTRACT_NUMBER_BATCH)) {
+    for (const codeBatch of chunkArray(codes, IMPORT_BATCH_SIZE)) {
       const res = await authFetch('/api/extractor/missing-consultants', {
         method: 'POST',
         body: JSON.stringify({ officeId, codes: codeBatch }),
@@ -985,7 +1037,7 @@ function ExtractorPageContent() {
     if (details.length === 0) {
       for (const numberBatch of chunkArray(
         contractNumbers,
-        EXTRACTOR_CONTRACT_NUMBER_BATCH,
+        IMPORT_BATCH_SIZE,
       )) {
         const res = await authFetch('/api/extractor/check-duplicates', {
           method: 'POST',
@@ -1000,7 +1052,7 @@ function ExtractorPageContent() {
     } else {
       for (const detailBatch of chunkArray(
         details,
-        EXTRACTOR_DETAIL_CHECK_BATCH,
+        IMPORT_BATCH_SIZE,
       )) {
         const batchContractNumbers = [
           ...new Set(detailBatch.map((d) => d.contractNumber).filter(Boolean)),
@@ -1040,44 +1092,281 @@ function ExtractorPageContent() {
 
     const officeId = profile.role === 'consultant' ? (profile.office_id || profile.id) : profile.id;
     if (!officeId) {
-      setImportResult({ success: 0, errors: [{ row: 0, error: 'No se pudo determinar la oficina. Por favor contacta al soporte.' }], warnings: [] });
+      setImportResult({ success: 0, errors: [{ row: 0, error: 'No se pudo determinar la promotoría. Por favor contacta al soporte.' }], warnings: [] });
       return;
     }
 
-    setIsImporting(true);
-
-    // Ensure asesores exist and sync names from "Nombre Asesor" (Excel/HTML)
-    let missing: string[] = [];
-    let consultants: Array<{ code: string; name?: string }> = [];
-    try {
-      const checked = await checkMissingConsultants(
-        tables[0].rows,
-        officeId,
-        tables[0].headers,
-      );
-      missing = checked.missing;
-      consultants = checked.consultants;
-    } catch (error: unknown) {
-      setIsImporting(false);
+    if (profile.role === 'consultant' && !profile.consultant_code?.trim()) {
       setImportResult({
         success: 0,
         errors: [{
           row: 0,
-          error: error instanceof Error ? error.message : 'No se pudieron verificar los asesores.',
+          error: 'Tu perfil de asesor no tiene código. Contacta a tu promotoría.',
         }],
         warnings: [],
       });
       return;
     }
 
-    if (consultants.length > 0) {
+    setIsCheckingDuplicates(true);
+    setImportResult(null);
+    setImportDateErrors({});
+
+    try {
+      const headers = tables[0].headers || [];
+      const map = headerIndexMap(headers);
+      const polizaIdx = map.get('POLIZA') ?? 1;
+      const clienteIdx = map.get('CLIENTE') ?? 0;
+      const issueIdx = map.get('FECHAEMISION') ?? 8;
+      const asesorIdx = map.get('ASESOR') ?? 5;
+
+      // Asesores only import rows for their own code
+      let rowsForImport = tables[0].rows;
+      let skippedOtherCodes = 0;
+      if (profile.role === 'consultant' && profile.consultant_code) {
+        const myCode = profile.consultant_code.trim().toLowerCase();
+        const kept: string[][] = [];
+        for (const row of tables[0].rows) {
+          const code = (row[asesorIdx] ?? '').trim().toLowerCase();
+          if (code && code === myCode) {
+            kept.push(row);
+          } else {
+            skippedOtherCodes += 1;
+          }
+        }
+        if (kept.length === 0) {
+          setIsCheckingDuplicates(false);
+          setImportResult({
+            success: 0,
+            errors: [{
+              row: 0,
+              error: `No hay filas con tu código de asesor (${profile.consultant_code}) en este archivo.`,
+            }],
+            warnings: skippedOtherCodes > 0
+              ? [{
+                  row: 0,
+                  message: `Se omitieron ${skippedOtherCodes} fila(s) de otros asesores.`,
+                }]
+              : [],
+          });
+          return;
+        }
+        rowsForImport = kept;
+        if (skippedOtherCodes > 0) {
+          toast.success(
+            `Solo se importarán tus pólizas. Se omitieron ${skippedOtherCodes} fila(s) de otros asesores.`,
+          );
+        }
+      }
+
+      const duplicateData = await checkDuplicates(
+        rowsForImport,
+        officeId,
+        headers,
+      );
+      const existingSet = new Set(
+        duplicateData.contracts.map((c) => c.trim().replace(/,/g, '').replace(/\s+/g, '')),
+      );
+
+      const newPolicyMap = new Map<string, NewPolicyDateRow>();
+      const missingIssueMap = new Map<string, MissingIssueDateRow>();
+
+      rowsForImport.forEach((row, rowIndex) => {
+        const rawNumber = (row[polizaIdx] ?? '').trim();
+        const contractNumber = rawNumber.replace(/,/g, '').replace(/\s+/g, '');
+        const clientName = (row[clienteIdx] ?? '').trim();
+        const issueRaw = (row[issueIdx] ?? '').trim();
+        const hasIssue = Boolean(parseFlexibleDateToIso(issueRaw));
+
+        const isNew =
+          !contractNumber || !existingSet.has(contractNumber);
+        if (isNew) {
+          const key = contractNumber || `__unnamed__:${clientName.toLowerCase() || rowIndex}`;
+          if (!newPolicyMap.has(key)) {
+            newPolicyMap.set(key, {
+              key,
+              contractNumber: contractNumber || '(sin número)',
+              clientName: clientName || '—',
+              priorPaymentDate: '',
+            });
+          }
+        }
+
+        if (!hasIssue) {
+          const key = contractNumber || `__unnamed__:${clientName.toLowerCase() || rowIndex}`;
+          const existing = missingIssueMap.get(key);
+          if (existing) {
+            existing.rowIndexes.push(rowIndex);
+          } else {
+            missingIssueMap.set(key, {
+              key,
+              contractNumber: contractNumber || '(sin número)',
+              clientName: clientName || '—',
+              rowIndexes: [rowIndex],
+              issueDate: '',
+            });
+          }
+        }
+      });
+
+      // Persist scoped rows for the import dialog → continue flow
+      if (rowsForImport !== tables[0].rows) {
+        setTables([{ ...tables[0], rows: rowsForImport }, ...tables.slice(1)]);
+      }
+
+      const suggested = suggestFileIssueDateFromPaymentColumn(headers, rowsForImport);
+      setDialogFileIssueDate(suggested);
+      setNewPolicyDateRows([...newPolicyMap.values()]);
+      setMissingIssueDateRows([...missingIssueMap.values()]);
+      setShowImportDatesDialog(true);
+    } catch (error: unknown) {
+      setImportResult({
+        success: 0,
+        errors: [{
+          row: 0,
+          error:
+            error instanceof Error
+              ? error.message
+              : 'No se pudieron preparar las fechas de importación.',
+        }],
+        warnings: [],
+      });
+    } finally {
+      setIsCheckingDuplicates(false);
+    }
+  };
+
+  const handleConfirmImportDates = async () => {
+    const officeId =
+      profile?.role === 'consultant'
+        ? profile.office_id || profile.id
+        : profile?.id;
+    if (!officeId || !profile?.id) return;
+
+    const errors: Record<string, string> = {};
+    const fileIso = dialogFileIssueDate.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fileIso)) {
+      errors.issueDate = 'Indica la fecha de emisión del archivo.';
+    }
+
+    for (const row of newPolicyDateRows) {
+      const prior = row.priorPaymentDate.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(prior)) {
+        errors[`prior:${row.key}`] = 'Obligatoria para pólizas nuevas.';
+      } else if (fileIso && prior > fileIso) {
+        errors[`prior:${row.key}`] =
+          'No puede ser posterior a la fecha del archivo.';
+      }
+    }
+
+    for (const row of missingIssueDateRows) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(row.issueDate.trim())) {
+        errors[`issue:${row.key}`] = 'Obligatoria para importar.';
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setImportDateErrors(errors);
+      return;
+    }
+    setImportDateErrors({});
+
+    // Write missing FECHA EMISION (+ mes/año) into the editable table (sync for import)
+    const headers = tables[0].headers || [];
+    const map = headerIndexMap(headers);
+    const issueIdx = map.get('FECHAEMISION') ?? 8;
+    const mesIdx = map.get('MESEMISION') ?? 9;
+    const anioIdx = map.get('ANOEMISION') ?? map.get('ANIOEMISION') ?? 10;
+    const nextRows = tables[0].rows.map((r) => [...r]);
+    for (const item of missingIssueDateRows) {
+      const iso = item.issueDate.trim();
+      const display = isoToDdMmYyyy(iso);
+      const [, mm, yyyy] = iso.split('-');
+      for (const rowIndex of item.rowIndexes) {
+        const row = nextRows[rowIndex];
+        if (!row) continue;
+        row[issueIdx] = display;
+        if (mesIdx < row.length) row[mesIdx] = mm || '';
+        if (anioIdx < row.length) row[anioIdx] = yyyy || '';
+      }
+    }
+    const tableForImport: TableData = { ...tables[0], rows: nextRows };
+    setTables((prev) =>
+      prev.length === 0 ? prev : [tableForImport, ...prev.slice(1)],
+    );
+
+    const priorPaymentByContract: Record<string, string> = {};
+    for (const row of newPolicyDateRows) {
+      priorPaymentByContract[row.key] = row.priorPaymentDate.trim();
+    }
+
+    const meta = {
+      fileIssueDate: fileIso,
+      priorPaymentByContract,
+    };
+    setConfirmedImportMeta(meta);
+    setShowImportDatesDialog(false);
+    await continueImportAfterDates(officeId, tableForImport, meta);
+  };
+
+  const continueImportAfterDates = async (
+    officeId: string,
+    table: TableData,
+    meta: { fileIssueDate: string; priorPaymentByContract: Record<string, string> },
+  ) => {
+    setIsImporting(true);
+
+    // Ensure asesores exist (promotoría only — asesores never create other codes)
+    let missing: string[] = [];
+    let consultants: Array<{ code: string; name?: string }> = [];
+    if (profile?.role !== 'consultant') {
+      try {
+        const checked = await checkMissingConsultants(
+          table.rows,
+          officeId,
+          table.headers,
+        );
+        missing = checked.missing;
+        consultants = checked.consultants;
+      } catch (error: unknown) {
+        setIsImporting(false);
+        setImportResult({
+          success: 0,
+          errors: [{
+            row: 0,
+            error: error instanceof Error ? error.message : 'No se pudieron verificar los asesores.',
+          }],
+          warnings: [],
+        });
+        return;
+      }
+    }
+
+    const missingSet = new Set(missing.map((c) => c.trim().toLowerCase()));
+    const missingEntries = consultants.filter((c) =>
+      missingSet.has(c.code.trim().toLowerCase()),
+    );
+
+    if (missingEntries.length > 0) {
+      // Manual mode: force email/password dialog (env flag).
+      if (REQUIRE_MANUAL_CONSULTANT_CREDENTIALS) {
+        setMissingConsultants(
+          missingEntries.map((c) => ({
+            consultantCode: c.code,
+            name: c.name || c.code,
+            email: '',
+            password: '',
+          })),
+        );
+        setShowConsultantDialog(true);
+        setIsImporting(false);
+        return;
+      }
+
       try {
         const failed: Array<{ code: string; error?: string }> = [];
         let createdCount = 0;
-        for (const batch of chunkArray(
-          consultants,
-          EXTRACTOR_CONSULTANT_CREATE_BATCH,
-        )) {
+        for (const batch of chunkArray(missingEntries, IMPORT_BATCH_SIZE)) {
           const res = await authFetch('/api/extractor/create-consultants', {
             method: 'POST',
             body: JSON.stringify({
@@ -1116,8 +1405,8 @@ function ExtractorPageContent() {
           setIsImporting(false);
           return;
         }
-        if (createdCount === 0 && missing.length > 0) {
-          createdCount = missing.length;
+        if (createdCount === 0) {
+          createdCount = missingEntries.length;
         }
         if (createdCount > 0) {
           toast.success(
@@ -1142,9 +1431,9 @@ function ExtractorPageContent() {
     setIsCheckingDuplicates(true);
     try {
       const duplicateData = await checkDuplicates(
-        tables[0].rows,
+        table.rows,
         officeId,
-        tables[0].headers,
+        table.headers,
       );
 
       setIsCheckingDuplicates(false);
@@ -1156,8 +1445,7 @@ function ExtractorPageContent() {
         return;
       }
 
-      // No duplicates, proceed with import (performImport keeps setIsImporting in sync)
-      await performImport(officeId);
+      await performImport(officeId, table, meta);
     } catch (error: any) {
       setIsCheckingDuplicates(false);
       setIsImporting(false);
@@ -1172,8 +1460,8 @@ function ExtractorPageContent() {
   const handleConfirmImport = async () => {
     setShowDuplicateDialog(false);
     const officeId = profile?.role === 'consultant' ? (profile.office_id || profile.id) : profile?.id;
-    if (officeId) {
-      await performImport(officeId);
+    if (officeId && confirmedImportMeta) {
+      await performImport(officeId, tables[0], confirmedImportMeta);
     }
   };
 
@@ -1220,10 +1508,10 @@ function ExtractorPageContent() {
       setIsCheckingDuplicates(true);
       try {
         const duplicateData = await checkDuplicates(
-        tables[0].rows,
-        officeId,
-        tables[0].headers,
-      );
+          tables[0].rows,
+          officeId,
+          tables[0].headers,
+        );
 
         setIsCheckingDuplicates(false);
 
@@ -1234,7 +1522,9 @@ function ExtractorPageContent() {
         }
 
         // No duplicates, proceed with import
-        await performImport(officeId);
+        if (confirmedImportMeta) {
+          await performImport(officeId, tables[0], confirmedImportMeta);
+        }
       } catch (error: any) {
         setIsCheckingDuplicates(false);
         setImportResult({
@@ -1255,7 +1545,11 @@ function ExtractorPageContent() {
     }
   };
 
-  const performImport = async (officeId: string) => {
+  const performImport = async (
+    officeId: string,
+    table: TableData,
+    meta: { fileIssueDate: string; priorPaymentByContract: Record<string, string> },
+  ) => {
     setIsImporting(true);
     setImportResult(null);
     setImportProgress({
@@ -1272,21 +1566,29 @@ function ExtractorPageContent() {
       const onProgress = (progress: ImportProgress) => {
         setImportProgress(progress);
       };
+      const importMeta = {
+        fileIssueDate: meta.fileIssueDate.trim(),
+        priorPaymentByContract: meta.priorPaymentByContract,
+        fileName: fileName || uploadedFiles[0]?.name || null,
+        requirePriorForNew: true,
+      };
       if (profile?.role === 'consultant') {
         result = await db.contract.importContractsFromTable(
-          tables[0].rows,
+          table.rows,
           officeId,
           profile.id,
-          tables[0].headers,
+          table.headers,
           onProgress,
+          importMeta,
         );
       } else {
         result = await db.contract.importContractsFromTable(
-          tables[0].rows,
+          table.rows,
           officeId,
           undefined,
-          tables[0].headers,
+          table.headers,
           onProgress,
+          importMeta,
         );
       }
       setImportResult(result);
@@ -1307,11 +1609,12 @@ function ExtractorPageContent() {
     <div>
       <div className="text-center mb-6">
         <h1 className="dashboard-page-title text-4xl font-bold mb-2">
-          Subir archivos de comisiones
+          Importar datos
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Sube archivos HTML de comisiones o un Excel de pagos (.xlsx). Luego importa
-          pólizas, asesores, clientes y detalles a la base de datos.
+          {profile?.role === 'consultant'
+            ? 'Carga tus archivos HTML de comisiones. Solo se importarán las pólizas con tu código de asesor.'
+            : 'Carga los archivos HTML de comisiones extraídos del portal. Luego importa pólizas, asesores, clientes y detalles.'}
         </p>
       </div>
       <div className="flex justify-end mb-8">
@@ -1384,38 +1687,6 @@ function ExtractorPageContent() {
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3">
-        <div>
-          <p className="text-sm font-medium text-gray-900 dark:text-white">
-            Importar Excel de pagos (.xlsx)
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Columnas: Cliente, Póliza, Asesor, fechas, primas, forma de pago, etc. Misma
-            ruta de importación que el HTML (contratos, asesores, detalles, cobranza).
-          </p>
-        </div>
-        <div>
-          <input
-            ref={excelInputRef}
-            type="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleExcelFile(file);
-            }}
-          />
-          <button
-            type="button"
-            disabled={isImportingExcel || isExtracting || isImporting}
-            onClick={() => excelInputRef.current?.click()}
-            className="px-4 py-2 bg-[#FBDBAC] text-[#1a1d23] font-medium rounded-lg hover:brightness-105 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-          >
-            {isImportingExcel ? 'Leyendo Excel...' : 'Importar desde Excel'}
-          </button>
-        </div>
-      </div>
-
       {/* Uploaded files list + Extract button */}
       {uploadedFiles.length > 0 && (
         <div className="mt-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
@@ -1475,6 +1746,7 @@ function ExtractorPageContent() {
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                 Las celdas vacías son editables. Activa la opción para editar todas. Los cambios se usan al importar o descargar CSV.
+                Al importar se pedirán fechas faltantes (emisión del archivo, pólizas nuevas y filas sin fecha de emisión).
               </p>
               <label className="inline-flex items-center gap-2 mt-2 cursor-pointer">
                 <input
@@ -1490,11 +1762,11 @@ function ExtractorPageContent() {
             </div>
             <div className="flex gap-2">
               <button
-                onClick={handleImport}
+                onClick={() => void handleImport()}
                 disabled={isImporting || isCheckingDuplicates}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCheckingDuplicates ? 'Verificando duplicados...' : isImporting ? 'Importando...' : 'Importar a Base de Datos'}
+                {isCheckingDuplicates ? 'Preparando…' : isImporting ? 'Importando...' : 'Importar a Base de Datos'}
               </button>
               <button
                 onClick={downloadAllCSV}
@@ -1741,6 +2013,183 @@ function ExtractorPageContent() {
         </div>
       )}
 
+      {/* Import dates dialog (file issue + per-policy prior + missing FECHA EMISION) */}
+      {showImportDatesDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 space-y-6">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                  Fechas para importar
+                </h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  La fecha del archivo se sugiere desde la columna FECHA PAGO (fecha de cobro).
+                  Las pólizas nuevas requieren su último pago previo, y las filas sin fecha de
+                  emisión deben completarse para poder importar.
+                </p>
+              </div>
+
+              <FormField
+                label="Fecha de emisión del archivo"
+                htmlFor="import-file-issue-date"
+                variant="auth"
+                error={importDateErrors.issueDate}
+                hint="Detectada automáticamente desde FECHA PAGO; puedes corregirla"
+              >
+                <Input
+                  id="import-file-issue-date"
+                  type="date"
+                  value={dialogFileIssueDate}
+                  onChange={(e) => {
+                    setDialogFileIssueDate(e.target.value);
+                    setImportDateErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.issueDate;
+                      return next;
+                    });
+                  }}
+                  required
+                />
+              </FormField>
+
+              {newPolicyDateRows.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Último pago previo (pólizas nuevas)
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Indica, por póliza, la fecha del último pago <strong>antes</strong> de este
+                    archivo.
+                  </p>
+                  <div className="space-y-3">
+                    {newPolicyDateRows.map((row, index) => (
+                      <div
+                        key={row.key}
+                        className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                      >
+                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+                          {row.contractNumber}
+                          <span className="text-gray-500 dark:text-gray-400 font-normal">
+                            {' '}
+                            · {row.clientName}
+                          </span>
+                        </p>
+                        <FormField
+                          label="Último pago previo"
+                          htmlFor={`prior-payment-${index}`}
+                          variant="auth"
+                          error={importDateErrors[`prior:${row.key}`]}
+                        >
+                          <Input
+                            id={`prior-payment-${index}`}
+                            type="date"
+                            value={row.priorPaymentDate}
+                            max={dialogFileIssueDate || undefined}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setNewPolicyDateRows((prev) =>
+                                prev.map((r) =>
+                                  r.key === row.key
+                                    ? { ...r, priorPaymentDate: value }
+                                    : r,
+                                ),
+                              );
+                              setImportDateErrors((prev) => {
+                                const next = { ...prev };
+                                delete next[`prior:${row.key}`];
+                                return next;
+                              });
+                            }}
+                            required
+                          />
+                        </FormField>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {missingIssueDateRows.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Fecha de emisión faltante
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Estas pólizas no traen FECHA EMISION en el archivo. Complétala para
+                    importarlas.
+                  </p>
+                  <div className="space-y-3">
+                    {missingIssueDateRows.map((row, index) => (
+                      <div
+                        key={row.key}
+                        className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+                      >
+                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+                          {row.contractNumber}
+                          <span className="text-gray-500 dark:text-gray-400 font-normal">
+                            {' '}
+                            · {row.clientName}
+                            {row.rowIndexes.length > 1
+                              ? ` · ${row.rowIndexes.length} filas`
+                              : ''}
+                          </span>
+                        </p>
+                        <FormField
+                          label="Fecha de emisión"
+                          htmlFor={`missing-issue-${index}`}
+                          variant="auth"
+                          error={importDateErrors[`issue:${row.key}`]}
+                        >
+                          <Input
+                            id={`missing-issue-${index}`}
+                            type="date"
+                            value={row.issueDate}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setMissingIssueDateRows((prev) =>
+                                prev.map((r) =>
+                                  r.key === row.key ? { ...r, issueDate: value } : r,
+                                ),
+                              );
+                              setImportDateErrors((prev) => {
+                                const next = { ...prev };
+                                delete next[`issue:${row.key}`];
+                                return next;
+                              });
+                            }}
+                            required
+                          />
+                        </FormField>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowImportDatesDialog(false);
+                    setImportDateErrors({});
+                  }}
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmImportDates()}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold"
+                >
+                  Continuar importación
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Consultant Creation Dialog */}
       {showConsultantDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1798,9 +2247,8 @@ function ExtractorPageContent() {
                         <label htmlFor={`consultant-password-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Contraseña * (mín. 8 caracteres)
                         </label>
-                        <input
+                        <PasswordInput
                           id={`consultant-password-${index}`}
-                          type="password"
                           value={consultant.password}
                           onChange={(e) => {
                             const updated = [...missingConsultants];

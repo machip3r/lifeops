@@ -1,5 +1,8 @@
 import type { CollectionStatus } from "@/lib/supabase";
 
+/** Days after expected collection date without payment ⇒ policy is at risk. */
+export const POLICY_AT_RISK_DAYS = 30;
+
 export const COLLECTION_STATUS_OPTIONS: {
   value: CollectionStatus;
   label: string;
@@ -27,12 +30,3 @@ export const MONTH_COLUMNS = [
   { month: 11, label: "NOV" },
   { month: 12, label: "DIC" },
 ] as const;
-
-export function collectionStatusLabel(
-  status: CollectionStatus | null | undefined,
-): string {
-  if (!status) return "";
-  return (
-    COLLECTION_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status
-  );
-}

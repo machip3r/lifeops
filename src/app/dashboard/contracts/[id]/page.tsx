@@ -7,10 +7,14 @@ import { db } from '@/lib/db';
 import ProtectedRoute from '@/components/protected-route';
 import { TablePagination } from '@/components/table-pagination';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
+import { useAuth } from '@/contexts/auth-context';
+import { ReassignConsultantDialog } from '@/components/contracts/reassign-consultant-dialog';
+import { formatDateShortEsLocal } from '@/lib/format/date';
 
 function ContractDetailsPageContent() {
     const router = useRouter();
     const params = useParams();
+    const { profile } = useAuth();
     const contractId = params.id as string;
     const [contract, setContract] = useState<Contract | null>(null);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
@@ -84,29 +88,7 @@ function ContractDetailsPageContent() {
 
     const formatDate = (dateString: string | null | undefined) => {
         if (!dateString) return 'N/A';
-        try {
-            // Parse YYYY-MM-DD format and create date in local timezone to avoid day shift
-            const parts = dateString.split('-');
-            if (parts.length === 3) {
-                const year = parseInt(parts[0], 10);
-                const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
-                const day = parseInt(parts[2], 10);
-                const date = new Date(year, month, day);
-                return date.toLocaleDateString('es-MX', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                });
-            }
-            // Fallback to original parsing if format is different
-            return new Date(dateString).toLocaleDateString('es-MX', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-            });
-        } catch {
-            return dateString;
-        }
+        return formatDateShortEsLocal(dateString);
     };
 
     // Calculate contract value: prima cobro * UDI actual value * tipo cambio
@@ -190,7 +172,7 @@ function ContractDetailsPageContent() {
                         ← Volver a Contratos
                     </button>
                     <h1 className="dashboard-page-title text-4xl font-bold mb-1">
-                        Detalles del Contrato
+                        Detalles de la póliza
                     </h1>
                     {contract.contract_number && (
                         <p className="text-gray-700 dark:text-gray-300 text-lg font-medium mb-1">
@@ -210,6 +192,14 @@ function ContractDetailsPageContent() {
                         Número de Contrato: {contract.contract_number || 'N/A'}
                     </p>
                 </div>
+                {profile?.role === 'promotory' && contract.consultant_id && (
+                    <ReassignConsultantDialog
+                        officeId={profile.id}
+                        contractId={contract.id}
+                        currentConsultantId={contract.consultant_id}
+                        onReassigned={() => void loadContractMeta()}
+                    />
+                )}
             </div>
 
             {/* Contract Information */}
@@ -301,7 +291,7 @@ function ContractDetailsPageContent() {
             {detailsTotal > 0 || contractDetails.length > 0 ? (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
                     <div className="p-6">
-                        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Detalles del Contrato ({detailsTotal} filas)</h2>
+                        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Detalles de la póliza ({detailsTotal} filas)</h2>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">

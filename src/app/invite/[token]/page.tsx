@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
 import { db, Token } from '@/lib/db';
 import Link from 'next/link';
 import { assets } from '@/app/theme/assets';
+import { PasswordInput } from '@/components/ui/password-input';
+import { LIMITS } from '@/lib/validation/schemas';
 
 export default function InvitePage() {
     const params = useParams();
@@ -17,6 +18,7 @@ export default function InvitePage() {
     const [error, setError] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [success, setSuccess] = useState(false);
 
@@ -88,71 +90,38 @@ export default function InvitePage() {
         setIsSubmitting(true);
 
         try {
-            // Extract consultant info from metadata
-            const consultantEmail = tokenData.metadata?.consultant_email;
-            const consultantName = tokenData.metadata?.consultant_name;
-            const consultantCode = tokenData.metadata?.consultant_code;
-            const officeId = tokenData.metadata?.office_id;
-
-            if (!officeId || !consultantEmail || !consultantName || !consultantCode) {
-                throw new Error('Datos de invitación incompletos');
-            }
-
-            // Create auth user
-            const { data: authData, error: authError } = await supabase.auth.signUp({
-                email: consultantEmail,
-                password,
-                options: {
-                    emailRedirectTo: `${window.location.origin}/login`,
-                },
+            const res = await fetch('/api/invite/accept', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token, password }),
             });
-
-            if (authError) {
-                if (authError.message.includes('already registered')) {
-                    setError('Este email ya está registrado. Por favor, inicia sesión.');
-                    setIsSubmitting(false);
-                    return;
-                }
-                throw authError;
-            }
-
-            if (!authData.user) {
-                throw new Error('No se pudo crear el usuario');
-            }
-
-            // Create consultant profile
-            try {
-                await db.consultant.createConsultant(
-                    authData.user.id,
-                    consultantEmail,
-                    consultantName,
-                    consultantCode,
-                    officeId
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(
+                    typeof data.error === 'string'
+                        ? data.error
+                        : 'No se pudo completar el registro.',
                 );
-            } catch (consultantError: any) {
-                // If consultant creation fails, we can't delete the auth user from client
-                // The user will need to contact support or try to sign in
-                console.error('Error creating consultant profile:', consultantError);
-                throw new Error('Error al crear el perfil de asesor. Por favor, contacta al soporte.');
             }
 
-            // Mark token as used
-            try {
-                await db.token.markTokenAsUsed(tokenData.id);
-            } catch (tokenUpdateError: any) {
-                console.error('Error marking token as used:', tokenUpdateError);
-                // Don't fail the whole process if this fails
-            }
+            const email =
+                typeof data.email === 'string'
+                    ? data.email
+                    : String(tokenData.metadata?.consultant_email || '');
 
             setSuccess(true);
-
-            // Redirect to login after 2 seconds
             setTimeout(() => {
-                router.push('/login?email=' + encodeURIComponent(consultantEmail));
+                router.push(
+                    '/login?email=' + encodeURIComponent(email),
+                );
             }, 2000);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Error creating account:', error);
-            setError(error.message || 'Error al crear la cuenta. Por favor, intenta de nuevo.');
+            setError(
+                error instanceof Error
+                    ? error.message
+                    : 'Error al crear la cuenta. Por favor, intenta de nuevo.',
+            );
         } finally {
             setIsSubmitting(false);
         }
@@ -237,15 +206,17 @@ export default function InvitePage() {
                             <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Contraseña *
                             </label>
-                            <input
-                                type="password"
+                            <PasswordInput
                                 id="password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
-                                minLength={8}
-                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                minLength={LIMITS.password.min}
+                                maxLength={LIMITS.password.max}
+                                autoComplete="new-password"
                                 placeholder="Mínimo 8 caracteres"
+                                visible={showPassword}
+                                onVisibleChange={setShowPassword}
                             />
                         </div>
 
@@ -253,15 +224,17 @@ export default function InvitePage() {
                             <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Confirmar Contraseña *
                             </label>
-                            <input
-                                type="password"
+                            <PasswordInput
                                 id="confirmPassword"
                                 value={confirmPassword}
                                 onChange={(e) => setConfirmPassword(e.target.value)}
                                 required
-                                minLength={8}
-                                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                minLength={LIMITS.password.min}
+                                maxLength={LIMITS.password.max}
+                                autoComplete="new-password"
                                 placeholder="Confirma tu contraseña"
+                                visible={showPassword}
+                                onVisibleChange={setShowPassword}
                             />
                         </div>
 

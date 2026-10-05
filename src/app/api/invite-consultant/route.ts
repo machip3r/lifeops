@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createInvitationTokenAdmin, getAdminOfficeById } from '@/lib/db-admin';
+import { writeAuditLog } from '@/lib/audit/write';
+import {
+  createInvitationTokenAdmin,
+  getAdminOfficeById,
+  resetConsultantInviteRegistrationAdmin,
+} from '@/lib/db-admin';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 import { Resend } from 'resend';
 import {
   assertOfficeAccess,
@@ -36,12 +42,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { officeId, consultantEmail, consultantName, consultantCode } =
-      parsed.data;
+    const {
+      officeId,
+      consultantEmail,
+      consultantName,
+      consultantCode,
+      consultantId,
+    } = parsed.data;
 
     const access = assertOfficeAccess(auth.ctx, officeId);
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+
+    // Reset half-finished Auth/profile so the asesor can accept this invite cleanly.
+    try {
+      await resetConsultantInviteRegistrationAdmin({
+        officeId,
+        consultantEmail,
+        consultantName,
+        consultantCode,
+        consultantId,
+      });
+    } catch (resetError: unknown) {
+      console.error('Error resetting consultant invite registration:', resetError);
+      return NextResponse.json(
+        { error: 'No se pudo reiniciar el registro del asesor.' },
+        { status: 500 },
+      );
     }
 
     // Create invitation token (service role after office auth checks above)
@@ -73,14 +101,14 @@ export async function POST(request: NextRequest) {
 
     if (!officeData) {
       return NextResponse.json(
-        { error: 'Oficina no encontrada.' },
+        { error: 'Promotoría no encontrada.' },
         { status: 404 }
       );
     }
 
     // Send email using Resend
     const { data: emailData, error: emailError } = await resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'LifeOps <onboarding@resend.dev>',
+      from: process.env.RESEND_FROM_EMAIL || 'LifeOps <noreply@amrap.space>',
       to: consultantEmail,
       subject: `Invitación para unirte a ${officeData.name || 'LifeOps'}`,
       html: `
@@ -101,7 +129,7 @@ export async function POST(request: NextRequest) {
                 Hola <strong>${consultantName}</strong>,
               </p>
               <p style="color: #4b5563;">
-                Has sido invitado por <strong>${officeData.name || 'una oficina'}</strong> para unirte a LifeOps como asesor.
+                Has sido invitado por <strong>${officeData.name || 'una promotoría'}</strong> para unirte a LifeOps como asesor.
               </p>
               <p style="color: #4b5563;">
                 Tu código de asesor es: <strong>${consultantCode}</strong>
@@ -132,6 +160,21 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    await writeAuditLog(supabaseAdmin, {
+      officeId,
+      actorUserId: auth.ctx.user.id,
+      actorRole: 'office',
+      action: 'consultant.invite',
+      entityType: 'consultant',
+      entityId: null,
+      source: 'api',
+      newValues: {
+        email: consultantEmail,
+        name: consultantName,
+        consultant_code: consultantCode,
+      },
+    });
 
     return NextResponse.json({
       success: true,

@@ -5,7 +5,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { assets } from '../theme/assets';
 import { useAuth } from '@/contexts/auth-context';
 import { useEffect } from 'react';
-import GlobalSearch from '@/components/global-search';
 import { ToastProvider } from '@/components/toast';
 
 export default function DashboardLayout({
@@ -57,24 +56,26 @@ export default function DashboardLayout({
     );
   }
 
-  // Navigation items based on role
+  // Navigation for the phase-1 product (registro + cobranza + recordatorios).
+  // Archived for later (routes still exist, just not in nav):
+  // - /dashboard/change-requests (solicitudes)
+  // - /dashboard/projection (proyección / primas)
+  // - /dashboard/collections/v0 (legacy cobranza)
   const promotoryNavItems = [
     { href: '/dashboard', label: 'Vista General' },
-    { href: '/dashboard/extractor', label: 'Subir Comisiones' },
+    { href: '/dashboard/extractor', label: 'Importar datos' },
     { href: '/dashboard/contracts', label: 'Pólizas' },
     { href: '/dashboard/collections', label: 'Cobranza' },
     { href: '/dashboard/clients', label: 'Clientes' },
     { href: '/dashboard/consultants', label: 'Asesores' },
-    { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
-    { href: '/dashboard/projection', label: 'Proyección' },
   ];
 
   const consultantNavItems = [
+    { href: '/dashboard', label: 'Mi resumen' },
+    { href: '/dashboard/extractor', label: 'Importar datos' },
     { href: '/dashboard/contracts', label: 'Pólizas' },
     { href: '/dashboard/collections', label: 'Cobranza' },
-    { href: '/dashboard/change-requests', label: 'Solicitudes de Cambio' },
     { href: '/dashboard/clients', label: 'Clientes' },
-    { href: '/dashboard/projection', label: 'Proyección' },
   ];
 
   const navItems = profile.role === 'promotory' ? promotoryNavItems : consultantNavItems;
@@ -92,11 +93,6 @@ export default function DashboardLayout({
                   {assets.brand.name.split('O')[0]}
                   <strong>Ops</strong>
                 </Link>
-              </div>
-
-              {/* Search */}
-              <div className="flex items-center flex-1 mx-4 max-w-md">
-                <GlobalSearch />
               </div>
 
               {/* Right side: Profile, Logout */}

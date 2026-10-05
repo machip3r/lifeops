@@ -5,17 +5,18 @@ import {
   assertPromotory,
   requireOfficeContext,
 } from "@/lib/auth/api";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { deactivateOrDeleteConsultantAdmin } from "@/lib/db-admin";
 
 const bodySchema = z.object({
   consultantId: z.string().uuid(),
   officeId: z.string().uuid(),
+  /** Hard-delete only when the consultant has zero contracts. Default: soft INACTIVE. */
+  forceDelete: z.boolean().optional().default(false),
 });
 
 /**
- * Promotory-only: delete an asesorer for the office.
- * Cascades to that consultant's contracts (and related details/payments).
- * Also removes the Auth user when linked.
+ * Promotory-only: deactivate an asesor (INACTIVE) by default.
+ * Hard-delete is allowed only when `forceDelete` and the asesor has no contracts.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireOfficeContext(request);
@@ -38,61 +39,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  const { consultantId, officeId } = parsed.data;
-
   try {
-    const { data: consultant, error: fetchError } = await supabaseAdmin
-      .from("consultant")
-      .select("id, office_id, auth_user_id, name, consultant_code")
-      .eq("id", consultantId)
-      .eq("office_id", officeId)
-      .maybeSingle();
-
-    if (fetchError) throw fetchError;
-    if (!consultant) {
-      return NextResponse.json({ error: "Asesor no encontrado." }, { status: 404 });
-    }
-
-    const { count: contractCount, error: countError } = await supabaseAdmin
-      .from("contract")
-      .select("id", { count: "exact", head: true })
-      .eq("consultant_id", consultantId);
-
-    if (countError) throw countError;
-
-    const { error: deleteError } = await supabaseAdmin
-      .from("consultant")
-      .delete()
-      .eq("id", consultantId)
-      .eq("office_id", officeId);
-
-    if (deleteError) throw deleteError;
-
-    const authUserId = consultant.auth_user_id || consultant.id;
-    if (authUserId) {
-      const { error: authDeleteError } =
-        await supabaseAdmin.auth.admin.deleteUser(authUserId);
-      if (authDeleteError) {
-        // Consultant row already removed; log but still succeed for the UI.
-        console.error(
-          `consultants/delete: auth user ${authUserId}:`,
-          authDeleteError,
-        );
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      deletedContracts: contractCount ?? 0,
-      name: consultant.name,
-      consultantCode: consultant.consultant_code,
+    const result = await deactivateOrDeleteConsultantAdmin({
+      consultantId: parsed.data.consultantId,
+      officeId: parsed.data.officeId,
+      forceDelete: parsed.data.forceDelete,
+      actorUserId: auth.ctx.user.id,
     });
+
+    if (!result.ok) {
+      const status =
+        result.code === "not_found"
+          ? 404
+          : result.code === "conflict"
+            ? 409
+            : 400;
+      return NextResponse.json({ error: result.error }, { status });
+    }
+
+    return NextResponse.json({ success: true, ...result.data });
   } catch (e) {
     console.error("consultants/delete:", e);
     return NextResponse.json(
       {
         error:
-          e instanceof Error ? e.message : "No se pudo eliminar el asesor.",
+          e instanceof Error ? e.message : "No se pudo desactivar el asesor.",
       },
       { status: 500 },
     );

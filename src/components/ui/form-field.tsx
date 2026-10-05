@@ -78,8 +78,8 @@ export function FormField({
         <label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
           {label}
         </label>
-        {hintNode}
         {control}
+        {hintNode}
         {errorNode}
       </div>
     );
@@ -89,8 +89,8 @@ export function FormField({
     <div className={`flex flex-col gap-1 text-sm ${className}`.trim()}>
       <label htmlFor={htmlFor} className="flex flex-col gap-1">
         <span className="text-muted-foreground">{label}</span>
-        {hintNode}
         {control}
+        {hintNode}
       </label>
       {errorNode}
     </div>

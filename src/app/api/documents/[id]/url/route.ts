@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUserContext } from "@/lib/auth/api";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getFileRowForSignedUrlAdmin } from "@/lib/db-admin";
+import {
+  DOCUMENT_SIGNED_URL_SECONDS,
+  createDocumentSignedUrl,
+} from "@/lib/storage/admin";
 import { uuidSchema } from "@/lib/validation/schemas";
-
-const DOCUMENTS_BUCKET = "documents";
-const SIGNED_URL_SECONDS = 60 * 10;
 
 export async function GET(
   request: NextRequest,
@@ -22,13 +23,8 @@ export async function GET(
       return NextResponse.json({ error: "Identificador inválido." }, { status: 400 });
     }
 
-    const { data: fileRow, error: fileError } = await supabaseAdmin
-      .from("file")
-      .select("id, office_id, consultant_id, file_path, display_name, file_name")
-      .eq("id", parsedId.data)
-      .maybeSingle();
-
-    if (fileError || !fileRow) {
+    const fileRow = await getFileRowForSignedUrlAdmin(parsedId.data);
+    if (!fileRow) {
       return NextResponse.json({ error: "Documento no encontrado." }, { status: 404 });
     }
 
@@ -43,9 +39,9 @@ export async function GET(
       return NextResponse.json({ error: "No autorizado." }, { status: 403 });
     }
 
-    const { data: signed, error: signedError } = await supabaseAdmin.storage
-      .from(DOCUMENTS_BUCKET)
-      .createSignedUrl(fileRow.file_path, SIGNED_URL_SECONDS);
+    const { data: signed, error: signedError } = await createDocumentSignedUrl(
+      fileRow.file_path,
+    );
 
     if (signedError || !signed?.signedUrl) {
       console.error("Error creating signed URL:", signedError);
@@ -56,7 +52,7 @@ export async function GET(
       url: signed.signedUrl,
       displayName: fileRow.display_name,
       fileName: fileRow.file_name,
-      expiresIn: SIGNED_URL_SECONDS,
+      expiresIn: DOCUMENT_SIGNED_URL_SECONDS,
     });
   } catch (error: unknown) {
     console.error("Error in documents signed URL API:", error);

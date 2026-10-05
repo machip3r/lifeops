@@ -1,6 +1,6 @@
 # LifeOps
 
-A Next.js application for managing insurance operations, consultants, clients, contracts, and policy data. The system includes an HTML / Excel extractor that imports commission and payment data into a structured database.
+A Next.js application for managing insurance operations, consultants, clients, contracts, and policy data. The system includes an HTML commission extractor that imports payment data into a structured database.
 
 ## Tech Stack
 
@@ -14,7 +14,7 @@ A Next.js application for managing insurance operations, consultants, clients, c
 
 ## Agent / contributor standards
 
-AI and human contributors must follow **[`AGENTS.md`](AGENTS.md)** (also pointed to by `CLAUDE.md` and `.cursor/rules/lifeops.mdc`). Product flows: [`docs/product-flows.md`](docs/product-flows.md). Schema reference: [`docs/database.md`](docs/database.md).
+AI and human contributors must follow **[`AGENTS.md`](AGENTS.md)** (also pointed to by `CLAUDE.md` and `.cursor/rules/lifeops.mdc`). Product flows: [`docs/product-flows.md`](docs/product-flows.md). Collection due-date math: [`docs/collection-due-dates.md`](docs/collection-due-dates.md). Schema reference: [`docs/database.md`](docs/database.md). Fase 1 backlog / plan: [`docs/backlog.md`](docs/backlog.md), [`docs/plan-p0-p1.md`](docs/plan-p0-p1.md). Parked UI: [`src/parked/`](src/parked/).
 
 ## Project Structure
 
@@ -65,15 +65,6 @@ lifeops/
   - `name` (TEXT)
   - `email` (TEXT, UNIQUE)
 - **Relationships**: One office has many consultants
-
-#### 2b. `tag` / `consultant_tag`
-- **Purpose**: Office-scoped labels for grouping asesores (and later clients)
-- **Key Fields** (`tag`):
-  - `office_id` (UUID, FK → `office.id`)
-  - `name` (TEXT) — unique per office + `section` (case-insensitive)
-  - `section` (`consultant` \| `client`) — which entity type the tag applies to
-- **Assignments**: `consultant_tag` many-to-many (`consultant_id`, `tag_id`); tag must be same office and `section = consultant`
-- **UI**: Promotory can create/assign tags and filter the asesores list by one or more tags (match any selected)
 
 #### 2. `consultant`
 - **Purpose**: Insurance consultants/agents
@@ -182,42 +173,56 @@ contract (1) ──< (many) file
 **Key Rules**:
 - One client can have many contracts
 - One consultant can have many contracts (and clients)
-- One contract has exactly one client and one consultant
-- Solicitud documents attach to a contract; CHANGE/CORRECT also link `change_request_id`
+- One contract has exactly one client and one consultant and one office (`contract.office_id` denormalized)
+- `contract_number` is unique per office when set
+- Client identity: CURP/RFC when available (global unique); otherwise local to office — see [`docs/product-decisions.md`](docs/product-decisions.md)
+- A policy is **at risk** when unpaid more than **30 days** after its expected collection date
+- Promotory may **reassign** a policy to another consultant in the same office (same policy number + client)
+- Solicitud documents attach to a contract; CHANGE/CORRECT also link `change_request_id`; payment evidence may link `file.collection_payment_id`
 - One contract can have many contract_detail rows (from HTML import)
+- Commission uploads are tracked in `commission_import` (required file `issue_date`)
+- User stories (non-technical): [`docs/historias-de-usuario.md`](docs/historias-de-usuario.md)
 
 ## Key Features
 
-### 1. HTML / Excel Extractor (`/dashboard/extractor`)
+### 1. HTML Extractor (`/dashboard/extractor`)
 
-**Purpose**: Import insurance data from HTML commission pages or Excel pagos workbooks into the database.
+**Purpose**: Import insurance data from HTML commission files into the database.
 
 **How it works**:
-1. User uploads an HTML/MHTML file **or** clicks **Importar desde Excel** with a `.xlsx` (pagos columns: Cliente, Póliza, Ramo, Moneda, Tipo Cambio, Asesor, fechas, primas, forma de pago, etc.)
-2. System parses into a shared 24-column preview table
+1. User uploads one or more HTML/MHTML commission files (portal browser sync and Excel import are not in the live product; Excel parser is parked under `src/parked/`).
+2. System parses into a shared preview table
 3. Data is displayed for review / edit
 4. User clicks "Importar a Base de Datos"
 
 **Import Process**:
-1. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist
-2. **Automatic missing-consultant creation**: If codes are missing for the office, import auto-creates them via `POST /api/extractor/create-consultants` (`mode: auto`):
+1. **Import dates dialog** (on "Importar a Base de Datos"):
+   - File `issue_date` is suggested from the most common `FECHA PAGO` (fecha de cobro) and stays editable
+   - **New policies** require a per-póliza "último pago previo" (not one date for the whole file)
+   - Rows missing `FECHA EMISION` must be filled before import (written back into the preview table)
+2. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist. Asesores only keep rows matching their own `consultant_code`; other codes are skipped (and rejected again in `importContractsFromTable` when scoped to that consultant).
+3. **Missing-consultant creation** (promotoría only): If codes are missing for the office:
+   - Default: auto-create via `POST /api/extractor/create-consultants` (`mode: auto`)
+   - If `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`: show dialog and require name/email/password for each new asesor (`mode: manual`) before import continues
+   - Auto path details:
    - Email: `<asesorCode>.<officeTag>@lifeops.com` (office-scoped so the same code can exist in another promotoría)
    - Name: from Excel/HTML column `Nombre Asesor` when present (otherwise the code)
    - Default password: `Hola123!!` (change for production / after invite)
    - Creates Auth user (email confirmed) + `consultant` row (`id` / `auth_user_id` linked)
    - On re-import, updates `consultant.name` when the file includes a real nombre
    - Same `consultant_code` may belong to different offices (unique per `office_id` only)
-3. **Data Grouping**: Groups rows by contract (unique combination of `Cliente` + `Poliza` + `Asesor`)
-4. **Contract Creation**: For each unique contract:
+4. **Data Grouping**: Groups rows by contract (unique combination of `Cliente` + `Poliza` + `Asesor`)
+5. **Contract Creation**: For each unique contract:
    - Finds or creates client by name
    - Finds consultant by `consultant_code` (asesor)
    - Checks if contract with same `contract_number` (poliza) exists
    - Creates new contract if it doesn't exist
-5. **Contract Details Creation**: For each row in a contract group:
+6. **Contract Details Creation**: For each row in a contract group:
    - Creates a `contract_detail` record (deduped when all mapped columns match)
    - Maps columns by header name to database fields
    - Stores dates in YYYY-MM-DD format (converted from DD/MM/YYYY)
    - Seeds cobranza month marks from payment dates (`source=import`)
+   - For **first-time** policies: seeds that póliza’s prior payment mark, sets `collection_day`, and initial `collection_status` (`CORRIENTE` / `ATRASADO` if prior is already past the at-risk window)
    - Clients are find-or-created by name for the office (names with spaces are supported; broken PostgREST `ilike` OR filters were fixed)
 
 **Important Mappings**:
@@ -230,15 +235,16 @@ contract (1) ──< (many) file
 ### 2. Authentication & Authorization
 
 **User Roles**:
-- `promotory`: Office administrators (can manage consultants, contracts, import data)
-- `consultant`: Individual consultants (can view their own contracts and clients)
+- `promotory`: Office administrators (can manage consultants, contracts, import data; Asesores page)
+- `consultant`: Individual consultants (own contracts, clients, cobranza, and commission import scoped to their `consultant_code`; **no** Asesores page). Profile shows their promotoría name and `consultant_code`. Session profile `id` is always `consultant.id` (not `auth.users.id` / `auth_user_id`).
+- Cobranza list shows **one row per póliza** (sum of commission detail amounts), not one row per detail line.
 
 **Authentication Flow**:
 - Uses Supabase Auth
-- Profile stored in `office` or `consultant` tables
+- Profile stored in `office` or `consultant` tables; if both resolve for the same auth user, **consultant wins** (avoids phantom office rows granting promotory UI)
 - `ProtectedRoute` component enforces role-based access
 - Consultant invitations create tokens that can be used to sign up
-- Promotory full wipe (`POST /api/office/cleanup` from Perfil) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment` and `collection_audit_log`), `file` rows, and Storage objects under the office `documents/` prefix
+- Promotory full wipe (`POST /api/office/cleanup` from Perfil) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment`), `audit_log`, `file` rows, and Storage objects under the office `documents/` prefix
 
 **Key Files**:
 - `src/contexts/auth-context.tsx`: Provides `useAuth()` hook
@@ -277,12 +283,12 @@ Defines interfaces for all database tables:
 
 ### Running Migrations
 
-1. **Initial Setup**: Run `supabase/migrations/schema.sql` in Supabase SQL Editor (baseline).
+1. **Initial Setup**: Apply migrations with `supabase db push` (starts with `001_baseline_schema.sql`).
 2. **Later changes**: run each new numbered file (`002_…sql`, `003_…sql`, …) once. Never edit an already-applied migration.
 
 ### Migration Files
 
-- `schema.sql`: Complete baseline schema (tables, indexes, RLS policies, triggers, RPCs)
+- `001_baseline_schema.sql`: Complete baseline schema (tables, indexes, RLS policies, triggers, RPCs)
 - Further changes: append-only under `supabase/migrations/`; keep [`docs/database.md`](docs/database.md) in sync
 
 ## Important Implementation Details
@@ -303,6 +309,12 @@ NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 RESEND_API_KEY=your_resend_key
+```
+
+Optional:
+```
+# When true, import forces manual email/password for new asesores (no auto @lifeops.com).
+NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` is server-only — never use a `NEXT_PUBLIC_` prefix and never put it in `next.config.ts` `env`.
@@ -347,14 +359,11 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ### Main Pages
 
-- `/dashboard/extractor`: HTML / Excel import and data extraction
-- `/dashboard/contracts`: Contract listing and management
-- `/dashboard/consultants`: Consultant management (promotory only), including office tags and tag filters
+- `/dashboard/extractor`: HTML commission import and data extraction
+- `/dashboard/contracts`: Contract listing, filters, and **manual póliza registration** (dialog)
+- `/dashboard/consultants`: Consultant management (promotory only)
 - `/dashboard/clients`: Client listing
-- `/dashboard/projection`: Financial projection
-- `/dashboard/collections`: Collections (cobranza) payment-control grid
-- `/dashboard/collections/v0`: Legacy collections “vencimientos” view
-- `/dashboard/change-requests`: Contract change requests
+- `/dashboard/collections`: Collections (cobranza) payment-control grid (year selector; CSV export parked)
 
 ### Key Components
 
@@ -393,18 +402,18 @@ Open [http://localhost:3000](http://localhost:3000)
 
 6. **Dashboard & Cobranza Features (current state)**:
    - List screens (asesores, clientes, pólizas, solicitudes, cobranza, and detail sub-tables) use **Supabase-backed pagination** (`.select(..., { count: 'exact' })` + `.range()`, default 25 rows; shared `TablePagination` UI).
-   - Overview dashboard (`/dashboard`) with:
-     - Date basis selector (fecha de pago vs fecha de emisión).
-     - Date range picker (Shadcn Calendar, pending state + Aplicar).
-     - Filters: antigüedad (min/max years), ramo (VI / GM / todos), forma de pago, asesores multi‑select, and etiquetas (tags) multi‑select (OR; intersects with asesores when both set).
-     - Summary section showing total prima pago, total prima meta, and prima meta split by VI/GM with inner borders only (no card chrome).
+   - Overview dashboard (`/dashboard`):
+     - **Promotory** and **consultant** both surface cobranza priority (at-risk >30 days + pending payments); promotory is office-wide, consultant own only.
+     - Prima filters/counters UI for promotory is parked (`src/parked/dashboard/promotory-premium-overview.tsx`); RPCs remain available for a later restore.
    - Cobranza (`/dashboard/collections`):
      - Year-scoped grid of **active** contracts for payment control and reminder analysis.
      - Columns: clave, asesor, póliza, cliente, proyecto, moneda, forma de pago, medio de cobro, prima al cobro, día de cobro, estatus, ENE–DIC.
      - Editable `collection_status` (AMPARADO, CORRIENTE, FLEXIBLE, FLEXIBLE/REVISAR, MES, PERIODO GRACIA, ATRASADO) — separate from contract lifecycle `status`.
      - Month cells show scheduled day and highlight when paid (`contract_collection_payment.paid_at`); click to register/clear payments (real payment date required).
-     - Seeds month marks from HTML import / `contract_detail` without overwriting manual paid marks; append-only `collection_audit_log` for manual and import changes.
+     - **Manual** payment marks require evidence (image/PDF) stored on `file.collection_payment_id`; import marks do not. Signed URL via `/api/documents/[id]/url`.
+     - Seeds month marks from HTML import / `contract_detail` without overwriting manual paid marks; append-only `audit_log` for manual and import changes (and other app actions).
      - Legacy vencimientos view remains at `/dashboard/collections/v0`.
+   - Promotory can reassign a contract to another advisor in the same office (`/api/contracts/reassign`).
    - Overview dashboard RPCs accept common filter parameters:
      `start_date`, `end_date`, `date_basis`, `seniority_min`, `seniority_max`, `consultant_ids`, `contract_type_filter`, `payment_method_filter`.
 

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Contract } from '@/lib/supabase';
+import { Button } from '@/components/ui/button';
 import {
   TABLE_FILTER_DEBOUNCE_MS,
   useDebouncedValue,
@@ -20,6 +21,8 @@ interface ContractsFiltersProps {
   onChange: (next: ContractsFilterState) => void;
   availableCurrencies: string[];
   availablePaymentMethods: string[];
+  /** Primary create action (e.g. Registrar póliza). */
+  actions?: ReactNode;
 }
 
 export function filterContracts<T extends Contract & { client_name?: string }>(
@@ -30,9 +33,8 @@ export function filterContracts<T extends Contract & { client_name?: string }>(
   const hasDateFilter = !!filters.captureDateFrom || !!filters.captureDateTo;
 
   return contracts.filter((contract) => {
-    // Search by client name and policy number (and project name for convenience)
     if (search) {
-      const clientName = ((contract as any).client_name as string | undefined) || '';
+      const clientName = (contract as { client_name?: string }).client_name || '';
       const projectName = contract.project_name || '';
       const policy = contract.contract_number || '';
       const matchesSearch =
@@ -43,17 +45,14 @@ export function filterContracts<T extends Contract & { client_name?: string }>(
       if (!matchesSearch) return false;
     }
 
-    // Currency filter
     if (filters.currency && contract.currency !== filters.currency) {
       return false;
     }
 
-    // Payment method filter
     if (filters.paymentMethod && contract.payment_method !== filters.paymentMethod) {
       return false;
     }
 
-    // Capture date range filter (falls back to created_at when capture_date is missing)
     if (hasDateFilter) {
       const baseDateString = contract.capture_date || contract.created_at;
       if (!baseDateString) return false;
@@ -80,6 +79,7 @@ export function ContractsFilters({
   onChange,
   availableCurrencies,
   availablePaymentMethods,
+  actions,
 }: ContractsFiltersProps) {
   const [searchInput, setSearchInput] = useState(filters.search);
   const debouncedSearch = useDebouncedValue(searchInput, TABLE_FILTER_DEBOUNCE_MS);
@@ -94,7 +94,6 @@ export function ContractsFilters({
     [availablePaymentMethods]
   );
 
-  // Keep local search in sync when parent clears / resets filters
   useEffect(() => {
     setSearchInput(filters.search);
   }, [filters.search]);
@@ -110,7 +109,7 @@ export function ContractsFilters({
   };
 
   return (
-    <div className="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 flex flex-wrap gap-4 items-end">
+    <div className="flex flex-wrap gap-4 items-end">
       <div className="flex-1 min-w-[200px]">
         <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
           Búsqueda
@@ -119,8 +118,8 @@ export function ContractsFilters({
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Buscar por cliente o póliza..."
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          placeholder="Buscar por cliente o póliza…"
+          className="w-full h-9 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
         />
       </div>
 
@@ -131,7 +130,7 @@ export function ContractsFilters({
         <select
           value={filters.currency}
           onChange={(e) => update({ currency: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full h-9 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
         >
           <option value="">Todas</option>
           {sortedCurrencies.map((currency) => (
@@ -144,14 +143,14 @@ export function ContractsFilters({
 
       <div className="min-w-[180px]">
         <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-          Método de pago
+          Forma de pago
         </label>
         <select
           value={filters.paymentMethod}
           onChange={(e) => update({ paymentMethod: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full h-9 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
         >
-          <option value="">Todos</option>
+          <option value="">Todas</option>
           {sortedPaymentMethods.map((method) => (
             <option key={method} value={method}>
               {method}
@@ -169,7 +168,7 @@ export function ContractsFilters({
             type="date"
             value={filters.captureDateFrom}
             onChange={(e) => update({ captureDateFrom: e.target.value })}
-            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="h-9 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
           />
         </div>
         <div>
@@ -180,27 +179,31 @@ export function ContractsFilters({
             type="date"
             value={filters.captureDateTo}
             onChange={(e) => update({ captureDateTo: e.target.value })}
-            className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="h-9 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
           />
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => {
-          setSearchInput('');
-          onChange({
-            search: '',
-            currency: '',
-            paymentMethod: '',
-            captureDateFrom: '',
-            captureDateTo: '',
-          });
-        }}
-        className="ml-auto px-3 py-2 text-xs font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-      >
-        Limpiar filtros
-      </button>
+      <div className="flex flex-wrap gap-2 items-end ml-auto">
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          onClick={() => {
+            setSearchInput('');
+            onChange({
+              search: '',
+              currency: '',
+              paymentMethod: '',
+              captureDateFrom: '',
+              captureDateTo: '',
+            });
+          }}
+        >
+          Limpiar
+        </Button>
+        {actions}
+      </div>
     </div>
   );
 }

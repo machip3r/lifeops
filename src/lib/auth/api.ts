@@ -1,7 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
-import { getSupabaseAnonKey, getSupabaseUrl } from "@/lib/supabase/env";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getUserFromAccessToken } from "@/lib/auth/token";
+import {
+  getAdminOfficeById,
+  getConsultantTenancyByAuthUserIdAdmin,
+} from "@/lib/db-admin";
 
 export type OfficeContext = {
   user: { id: string; email?: string };
@@ -26,25 +28,16 @@ export async function requireOfficeContext(
     return { ok: false, status: 401, error: "No autenticado." };
   }
 
-  const authClient = createClient(getSupabaseUrl(), getSupabaseAnonKey(), {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
   const {
     data: { user },
     error,
-  } = await authClient.auth.getUser(token);
+  } = await getUserFromAccessToken(token);
 
   if (error || !user) {
     return { ok: false, status: 401, error: "No autenticado." };
   }
 
-  const { data: office } = await supabaseAdmin
-    .from("office")
-    .select("id")
-    .eq("id", user.id)
-    .maybeSingle();
-
+  const office = await getAdminOfficeById(user.id);
   if (office) {
     return {
       ok: true,
@@ -56,13 +49,8 @@ export async function requireOfficeContext(
     };
   }
 
-  const { data: consultant } = await supabaseAdmin
-    .from("consultant")
-    .select("id, office_id")
-    .or(`id.eq.${user.id},auth_user_id.eq.${user.id}`)
-    .maybeSingle();
-
-  if (consultant?.office_id) {
+  const consultant = await getConsultantTenancyByAuthUserIdAdmin(user.id);
+  if (consultant) {
     return {
       ok: true,
       ctx: {
@@ -86,7 +74,7 @@ export function assertOfficeAccess(
   officeId: string,
 ): { ok: true } | { ok: false; status: number; error: string } {
   if (ctx.officeId !== officeId) {
-    return { ok: false, status: 403, error: "No autorizado para esta oficina." };
+    return { ok: false, status: 403, error: "No autorizado para esta promotoría." };
   }
   return { ok: true };
 }
@@ -95,7 +83,7 @@ export function assertPromotory(
   ctx: OfficeContext,
 ): { ok: true } | { ok: false; status: number; error: string } {
   if (ctx.role !== "promotory") {
-    return { ok: false, status: 403, error: "Solo la oficina puede realizar esta acción." };
+    return { ok: false, status: 403, error: "Solo la promotoría puede realizar esta acción." };
   }
   return { ok: true };
 }

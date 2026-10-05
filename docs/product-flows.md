@@ -35,7 +35,12 @@ office (promotory) ── owns ──► consultants (asesores)
 - Prefer server session checks for new privileged mutations (Server Actions / API).
 - Promotory **Zona de peligro** (Perfil): full office wipe also clears cobranza payments and audit log.
 - List tables (asesores, clientes, pólizas, solicitudes, cobranza, detail sub-tables) paginate from Supabase (`.range` + `count`, default 25 rows / page).
-- Promotory can create office tags (`section = consultant`), assign them to asesores, and filter the asesores list by one or more tags (OR match).
+- Promotory **Desactivar** asesores sets `status = INACTIVE` (soft); hard-delete only when zero contracts (`forceDelete`).
+- Activity is written to `audit_log` (invite, deactivate, cobranza, reassign, manual contract create).
+- Consultants land on `/dashboard` (**Mi resumen**): pólizas en peligro (>30 días) + pagos por registrar + shortcuts to cobranza / alta.
+- Promotory `/dashboard` is office-wide **prioridad de cobranza** only; prima filters/counters parked in `src/parked/dashboard/promotory-premium-overview.tsx`.
+- Promotory can **reasignar** a contract to another advisor in the same office (`POST /api/contracts/reassign` → `audit_log`).
+- Product decisions: [`docs/product-decisions.md`](product-decisions.md). Client-facing flows: [`docs/historias-de-usuario.md`](historias-de-usuario.md).
 
 ---
 
@@ -53,34 +58,42 @@ office (promotory) ── owns ──► consultants (asesores)
 2. Token stored in `token`.
 3. Consultant opens `/invite/[token]`, completes account.
 4. Consultant linked (`auth_user_id` / status → `ACTIVE`).
-5. Promotory can **Eliminar** an asesor from `/dashboard/consultants` (cascades their contracts / details / cobranza; removes Auth user).
+5. Promotory can **Desactivar** an asesor from `/dashboard/consultants` (sets `INACTIVE`; pólizas se conservan). Hard-delete only if the asesor has no contracts.
 
-### Upload commissions (`/dashboard/extractor`) — promotory
+### Upload commissions (`/dashboard/extractor`) — promotory and consultant
 
-1. Upload HTML tables **or** a pagos/comisiones `.xlsx` (button **Importar desde Excel**).
+1. Upload HTML/MHTML commission files (portal sync and Excel import are out of the live product).
 2. Preview combined rows; validate consultants by `consultant_code` (asesor).
-3. Auto-create missing consultants on import (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API — **must be server-side**. Same asesor code may exist in another office.
-4. Import contracts + `contract_detail` rows; map Cliente / Poliza / Moneda / Asesor; seed cobranza marks from payment dates.
+3. **Asesor:** only rows matching their own `consultant_code` are kept; other codes are skipped (and rejected again in `importContractsFromTable`). They never auto-create other asesores.
+4. Before import, user must enter **fecha de emisión del archivo**. If the file includes **pólizas nuevas** (first time in LifeOps), also enter **fecha del último pago previo** (last payment before this file) — used to seed cobranza, predict next dues, and set initial collection status.
+5. **Promotoría only:** missing consultants on import — default auto-create (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API; if `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`, UI requires email/password per new code. Same asesor code may exist in another office.
+6. Import creates `commission_import` batch; upserts contracts + `contract_detail` rows; seeds prior payment for new policies; seeds cobranza marks from payment dates in the file.
 
 ### Pólizas (`/dashboard/contracts`)
 
-- List / filter / open detail; register emission (`/dashboard/contracts/new`).
-- Consultants may request change / folio correct on own contracts.
+- Same list chrome as Asesores / Clientes: card + `ListSearchFilters` (Buscar) + **Registrar póliza**.
+- **Registrar póliza** (dialog): asesor (auto for consultant; select + invite for promotory), número de póliza, cliente (existente o nuevo), fecha de emisión, día de cobro, check de póliza ya existente + fecha último pago, proyecto, forma de pago.
+- The full multi-step **registrar emisión** wizard remains parked (`src/parked/dashboard/contracts/new`).
 - Files under contract folder routes.
 
 ### Cobranza (`/dashboard/collections`)
 
-- Year-scoped payment-control grid for **active** contracts: clave, asesor, póliza, cliente, proyecto, moneda, forma/medio de pago, prima al cobro, día de cobro, estatus, and ENE–DIC cells.
+- How due dates are calculated (vista general vs list): see [`collection-due-dates.md`](collection-due-dates.md).
+- Year-scoped payment-control grid for **active** contracts (current calendar year): clave, asesor, póliza, cliente, proyecto, moneda, forma/medio de pago, prima al cobro, día de cobro, estatus, and ENE–DIC cells.
 - Estatus is editable (`AMPARADO`, `CORRIENTE`, `FLEXIBLE`, `FLEXIBLE/REVISAR`, `MES`, `PERIODO GRACIA`, `ATRASADO`) — stored as `contract.collection_status`, separate from lifecycle `contract.status`.
-- Month cells show scheduled day; highlighted when paid (`paid_at`). Click opens dialog requiring real payment date (optional amount/notes); can clear a paid mark.
-- Month marks seed from import/`contract_detail` (`source=import`) without overwriting manual paid marks; edits write `collection_audit_log`.
-- Historial panel lists recent audit entries (manual + import). Promotoría and asesores (own contracts) can edit.
-- Legacy vencimientos view: `/dashboard/collections/v0`.
+- Month cells show scheduled day; highlighted when paid (`paid_at`). Click opens dialog requiring real payment date (optional amount/notes); **manual** marks require payment evidence (image/PDF) linked via `file.collection_payment_id`; import marks do not. Cells with evidence show a paperclip; dialog has **Ver evidencia** (signed URL). Can clear a paid mark.
+- Month marks seed from import/`contract_detail` (`source=import`) without overwriting manual paid marks; edits write `audit_log` (no dedicated Historial UI yet — see [`audit-log-plan.md`](audit-log-plan.md)).
+- CSV export is parked (`src/parked/lib/collections/export-csv.ts`).
+- Legacy vencimientos view parked: `/dashboard/collections/v0`.
 
-### Vista general (`/dashboard`) — promotory-focused filters
+### Asesores / Clientes
 
-- Date basis (pago vs emisión), date range (pending + Aplicar), seniority, ramo, forma de pago, asesores multi-select.
-- Stats from SQL RPCs via `db.dashboard.*` — do not reimplement aggregations ad hoc on the client.
+- Shared `ListSearchFilters`: draft search + **Buscar** (submit only) and primary action in the same bar (**Invitar asesor** / **Nuevo cliente**).
+- Same table chrome (card, sticky actions column).
+### Vista general (`/dashboard`)
+
+- **Promotory:** at-risk (>30 days) + pending payments office-wide; link to cobranza. Prima filter/totals UI is parked (not shown).
+- **Consultant:** home with at-risk list + pending payments; links to cobranza and pólizas.
 
 ### Solicitudes de cambio (`/dashboard/change-requests`)
 
@@ -96,10 +109,11 @@ office (promotory) ── owns ──► consultants (asesores)
 ## UX conventions
 
 - Dark chrome, golden accent, `dashboard-page-title` for page titles.
-- Filters: pending local state + **Aplicar** (no query storm on every keystroke).
+- Filters: draft search + **Buscar** (no query storm on every keystroke); create actions live in the same bar when applicable.
 - Feedback: `ToastProvider` / `useToast` — never `alert()`.
 - Forms: `FormField` + Zod validation with per-field Spanish errors; disable submit until required fields are filled.
 - Prefer existing shadcn controls in `src/components/ui/`.
+- Primary product CTAs use `Button` `variant="brand"` (golden `#FBDBAC`); secondary actions use `outline` / `ghost` — do not invent per-page blue `bg-blue-600` buttons.
 
 ---
 

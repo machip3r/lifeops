@@ -5,8 +5,7 @@ import {
   assertPromotory,
   requireOfficeContext,
 } from "@/lib/auth/api";
-import { updateAuthUserEmail } from "@/lib/db-admin";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { updateConsultantAdmin } from "@/lib/db-admin";
 import { zodFieldErrors } from "@/lib/validation/field-errors";
 import {
   consultantCodeSchema,
@@ -57,32 +56,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }
 
-  const { consultantId, updates } = parsed.data;
-
   try {
-    const { data: consultant, error: fetchError } = await supabaseAdmin
-      .from("consultant")
-      .select("id, office_id, auth_user_id")
-      .eq("id", consultantId)
-      .eq("office_id", parsed.data.officeId)
-      .maybeSingle();
+    const result = await updateConsultantAdmin({
+      consultantId: parsed.data.consultantId,
+      officeId: parsed.data.officeId,
+      updates: parsed.data.updates,
+    });
 
-    if (fetchError) throw fetchError;
-    if (!consultant) {
-      return NextResponse.json({ error: "Asesor no encontrado." }, { status: 404 });
+    if (!result.ok) {
+      const status = result.code === "not_found" ? 404 : 400;
+      return NextResponse.json({ error: result.error }, { status });
     }
 
-    if (updates.email !== undefined && consultant.auth_user_id) {
-      await updateAuthUserEmail(consultant.auth_user_id, updates.email);
-    }
-
-    const { error } = await supabaseAdmin
-      .from("consultant")
-      .update(updates)
-      .eq("id", consultantId)
-      .eq("office_id", parsed.data.officeId);
-
-    if (error) throw error;
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error("consultants/update:", e);

@@ -1,12 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  collectionAction,
+  mapCollectionSource,
+  writeAuditLog,
+} from "@/lib/audit/write";
 import type {
   CollectionAuditActionType,
-  CollectionAuditLog,
   CollectionPaymentSource,
   CollectionStatus,
   ContractCollectionPayment,
 } from "@/lib/supabase";
 import { chunkArray, IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
+import { POLICY_AT_RISK_DAYS } from "@/lib/collections/constants";
 import {
   emptyPageResult,
   normalizePageParams,
@@ -15,7 +20,7 @@ import {
   type PageResult,
 } from "@/lib/pagination";
 
-export type CollectionsActor = {
+type CollectionsActor = {
   userId: string;
   officeId: string;
   role: "promotory" | "consultant";
@@ -30,6 +35,8 @@ export type CollectionMonthCell = {
   notes: string | null;
   source: CollectionPaymentSource | null;
   paymentId: string | null;
+  evidenceFileId: string | null;
+  evidenceDisplayName: string | null;
 };
 
 export type CollectionsGridRow = {
@@ -47,10 +54,6 @@ export type CollectionsGridRow = {
   collectionDay: number | null;
   collectionStatus: CollectionStatus | null;
   months: CollectionMonthCell[];
-};
-
-export type CollectionAuditLogEntry = CollectionAuditLog & {
-  contractNumber?: string | null;
 };
 
 export type ActionResult<T> =
@@ -109,6 +112,7 @@ async function writeAudit(
     officeId: string;
     contractId?: string | null;
     actorUserId: string;
+    actorRole?: "office" | "promotory" | "consultant";
     actionType: CollectionAuditActionType;
     source: CollectionPaymentSource;
     oldValues?: Record<string, unknown>;
@@ -126,18 +130,17 @@ async function writeAudit(
   }
 
   const contractMeta = contractNumber ? { contract_number: contractNumber } : {};
-  const { error } = await client.from("collection_audit_log").insert({
-    office_id: input.officeId,
-    contract_id: input.contractId ?? null,
-    actor_user_id: input.actorUserId,
-    action_type: input.actionType,
-    source: input.source,
-    old_values: { ...(input.oldValues ?? {}), ...contractMeta },
-    new_values: { ...(input.newValues ?? {}), ...contractMeta },
+  await writeAuditLog(client, {
+    officeId: input.officeId,
+    actorUserId: input.actorUserId,
+    actorRole: input.actorRole ?? null,
+    action: collectionAction(input.actionType),
+    entityType: input.contractId ? "contract" : "office",
+    entityId: input.contractId ?? null,
+    source: mapCollectionSource(input.source),
+    oldValues: { ...(input.oldValues ?? {}), ...contractMeta },
+    newValues: { ...(input.newValues ?? {}), ...contractMeta },
   });
-  if (error) {
-    console.error("collection_audit_log insert failed", error);
-  }
 }
 
 function emptyMonths(): CollectionMonthCell[] {
@@ -149,10 +152,12 @@ function emptyMonths(): CollectionMonthCell[] {
     notes: null,
     source: null,
     paymentId: null,
+    evidenceFileId: null,
+    evidenceDisplayName: null,
   }));
 }
 
-export async function seedCollectionPaymentsForYear(
+async function seedCollectionPaymentsForYear(
   client: SupabaseClient,
   year: number,
 ): Promise<number> {
@@ -273,6 +278,34 @@ export async function getCollectionsGrid(
     paymentsByContract.set(p.contract_id, arr);
   }
 
+  const paymentIds = ((payments ?? []) as ContractCollectionPayment[])
+    .map((p) => p.id)
+    .filter(Boolean);
+  const evidenceByPaymentId = new Map<
+    string,
+    { id: string; display_name: string }
+  >();
+  if (paymentIds.length > 0) {
+    const { data: evidenceFiles, error: evidenceError } = await client
+      .from("file")
+      .select("id, display_name, collection_payment_id")
+      .in("collection_payment_id", paymentIds)
+      .eq("status", "ACTIVE");
+
+    if (evidenceError) {
+      console.error(evidenceError);
+    } else {
+      for (const f of evidenceFiles ?? []) {
+        const paymentId = f.collection_payment_id as string | null;
+        if (!paymentId || evidenceByPaymentId.has(paymentId)) continue;
+        evidenceByPaymentId.set(paymentId, {
+          id: f.id as string,
+          display_name: (f.display_name as string) || "Evidencia",
+        });
+      }
+    }
+  }
+
   const rows: CollectionsGridRow[] = list.map((c) => {
     const consultant = Array.isArray(c.consultant)
       ? c.consultant[0]
@@ -282,6 +315,7 @@ export async function getCollectionsGrid(
     for (const p of paymentsByContract.get(c.id as string) ?? []) {
       const idx = p.month - 1;
       if (idx < 0 || idx > 11) continue;
+      const evidence = evidenceByPaymentId.get(p.id) ?? null;
       months[idx] = {
         month: p.month,
         scheduledDay: p.scheduled_day ?? null,
@@ -290,6 +324,8 @@ export async function getCollectionsGrid(
         notes: p.notes ?? null,
         source: p.source ?? null,
         paymentId: p.id,
+        evidenceFileId: evidence?.id ?? null,
+        evidenceDisplayName: evidence?.display_name ?? null,
       };
     }
 
@@ -353,6 +389,7 @@ export async function updateCollectionStatus(
     officeId: actor.data.officeId,
     contractId,
     actorUserId: actor.data.userId,
+    actorRole: actor.data.role,
     actionType: "status_change",
     source: "manual",
     oldValues: { collection_status: existing.collection_status },
@@ -360,47 +397,6 @@ export async function updateCollectionStatus(
   });
 
   return { ok: true, data: { collectionStatus: status } };
-}
-
-export async function updateCollectionDay(
-  client: SupabaseClient,
-  contractId: string,
-  collectionDay: number | null,
-): Promise<ActionResult<{ collectionDay: number | null }>> {
-  const actor = await resolveActor(client);
-  if (!actor.ok) return actor;
-
-  const { data: existing, error: loadError } = await client
-    .from("contract")
-    .select("id, collection_day")
-    .eq("id", contractId)
-    .maybeSingle();
-
-  if (loadError || !existing) {
-    return { ok: false, error: "Contrato no encontrado." };
-  }
-
-  const { error } = await client
-    .from("contract")
-    .update({ collection_day: collectionDay })
-    .eq("id", contractId);
-
-  if (error) {
-    console.error(error);
-    return { ok: false, error: "No se pudo actualizar el día de cobro." };
-  }
-
-  await writeAudit(client, {
-    officeId: actor.data.officeId,
-    contractId,
-    actorUserId: actor.data.userId,
-    actionType: "collection_day_change",
-    source: "manual",
-    oldValues: { collection_day: existing.collection_day },
-    newValues: { collection_day: collectionDay },
-  });
-
-  return { ok: true, data: { collectionDay } };
 }
 
 export async function updatePaymentChannel(
@@ -435,6 +431,7 @@ export async function updatePaymentChannel(
     officeId: actor.data.officeId,
     contractId,
     actorUserId: actor.data.userId,
+    actorRole: actor.data.role,
     actionType: "payment_channel_change",
     source: "manual",
     oldValues: { payment_channel: existing.payment_channel },
@@ -476,6 +473,7 @@ export async function updateProjectName(
     officeId: actor.data.officeId,
     contractId,
     actorUserId: actor.data.userId,
+    actorRole: actor.data.role,
     actionType: "project_name_change",
     source: "manual",
     oldValues: { project_name: existing.project_name },
@@ -541,6 +539,7 @@ export async function upsertCollectionPayment(
     officeId: actor.data.officeId,
     contractId: input.contractId,
     actorUserId: actor.data.userId,
+    actorRole: actor.data.role,
     actionType: "payment_upsert",
     source: "manual",
     oldValues: existing
@@ -616,6 +615,7 @@ export async function clearCollectionPayment(
     officeId: actor.data.officeId,
     contractId: input.contractId,
     actorUserId: actor.data.userId,
+    actorRole: actor.data.role,
     actionType: "payment_clear",
     source: "manual",
     oldValues: {
@@ -633,78 +633,6 @@ export async function clearCollectionPayment(
   });
 
   return { ok: true, data: { cleared: true } };
-}
-
-export async function getCollectionAuditLog(
-  client: SupabaseClient,
-  filters: { contractId?: string | null; limit?: number },
-): Promise<ActionResult<CollectionAuditLogEntry[]>> {
-  const actor = await resolveActor(client);
-  if (!actor.ok) return actor;
-
-  let query = client
-    .from("collection_audit_log")
-    .select(
-      `
-      *,
-      contract:contract_id ( contract_number )
-    `,
-    )
-    .eq("office_id", actor.data.officeId)
-    .order("created_at", { ascending: false })
-    .limit(filters.limit ?? 50);
-
-  if (filters.contractId) {
-    query = query.eq("contract_id", filters.contractId);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    console.error(error);
-    return { ok: false, error: "No se pudo cargar el historial." };
-  }
-
-  const entries: CollectionAuditLogEntry[] = (data ?? []).map((row) => {
-    const record = row as CollectionAuditLog & {
-      contract?: { contract_number?: string | null } | { contract_number?: string | null }[] | null;
-    };
-    const { contract, ...rest } = record;
-    const contractRel = Array.isArray(contract) ? contract[0] : contract;
-    const fromJoin = contractRel?.contract_number ?? null;
-    const fromValues =
-      (rest.new_values?.contract_number as string | null | undefined) ?? null;
-    return {
-      ...rest,
-      contractNumber: fromJoin || fromValues || null,
-    };
-  });
-
-  return { ok: true, data: entries };
-}
-
-/** Used by HTML/Excel import: upsert import payments and never overwrite manual paid cells. */
-export async function syncPaymentsFromImportedDetails(
-  client: SupabaseClient,
-  input: {
-    officeId: string;
-    actorUserId: string | null;
-    contractId: string;
-    details: Array<{
-      payment_date?: string | null;
-      collection_premium?: number | null;
-    }>;
-  },
-): Promise<number> {
-  return syncPaymentsFromImportedDetailsBatch(client, {
-    officeId: input.officeId,
-    actorUserId: input.actorUserId,
-    items: [
-      {
-        contractId: input.contractId,
-        details: input.details,
-      },
-    ],
-  });
 }
 
 type ImportPaymentDetail = {
@@ -830,29 +758,112 @@ export async function syncPaymentsFromImportedDetailsBatch(
   return upserted;
 }
 
+/**
+ * For first-time policies in an import: record the last payment before this
+ * commission file (per póliza) so cobranza can predict next dues and risk.
+ */
+export async function seedPriorPaymentsForNewContracts(
+  client: SupabaseClient,
+  input: {
+    officeId: string;
+    actorUserId: string | null;
+    /** contract_id → ISO date (YYYY-MM-DD) of last payment before this file */
+    priorByContractId: Record<string, string>;
+    commissionImportId?: string | null;
+  },
+): Promise<number> {
+  const entries = Object.entries(input.priorByContractId).filter(([, paidAt]) =>
+    /^\d{4}-\d{2}-\d{2}$/.test(paidAt.trim()),
+  );
+  if (entries.length === 0) return 0;
+
+  const rows = entries.map(([contractId, paidAtRaw]) => {
+    const paidAt = paidAtRaw.trim();
+    const year = Number.parseInt(paidAt.slice(0, 4), 10);
+    const month = Number.parseInt(paidAt.slice(5, 7), 10);
+    const day = Number.parseInt(paidAt.slice(8, 10), 10);
+    return {
+      contract_id: contractId,
+      year,
+      month,
+      scheduled_day: day,
+      paid_at: paidAt,
+      amount: null as number | null,
+      notes: "Último pago previo al archivo de comisiones (alta inicial)",
+      source: "import" as const,
+      commission_import_id: input.commissionImportId ?? null,
+      updated_by: input.actorUserId,
+      created_by: input.actorUserId,
+    };
+  });
+
+  let upserted = 0;
+  for (const chunk of chunkArray(rows, IMPORT_BATCH_SIZE)) {
+    const { error } = await client.from("contract_collection_payment").upsert(chunk, {
+      onConflict: "contract_id,year,month",
+    });
+    if (error) throw error;
+    upserted += chunk.length;
+  }
+
+  for (const chunk of chunkArray(entries, IMPORT_BATCH_SIZE)) {
+    const ids = chunk.map(([id]) => id);
+    const { data: contracts } = await client
+      .from("contract")
+      .select("id, collection_day, collection_status")
+      .in("id", ids);
+
+    const paidById = new Map(chunk);
+    for (const contract of contracts || []) {
+      const paidAt = paidById.get(contract.id)?.trim();
+      if (!paidAt) continue;
+      const day = Number.parseInt(paidAt.slice(8, 10), 10);
+      const updates: Record<string, unknown> = {};
+      if (contract.collection_day == null && Number.isFinite(day)) {
+        updates.collection_day = day;
+      }
+      const prior = new Date(`${paidAt}T12:00:00`);
+      const today = new Date();
+      const daysSince =
+        Math.floor((today.getTime() - prior.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSince > POLICY_AT_RISK_DAYS && contract.collection_status == null) {
+        updates.collection_status = "ATRASADO";
+      } else if (contract.collection_status == null) {
+        updates.collection_status = "CORRIENTE";
+      }
+      if (Object.keys(updates).length > 0) {
+        await client.from("contract").update(updates).eq("id", contract.id);
+      }
+    }
+  }
+
+  return upserted;
+}
+
 export async function writeImportSyncAudit(
   client: SupabaseClient,
   input: {
     officeId: string;
     actorUserId: string | null;
+    actorRole?: "office" | "promotory" | "consultant" | "system";
     contractsTouched: number;
     paymentsUpserted: number;
     detailsInserted: number;
   },
 ): Promise<void> {
-  await client.from("collection_audit_log").insert({
-    office_id: input.officeId,
-    contract_id: null,
-    actor_user_id: input.actorUserId,
-    action_type: "import_sync",
+  await writeAuditLog(client, {
+    officeId: input.officeId,
+    actorUserId: input.actorUserId,
+    actorRole: input.actorRole ?? "office",
+    action: collectionAction("import_sync"),
+    entityType: "office",
+    entityId: null,
     source: "import",
-    old_values: {},
-    new_values: {
+    oldValues: {},
+    newValues: {
       contracts_touched: input.contractsTouched,
       payments_upserted: input.paymentsUpserted,
       details_inserted: input.detailsInserted,
     },
   });
 }
-
-export { resolveActor, writeAudit };

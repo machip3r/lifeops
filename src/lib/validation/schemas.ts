@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PAYMENT_METHOD_OPTIONS } from "@/lib/contracts/payment-methods";
 
 /** Shared limits — keep form `maxLength` in sync with these. */
 export const LIMITS = {
@@ -10,7 +11,6 @@ export const LIMITS = {
   search: 100,
   contractNumber: 64,
   consultantCode: 64,
-  tagName: 40,
   notes: 2000,
   currency: 16,
   documentDisplayName: 120,
@@ -49,9 +49,13 @@ export const CONTRACT_NUMBER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/\-]*$/;
 /** Asesor code from HTML import. */
 export const CONSULTANT_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-]*$/;
 
-/** Tag labels — letters, numbers, spaces, safe punctuation; no angle brackets. */
-export const TAG_NAME_PATTERN =
-  /^(?!.*[<>])[\p{L}\p{M}\p{N}](?:[\p{L}\p{M}\p{N}\s.&'+_/\-()]*[\p{L}\p{M}\p{N}.])?$/u;
+/** Mexican CURP (18 alphanumeric). */
+export const CURP_PATTERN =
+  /^[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d$/;
+
+/** Mexican RFC persona física (13) or moral (12). */
+export const RFC_PATTERN =
+  /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
 
 export const emailSchema = z
   .string()
@@ -81,21 +85,23 @@ export const personNameSchema = z
   .max(LIMITS.personName)
   .regex(PERSON_NAME_PATTERN);
 
+/**
+ * Asesor display name — may be a real name or the numeric code from the portal.
+ * (personNameSchema rejects digits-only codes used as temporary names.)
+ */
+export const consultantDisplayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(LIMITS.personName)
+  .regex(ENTITY_NAME_PATTERN);
+
 export const entityNameSchema = z
   .string()
   .trim()
   .min(1)
   .max(LIMITS.entityName)
   .regex(ENTITY_NAME_PATTERN);
-
-export const tagNameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(LIMITS.tagName)
-  .regex(TAG_NAME_PATTERN);
-
-export const tagSectionSchema = z.enum(['consultant', 'client']);
 
 export const otpSchema = z
   .string()
@@ -104,13 +110,17 @@ export const otpSchema = z
   .max(LIMITS.otp.max)
   .regex(OTP_PATTERN);
 
-export const optionalIsoDateSchema = z
+/** Accepts "", null, or undefined → null; otherwise YYYY-MM-DD. */
+export const optionalIsoDateSchema = z.preprocess((value) => {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") return value;
+  return value.trim();
+}, z
   .string()
-  .trim()
   .refine((v) => v.length === 0 || ISO_DATE_PATTERN.test(v), {
     message: "date",
   })
-  .transform((v) => (v.length === 0 ? null : v));
+  .transform((v) => (v.length === 0 ? null : v)));
 
 export const contractNumberSchema = z
   .string()
@@ -126,11 +136,94 @@ export const consultantCodeSchema = z
   .max(LIMITS.consultantCode)
   .regex(CONSULTANT_CODE_PATTERN);
 
+export const curpSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .length(18)
+  .regex(CURP_PATTERN);
+
+export const rfcSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .min(12)
+  .max(13)
+  .regex(RFC_PATTERN);
+
+/** Optional CURP — empty → null. */
+export const optionalCurpSchema = z.preprocess((val) => {
+  if (val == null) return null;
+  if (typeof val !== "string") return val;
+  const t = val.trim().toUpperCase();
+  return t.length === 0 ? null : t;
+}, z.union([z.null(), curpSchema]));
+
+/** Optional RFC — empty → null. */
+export const optionalRfcSchema = z.preprocess((val) => {
+  if (val == null) return null;
+  if (typeof val !== "string") return val;
+  const t = val.trim().toUpperCase();
+  return t.length === 0 ? null : t;
+}, z.union([z.null(), rfcSchema]));
+
 export const notesSchema = z
   .string()
   .trim()
   .max(LIMITS.notes)
   .regex(MESSAGE_PATTERN);
+
+export const commissionImportDatesSchema = z.object({
+  issueDate: z
+    .string()
+    .trim()
+    .regex(ISO_DATE_PATTERN, { message: "date" }),
+  priorPaymentDate: z
+    .string()
+    .trim()
+    .regex(ISO_DATE_PATTERN, { message: "date" })
+    .optional()
+    .nullable(),
+});
+
+/**
+ * Import meta when the batch includes first-time policies.
+ * `priorPaymentDate` is required if `requiresPriorPayment` is true.
+ */
+export const commissionImportMetaSchema = z
+  .object({
+    issueDate: z
+      .string()
+      .trim()
+      .regex(ISO_DATE_PATTERN, { message: "date" }),
+    priorPaymentDate: z
+      .string()
+      .trim()
+      .regex(ISO_DATE_PATTERN, { message: "date" })
+      .nullable()
+      .optional(),
+    requiresPriorPayment: z.boolean().default(false),
+  })
+  .superRefine((val, ctx) => {
+    if (val.requiresPriorPayment && !val.priorPaymentDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["priorPaymentDate"],
+        message: "required",
+      });
+    }
+    if (
+      val.priorPaymentDate &&
+      val.issueDate &&
+      val.priorPaymentDate > val.issueDate
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["priorPaymentDate"],
+        message: "prior_after_issue",
+      });
+    }
+  });
 
 export const loginSchema = z.object({
   email: emailSchema,
@@ -187,11 +280,6 @@ export const updateCollectionStatusSchema = z.object({
   status: collectionStatusSchema,
 });
 
-export const updateCollectionDaySchema = z.object({
-  contractId: uuidSchema,
-  collectionDay: collectionDaySchema.nullable(),
-});
-
 /** Medio de cobro — short label (e.g. C.A); empty clears. */
 export const PAYMENT_CHANNEL_PATTERN =
   /^(?!.*[<>])[\p{L}\p{M}\p{N}.\s/_-]{1,64}$/u;
@@ -244,11 +332,6 @@ export const getCollectionsGridSchema = z.object({
   year: collectionYearSchema,
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(25),
-});
-
-export const getCollectionAuditLogSchema = z.object({
-  contractId: uuidSchema.optional().nullable(),
-  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
 });
 
 /** User-facing document label on solicitud attachments. */
@@ -348,4 +431,20 @@ export const correctSolicitudSchema = z.object({
   folioNumber: folioNumberSchema,
   details: changeDetailsSchema,
   notes: notesSchema.optional().nullable(),
+});
+
+export const paymentMethodSchema = z.enum(PAYMENT_METHOD_OPTIONS);
+
+/** Manual póliza registration from /dashboard/contracts. */
+export const createManualContractSchema = z.object({
+  consultantId: uuidSchema.optional().nullable(),
+  contractNumber: contractNumberSchema,
+  clientId: uuidSchema.optional().nullable(),
+  clientName: personNameSchema,
+  birthDate: optionalIsoDateSchema,
+  issueDate: isoDateRequiredSchema,
+  collectionDay: collectionDaySchema,
+  lastPaymentDate: isoDateRequiredSchema,
+  projectName: entityNameSchema,
+  paymentMethod: paymentMethodSchema,
 });

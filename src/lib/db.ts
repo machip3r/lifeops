@@ -1,18 +1,27 @@
+/**
+ * User-scoped persistence (anon key + RLS). Prefer this from the browser / JWT client.
+ * Privileged Auth / bypass-RLS work lives in `src/lib/db-admin.ts` (server-only).
+ * Together these modules are the data output boundary — keep SQL/Supabase out of routes.
+ */
+import { getUser } from '@/lib/auth/client';
 import { supabase } from './supabase';
 import type {
     Office,
     Consultant,
-    ConsultantWithTags,
     Client,
     Contract,
+    ContractAtRisk,
     ContractChangeRequest,
+    ContractPendingPayment,
+    CommissionImport,
     File,
     ContractDetail,
-    Tag,
-    TagSection,
+    ContractSource,
+    AuditLog,
 } from './supabase';
 import {
     syncPaymentsFromImportedDetailsBatch,
+    seedPriorPaymentsForNewContracts,
     writeImportSyncAudit,
 } from '@/lib/collections/service';
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/lib/extractor/batch';
@@ -28,33 +37,7 @@ import {
     type PageResult,
     type SortOrder,
 } from '@/lib/pagination';
-import { tagNameSchema, tagSectionSchema } from '@/lib/validation/schemas';
 
-type ConsultantTagEmbed = {
-    tag_id: string;
-    tag: Tag | Tag[] | null;
-};
-
-function tagsFromConsultantEmbed(rows: ConsultantTagEmbed[] | null | undefined): Tag[] {
-    if (!rows?.length) return [];
-    const out: Tag[] = [];
-    for (const row of rows) {
-        const raw = row.tag;
-        const tag = Array.isArray(raw) ? raw[0] : raw;
-        if (tag?.id) out.push(tag);
-    }
-    return out.sort((a, b) => a.name.localeCompare(b.name, 'es'));
-}
-
-function mapConsultantWithTags(
-    row: Consultant & { consultant_tag?: ConsultantTagEmbed[] | null },
-): ConsultantWithTags {
-    const { consultant_tag, ...consultant } = row;
-    return {
-        ...(consultant as Consultant),
-        tags: tagsFromConsultantEmbed(consultant_tag),
-    };
-}
 async function attachContractCounts(
     clients: Client[],
 ): Promise<Array<Client & { contract_count?: number }>> {
@@ -200,11 +183,9 @@ export const db = {
             params: Partial<PageParams> & {
                 search?: string;
                 status?: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ALL';
-                /** Match consultants that have any of these tag ids (OR). */
-                tagIds?: string[];
                 sort?: SortOrder;
             } = {},
-        ): Promise<PageResult<ConsultantWithTags>> => {
+        ): Promise<PageResult<Consultant>> => {
             const { page, pageSize } = normalizePageParams(params);
             const { from, to } = toRange(page, pageSize);
             const sortCol = params.sort?.column &&
@@ -213,30 +194,12 @@ export const db = {
                 : 'created_at';
             const ascending = params.sort?.ascending ?? false;
 
-            const tagIds = (params.tagIds || []).filter(Boolean);
-            let tagFilteredIds: string[] | null = null;
-            if (tagIds.length > 0) {
-                const { data: links, error: tagErr } = await supabase
-                    .from('consultant_tag')
-                    .select('consultant_id')
-                    .in('tag_id', tagIds);
-                if (tagErr) throw tagErr;
-                tagFilteredIds = [...new Set((links || []).map((r) => r.consultant_id as string))];
-                if (tagFilteredIds.length === 0) {
-                    return emptyPageResult({ page, pageSize });
-                }
-            }
-
             let query = supabase
                 .from('consultant')
-                .select('*, consultant_tag(tag_id, tag(*))', { count: 'exact' })
+                .select('*', { count: 'exact' })
                 .eq('office_id', officeId)
                 .order(sortCol, { ascending, nullsFirst: false })
                 .range(from, to);
-
-            if (tagFilteredIds) {
-                query = query.in('id', tagFilteredIds);
-            }
 
             if (params.status && params.status !== 'ALL') {
                 query = query.eq('status', params.status);
@@ -253,42 +216,13 @@ export const db = {
             const { data, error, count } = await query;
             if (error) throw error;
             return {
-                rows: ((data as Array<Consultant & { consultant_tag?: ConsultantTagEmbed[] }>) || []).map(
-                    mapConsultantWithTags,
-                ),
+                rows: (data as Consultant[]) || [],
                 total: count ?? 0,
                 page,
                 pageSize,
             };
         },
 
-        getConsultantTags: async (consultantId: string): Promise<Tag[]> => {
-            const { data, error } = await supabase
-                .from('consultant_tag')
-                .select('tag_id, tag(*)')
-                .eq('consultant_id', consultantId);
-            if (error) throw error;
-            return tagsFromConsultantEmbed((data as ConsultantTagEmbed[]) || []);
-        },
-
-        setConsultantTags: async (consultantId: string, tagIds: string[]): Promise<Tag[]> => {
-            const uniqueIds = [...new Set(tagIds.filter(Boolean))];
-
-            const { error: delErr } = await supabase
-                .from('consultant_tag')
-                .delete()
-                .eq('consultant_id', consultantId);
-            if (delErr) throw delErr;
-
-            if (uniqueIds.length > 0) {
-                const { error: insErr } = await supabase.from('consultant_tag').insert(
-                    uniqueIds.map((tag_id) => ({ consultant_id: consultantId, tag_id })),
-                );
-                if (insErr) throw insErr;
-            }
-
-            return db.consultant.getConsultantTags(consultantId);
-        },
         createConsultant: async (
             user_id: string,
             email: string,
@@ -300,7 +234,7 @@ export const db = {
                 user_id,
                 user_email: email,
                 consultant_name: name,
-                consultant_code,
+                consultant_code_param: consultant_code,
                 office_id_param: office_id,
             });
 
@@ -393,7 +327,7 @@ export const db = {
             return {
                 consultant: null,
                 created: false,
-                error: `No hay un asesor con código "${trimmed}" en tu oficina. Créalo antes de importar.`,
+                error: `No hay un asesor con código "${trimmed}" en tu promotoría. Créalo antes de importar.`,
             };
         },
 
@@ -431,82 +365,6 @@ export const db = {
 
             if (error) throw error;
             return data;
-        },
-    },
-
-    tag: {
-        listByOffice: async (officeId: string, section: TagSection = 'consultant'): Promise<Tag[]> => {
-            const parsedSection = tagSectionSchema.parse(section);
-            const { data, error } = await supabase
-                .from('tag')
-                .select('*')
-                .eq('office_id', officeId)
-                .eq('section', parsedSection)
-                .order('name', { ascending: true });
-            if (error) throw error;
-            return (data as Tag[]) || [];
-        },
-
-        create: async (
-            officeId: string,
-            name: string,
-            section: TagSection = 'consultant',
-        ): Promise<Tag> => {
-            const parsedName = tagNameSchema.safeParse(name);
-            if (!parsedName.success) {
-                throw new Error('Nombre de etiqueta inválido (máx. 40 caracteres).');
-            }
-            const parsedSection = tagSectionSchema.parse(section);
-            const { data, error } = await supabase
-                .from('tag')
-                .insert({
-                    office_id: officeId,
-                    name: parsedName.data,
-                    section: parsedSection,
-                })
-                .select()
-                .single();
-            if (error) {
-                if (error.code === '23505') {
-                    throw new Error('Ya existe una etiqueta con ese nombre.');
-                }
-                throw error;
-            }
-            return data as Tag;
-        },
-
-        delete: async (tagId: string): Promise<void> => {
-            const { error } = await supabase.from('tag').delete().eq('id', tagId);
-            if (error) throw error;
-        },
-
-        rename: async (tagId: string, name: string): Promise<Tag> => {
-            const parsedName = tagNameSchema.parse(name);
-            const { data, error } = await supabase
-                .from('tag')
-                .update({ name: parsedName })
-                .eq('id', tagId)
-                .select()
-                .single();
-            if (error) {
-                if (error.code === '23505') {
-                    throw new Error('Ya existe una etiqueta con ese nombre.');
-                }
-                throw error;
-            }
-            return data as Tag;
-        },
-
-        /** Consultant ids that have any of the given tags (OR). */
-        getConsultantIdsByTags: async (tagIds: string[]): Promise<string[]> => {
-            const ids = [...new Set(tagIds.filter(Boolean))];
-            if (ids.length === 0) return [];
-            const { data, error } = await supabase
-                .from('consultant_tag')
-                .select('consultant_id')
-                .in('tag_id', ids);
-            if (error) throw error;
-            return [...new Set((data || []).map((r) => r.consultant_id as string))];
         },
     },
 
@@ -773,10 +631,29 @@ export const db = {
             return data || [];
         },
 
-        createContract: async (contract: Omit<Contract, 'id' | 'created_at' | 'updated_at'>): Promise<Contract> => {
+        createContract: async (
+            contract: Omit<Contract, 'id' | 'created_at' | 'updated_at' | 'office_id'> & {
+                office_id?: string;
+            },
+        ): Promise<Contract> => {
+            let officeId = contract.office_id;
+            if (!officeId) {
+                const { data: cons, error: consErr } = await supabase
+                    .from('consultant')
+                    .select('office_id')
+                    .eq('id', contract.consultant_id)
+                    .single();
+                if (consErr) throw consErr;
+                officeId = cons.office_id;
+            }
+            const source: ContractSource = contract.source ?? 'manual';
             const { data, error } = await supabase
                 .from('contract')
-                .insert(contract)
+                .insert({
+                    ...contract,
+                    office_id: officeId,
+                    source,
+                })
                 .select()
                 .single();
 
@@ -811,12 +688,21 @@ export const db = {
             consultantId?: string, // Optional: if provided, only import for this consultant
             headers?: string[], // Table headers to map columns correctly
             onProgress?: (progress: ImportProgress) => void,
+            importMeta?: {
+                fileIssueDate: string;
+                /** contract number (normalized) → ISO last payment before this file */
+                priorPaymentByContract?: Record<string, string>;
+                fileName?: string | null;
+                requirePriorForNew?: boolean;
+            },
         ): Promise<{ success: number; errors: Array<{ row: number; error: string }>; warnings: Array<{ row: number; message: string }> }> => {
             const errors: Array<{ row: number; error: string }> = [];
             const warnings: Array<{ row: number; message: string }> = [];
             let successCount = 0;
             let detailsInsertedTotal = 0;
             let paymentsUpsertedTotal = 0;
+            const newContractPriorById: Record<string, string> = {};
+            let commissionImportId: string | null = null;
             const pendingCobranza: Array<{
                 contractId: string;
                 details: Array<{
@@ -826,7 +712,58 @@ export const db = {
             }> = [];
             const {
                 data: { user: importActor },
-            } = await supabase.auth.getUser();
+            } = await getUser();
+
+            const fileIssueDate = importMeta?.fileIssueDate?.trim() || null;
+            const priorPaymentByContract = importMeta?.priorPaymentByContract ?? {};
+
+            if (!fileIssueDate || !/^\d{4}-\d{2}-\d{2}$/.test(fileIssueDate)) {
+                return {
+                    success: 0,
+                    errors: [{
+                        row: 0,
+                        error: 'Indica la fecha de emisión del archivo de comisiones (AAAA-MM-DD).',
+                    }],
+                    warnings: [],
+                };
+            }
+
+            for (const [key, prior] of Object.entries(priorPaymentByContract)) {
+                const paidAt = prior?.trim() || '';
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(paidAt) || paidAt > fileIssueDate) {
+                    return {
+                        success: 0,
+                        errors: [{
+                            row: 0,
+                            error: `La fecha del último pago previo de la póliza "${key}" debe ser válida y no posterior a la fecha del archivo.`,
+                        }],
+                        warnings: [],
+                    };
+                }
+            }
+
+            try {
+                const batch = await db.commissionImport.create({
+                    office_id: officeId,
+                    uploaded_by: importActor?.id ?? null,
+                    file_name: importMeta?.fileName ?? null,
+                    issue_date: fileIssueDate,
+                    prior_payment_date: null,
+                    status: 'imported',
+                    row_count: rows.length,
+                    metadata: {
+                        require_prior_for_new: Boolean(importMeta?.requirePriorForNew),
+                        prior_payment_by_contract: priorPaymentByContract,
+                    },
+                });
+                commissionImportId = batch.id;
+            } catch (batchErr) {
+                console.error('commission_import create failed', batchErr);
+                warnings.push({
+                    row: 0,
+                    message: 'No se pudo guardar el lote de importación; se continúa sin trazabilidad de batch.',
+                });
+            }
 
             const startedAt = Date.now();
             let lastTickAt = startedAt;
@@ -1018,7 +955,9 @@ export const db = {
                 report("consultants", 0, 1, "Cargando asesor…");
                 const consultant = await db.consultant.getConsultantById(consultantId);
                 if (consultant) {
-                    consultantCache.set(consultant.consultant_code?.toLowerCase() || '', consultant);
+                    const codeKey = consultant.consultant_code?.trim().toLowerCase() || '';
+                    if (codeKey) consultantCache.set(codeKey, consultant);
+                    consultantCache.set(consultant.id, consultant);
                 }
                 report("consultants", 1, 1, "Asesor listo");
             }
@@ -1135,9 +1074,19 @@ export const db = {
                     // Find consultant from cache
                     let consultant: Consultant | undefined;
                     if (consultantId) {
-                        consultant = consultantCache.get('');
-                        if (consultant && consultant.consultant_code?.toLowerCase() !== group.consultantCode.toLowerCase()) {
-                            errors.push({ row: group.rows[0]?.rowIndex || 0, error: `El código de asesor "${group.consultantCode}" no coincide con tu cuenta.` });
+                        consultant =
+                            consultantCache.get(group.consultantCode.toLowerCase()) ||
+                            consultantCache.get(consultantId);
+                        if (
+                            !consultant ||
+                            (consultant.consultant_code &&
+                                consultant.consultant_code.trim().toLowerCase() !==
+                                    group.consultantCode.trim().toLowerCase())
+                        ) {
+                            errors.push({
+                                row: group.rows[0]?.rowIndex || 0,
+                                error: `El código de asesor "${group.consultantCode}" no coincide con tu cuenta.`,
+                            });
                             continue;
                         }
                     } else {
@@ -1150,7 +1099,7 @@ export const db = {
                             row: group.rows[0]?.rowIndex || 0,
                             error:
                                 ensureMsg ||
-                                `No hay un asesor con código "${group.consultantCode}" en tu oficina y no se pudo crear automáticamente.`,
+                                `No hay un asesor con código "${group.consultantCode}" en tu promotoría y no se pudo crear automáticamente.`,
                         });
                         continue;
                     }
@@ -1176,11 +1125,29 @@ export const db = {
                             // Contract exists, use it
                             warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.contractNumber}" ya existe. Se omitirá la creación de la póliza, se agregarán solo los detalles.` });
                             contract = existing;
+                            if (existing.source === 'manual') {
+                                contract = await db.contract.updateContract(existing.id, { source: 'mixed' });
+                                existingContractsMap.set(group.contractNumber, contract);
+                            }
                         } else {
+                            // Create new contract — prior payment date required for first-time policies
+                            const priorKey = group.contractNumber.trim().replace(/,/g, '').replace(/\s+/g, '');
+                            const priorPaymentDate =
+                                priorPaymentByContract[priorKey] ||
+                                priorPaymentByContract[group.contractNumber] ||
+                                null;
+                            if (!priorPaymentDate) {
+                                errors.push({
+                                    row: group.rows[0]?.rowIndex || 0,
+                                    error: `Póliza "${group.contractNumber}" es nueva: indica la fecha del último pago antes de este archivo de comisiones.`,
+                                });
+                                continue;
+                            }
                             // Create new contract — use FORMA DE PAGO from first detail row when present
                             const firstPaymentMethod = normalizePaymentMethod(
                                 getCell(group.rows[0]?.row ?? [], paymentMethodIndex) || null,
                             );
+                            const priorDay = Number.parseInt(priorPaymentDate.slice(8, 10), 10);
                             contract = await db.contract.createContract({
                                 consultant_id: consultant.id,
                                 client_id: client.id,
@@ -1189,13 +1156,28 @@ export const db = {
                                 exchange_rate: parseExchangeRate(group.exchangeRate),
                                 payment_method: firstPaymentMethod,
                                 status: 'ACTIVE',
+                                source: 'import',
+                                office_id: officeId,
+                                collection_day: Number.isFinite(priorDay) ? priorDay : null,
                             });
                             isNewContract = true;
+                            newContractPriorById[contract.id] = priorPaymentDate;
                             // Add to cache for potential future use
                             existingContractsMap.set(group.contractNumber, contract);
                         }
                     } else {
                         // No contract number; create a new contract anyway
+                        const priorKey = `__unnamed__:${group.clientName.toLowerCase()}`;
+                        const priorPaymentDate =
+                            priorPaymentByContract[priorKey] || null;
+                        if (!priorPaymentDate) {
+                            errors.push({
+                                row: group.rows[0]?.rowIndex || 0,
+                                error: 'Póliza nueva sin número: indica la fecha del último pago antes de este archivo de comisiones.',
+                            });
+                            continue;
+                        }
+                        const priorDay = Number.parseInt(priorPaymentDate.slice(8, 10), 10);
                         contract = await db.contract.createContract({
                             consultant_id: consultant.id,
                             client_id: client.id,
@@ -1203,8 +1185,12 @@ export const db = {
                             currency: group.currency || null,
                             exchange_rate: parseExchangeRate(group.exchangeRate),
                             status: 'ACTIVE',
+                            source: 'import',
+                            office_id: officeId,
+                            collection_day: Number.isFinite(priorDay) ? priorDay : null,
                         });
                         isNewContract = true;
+                        newContractPriorById[contract.id] = priorPaymentDate;
                     }
 
                     // Helper functions
@@ -1250,6 +1236,7 @@ export const db = {
 
                             const detail: Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'> = {
                                 contract_id: contract.id,
+                                commission_import_id: commissionImportId,
                                 issue_date: parseDate(getCell(row, issueDateIndex)), // FECHA EMISION
                                 payment_date: parseDate(getCell(row, paymentDateIndex)), // FECHA PAGO
                                 premium_payment: parseNumeric(getCell(row, premiumPaymentIndex)), // PRIMA PAGO
@@ -1345,9 +1332,27 @@ export const db = {
             }
 
             report("finalize", 0, 1, "Sincronizando cobranza…");
+            if (Object.keys(newContractPriorById).length > 0) {
+                try {
+                    const priorSeeded = await seedPriorPaymentsForNewContracts(supabase, {
+                        officeId,
+                        actorUserId: importActor?.id ?? null,
+                        priorByContractId: newContractPriorById,
+                        commissionImportId,
+                    });
+                    paymentsUpsertedTotal += priorSeeded;
+                } catch (priorErr) {
+                    console.error('Prior payment seed failed', priorErr);
+                    warnings.push({
+                        row: 0,
+                        message:
+                            'Pólizas nuevas creadas, pero no se pudo registrar el último pago previo en cobranza.',
+                    });
+                }
+            }
             if (pendingCobranza.length > 0) {
                 try {
-                    paymentsUpsertedTotal = await syncPaymentsFromImportedDetailsBatch(
+                    const fromFile = await syncPaymentsFromImportedDetailsBatch(
                         supabase,
                         {
                             officeId,
@@ -1355,6 +1360,7 @@ export const db = {
                             items: pendingCobranza,
                         },
                     );
+                    paymentsUpsertedTotal += fromFile;
                 } catch (syncErr) {
                     console.error('Cobranza import sync failed', syncErr);
                     warnings.push({
@@ -1362,6 +1368,26 @@ export const db = {
                         message:
                             'Detalles importados, pero no se pudo sincronizar cobranza en lote.',
                     });
+                }
+            }
+
+            if (commissionImportId) {
+                try {
+                    await db.commissionImport.update(commissionImportId, {
+                        status: errors.length > 0 && successCount === 0 ? 'failed' : 'imported',
+                        contracts_created: Object.keys(newContractPriorById).length,
+                        contracts_updated: Math.max(
+                          0,
+                          successCount - Object.keys(newContractPriorById).length,
+                        ),
+                        payments_marked: paymentsUpsertedTotal,
+                        error_message:
+                            errors.length > 0
+                                ? `${errors.length} fila(s) con error`
+                                : null,
+                    });
+                } catch (updErr) {
+                    console.error('commission_import update failed', updErr);
                 }
             }
 
@@ -1638,7 +1664,7 @@ export const db = {
 
             const sortCol =
                 opts.sort?.column &&
-                ['name', 'birth_date', 'created_at'].includes(opts.sort.column)
+                    ['name', 'birth_date', 'created_at'].includes(opts.sort.column)
                     ? opts.sort.column
                     : 'created_at';
             const ascending = opts.sort?.ascending ?? false;
@@ -1742,19 +1768,103 @@ export const db = {
             return data;
         },
 
-        createClient: async (name: string, birthDate?: string, officeId?: string | null): Promise<Client> => {
+        createClient: async (
+            name: string,
+            birthDate?: string,
+            officeId?: string | null,
+            identity?: { curp?: string | null; rfc?: string | null },
+        ): Promise<Client> => {
+            const curp = identity?.curp?.trim().toUpperCase() || null;
+            const rfc = identity?.rfc?.trim().toUpperCase() || null;
+            if (!officeId && !curp && !rfc) {
+                throw new Error('Cliente local requiere office_id, o bien CURP/RFC.');
+            }
             const { data, error } = await supabase
                 .from('client')
                 .insert({
                     name,
                     birth_date: birthDate || null,
                     office_id: officeId ?? null,
+                    curp,
+                    rfc,
                 })
                 .select()
                 .single();
 
             if (error) throw error;
             return data;
+        },
+
+        /**
+         * Hybrid find-or-create: CURP → RFC → name+office (local).
+         * Prefer strong IDs when present; never create a duplicate CURP/RFC.
+         */
+        findOrCreateClient: async (params: {
+            name: string;
+            officeId?: string | null;
+            birthDate?: string | null;
+            curp?: string | null;
+            rfc?: string | null;
+        }): Promise<Client> => {
+            const name = params.name.trim();
+            const curp = params.curp?.trim().toUpperCase() || null;
+            const rfc = params.rfc?.trim().toUpperCase() || null;
+            const officeId = params.officeId ?? null;
+
+            if (curp) {
+                const { data: byCurp, error } = await supabase
+                    .from('client')
+                    .select('*')
+                    .ilike('curp', curp)
+                    .maybeSingle();
+                if (error && error.code !== 'PGRST116') throw error;
+                if (byCurp) {
+                    if (!byCurp.name?.trim() && name) {
+                        return await db.client.updateClient(byCurp.id, { name });
+                    }
+                    return byCurp;
+                }
+            }
+
+            if (rfc) {
+                const { data: byRfc, error } = await supabase
+                    .from('client')
+                    .select('*')
+                    .ilike('rfc', rfc)
+                    .maybeSingle();
+                if (error && error.code !== 'PGRST116') throw error;
+                if (byRfc) {
+                    if (!byRfc.name?.trim() && name) {
+                        return await db.client.updateClient(byRfc.id, { name });
+                    }
+                    return byRfc;
+                }
+            }
+
+            if (!officeId && !curp && !rfc) {
+                throw new Error('Cliente local requiere office_id, o bien CURP/RFC.');
+            }
+
+            if (officeId) {
+                let query = supabase.from('client').select('*').ilike('name', name).eq('office_id', officeId).limit(1);
+                const { data: existing, error: searchError } = await query.maybeSingle();
+                if (searchError && searchError.code !== 'PGRST116') throw searchError;
+                if (existing) {
+                    const updates: Partial<Client> = {};
+                    if (curp && !existing.curp) updates.curp = curp;
+                    if (rfc && !existing.rfc) updates.rfc = rfc;
+                    if (Object.keys(updates).length > 0) {
+                        return await db.client.updateClient(existing.id, updates);
+                    }
+                    return existing;
+                }
+            }
+
+            return await db.client.createClient(name, params.birthDate ?? undefined, officeId, { curp, rfc });
+        },
+
+        findOrCreateClientByName: async (name: string, officeId?: string | null): Promise<Client> => {
+            return await db.client.findOrCreateClient({ name: name.trim(), officeId });
         },
 
         updateClient: async (id: string, updates: Partial<Client>): Promise<Client> => {
@@ -1779,22 +1889,6 @@ export const db = {
                 .eq('id', id);
 
             if (error) throw error;
-        },
-
-        findOrCreateClientByName: async (name: string, officeId?: string | null): Promise<Client> => {
-            let query = supabase.from('client').select('*').ilike('name', name.trim()).limit(1);
-            if (officeId) query = query.eq('office_id', officeId);
-            const { data: existing, error: searchError } = await query.maybeSingle();
-
-            if (searchError && searchError.code !== 'PGRST116') {
-                throw searchError;
-            }
-
-            if (existing) {
-                return existing;
-            }
-
-            return await db.client.createClient(name.trim(), undefined, officeId);
         },
 
         checkClientExists: async (name: string): Promise<boolean> => {
@@ -1912,9 +2006,9 @@ export const db = {
             const { from, to } = toRange(page, pageSize);
             const sortCol =
                 params.sort?.column &&
-                ['payment_date', 'issue_date', 'premium_payment', 'created_at'].includes(
-                    params.sort.column,
-                )
+                    ['payment_date', 'issue_date', 'premium_payment', 'created_at'].includes(
+                        params.sort.column,
+                    )
                     ? params.sort.column
                     : 'payment_date';
             const ascending = params.sort?.ascending ?? false;
@@ -1984,9 +2078,9 @@ export const db = {
             const { from, to } = toRange(page, pageSize);
             const sortCol =
                 params.sort?.column &&
-                ['payment_date', 'premium_payment', 'payment_method'].includes(
-                    params.sort.column,
-                )
+                    ['payment_date', 'premium_payment', 'payment_method'].includes(
+                        params.sort.column,
+                    )
                     ? params.sort.column
                     : 'payment_date';
             const ascending = params.sort?.ascending ?? false;
@@ -2465,6 +2559,111 @@ export const db = {
                 primaMetaGM: parseFloat(data[0].prima_meta_gm || '0') || 0,
             };
         },
+
+        listContractsAtRisk: async (params: {
+            officeId?: string | null;
+            consultantId?: string | null;
+            riskDays?: number;
+            lookbackMonths?: number;
+        }): Promise<ContractAtRisk[]> => {
+            const { data, error } = await supabase.rpc('list_contracts_at_risk', {
+                office_id_param: params.officeId ?? null,
+                consultant_id_param: params.consultantId ?? null,
+                risk_days: params.riskDays ?? 30,
+                lookback_months: params.lookbackMonths ?? 12,
+            });
+            if (error) throw error;
+            return (data || []).map((row: Record<string, unknown>) => ({
+                contract_id: row.contract_id as string,
+                office_id: row.office_id as string,
+                consultant_id: row.consultant_id as string,
+                client_id: (row.client_id as string | null) ?? null,
+                contract_number: (row.contract_number as string | null) ?? null,
+                client_name: (row.client_name as string | null) ?? null,
+                consultant_name: (row.consultant_name as string | null) ?? null,
+                collection_day: (row.collection_day as number | null) ?? null,
+                due_date: row.due_date as string,
+                days_overdue: Number(row.days_overdue) || 0,
+                collection_status: (row.collection_status as string | null) ?? null,
+            }));
+        },
+
+        listContractsPendingPayment: async (params: {
+            officeId?: string | null;
+            consultantId?: string | null;
+            withinDays?: number;
+        }): Promise<ContractPendingPayment[]> => {
+            const { data, error } = await supabase.rpc('list_contracts_pending_payment', {
+                office_id_param: params.officeId ?? null,
+                consultant_id_param: params.consultantId ?? null,
+                within_days: params.withinDays ?? 15,
+            });
+            if (error) throw error;
+            return (data || []).map((row: Record<string, unknown>) => ({
+                contract_id: row.contract_id as string,
+                office_id: row.office_id as string,
+                consultant_id: row.consultant_id as string,
+                client_id: (row.client_id as string | null) ?? null,
+                contract_number: (row.contract_number as string | null) ?? null,
+                client_name: (row.client_name as string | null) ?? null,
+                consultant_name: (row.consultant_name as string | null) ?? null,
+                collection_day: (row.collection_day as number | null) ?? null,
+                due_date: row.due_date as string,
+                days_until_due: Number(row.days_until_due) || 0,
+                is_overdue: Boolean(row.is_overdue),
+            }));
+        },
+    },
+
+    commissionImport: {
+        create: async (
+            row: Omit<CommissionImport, 'id' | 'created_at' | 'updated_at' | 'status'> & {
+                status?: CommissionImport['status'];
+            },
+        ): Promise<CommissionImport> => {
+            const { data, error } = await supabase
+                .from('commission_import')
+                .insert({
+                    ...row,
+                    status: row.status ?? 'pending',
+                })
+                .select()
+                .single();
+            if (error) throw error;
+            return data;
+        },
+
+        update: async (id: string, updates: Partial<CommissionImport>): Promise<CommissionImport> => {
+            const { data, error } = await supabase
+                .from('commission_import')
+                .update(updates)
+                .eq('id', id)
+                .select()
+                .single();
+            if (error) throw error;
+            return data;
+        },
+
+        getById: async (id: string): Promise<CommissionImport | null> => {
+            const { data, error } = await supabase
+                .from('commission_import')
+                .select('*')
+                .eq('id', id)
+                .maybeSingle();
+            if (error) throw error;
+            return data;
+        },
+
+        listByOffice: async (officeId: string, limit = 25): Promise<CommissionImport[]> => {
+            const { data, error } = await supabase
+                .from('commission_import')
+                .select('*')
+                .eq('office_id', officeId)
+                .order('created_at', { ascending: false })
+                .limit(limit);
+            if (error) throw error;
+            return data || [];
+        },
     },
 
     // Search functions
@@ -2476,11 +2675,8 @@ export const db = {
                 .or(`contract_number.ilike.%${query}%,project_name.ilike.%${query}%`)
                 .limit(10);
 
-            // If officeId is provided, filter by office
             if (officeId) {
-                queryBuilder = queryBuilder
-                    .select('*, consultant:consultant_id(office_id)')
-                    .eq('consultant.office_id', officeId);
+                queryBuilder = queryBuilder.eq('office_id', officeId);
             }
 
             const { data, error } = await queryBuilder;
@@ -2537,6 +2733,29 @@ export const db = {
 
             if (error) throw error;
             return data || [];
+        },
+    },
+
+    audit: {
+        listByOffice: async (
+            officeId: string,
+            params: Partial<PageParams> = {},
+        ): Promise<PageResult<AuditLog>> => {
+            const { page, pageSize } = normalizePageParams(params);
+            const { from, to } = toRange(page, pageSize);
+            const { data, error, count } = await supabase
+                .from('audit_log')
+                .select('*', { count: 'exact' })
+                .eq('office_id', officeId)
+                .order('created_at', { ascending: false })
+                .range(from, to);
+            if (error) throw error;
+            return {
+                rows: (data as AuditLog[]) || [],
+                total: count ?? 0,
+                page,
+                pageSize,
+            };
         },
     },
 };

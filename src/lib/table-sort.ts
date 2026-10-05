@@ -1,6 +1,6 @@
 export type SortDir = "asc" | "desc";
 
-export function compareNullableText(
+function compareNullableText(
   a: string | null | undefined,
   b: string | null | undefined,
 ): number {
@@ -12,7 +12,7 @@ export function compareNullableText(
   return left.localeCompare(right, "es", { sensitivity: "base", numeric: true });
 }
 
-export function compareNullableNumber(
+function compareNullableNumber(
   a: number | string | null | undefined,
   b: number | string | null | undefined,
 ): number {
@@ -35,7 +35,7 @@ export function compareNullableNumber(
 }
 
 /** ISO date strings or Date values. */
-export function compareNullableDate(
+function compareNullableDate(
   a: string | Date | null | undefined,
   b: string | Date | null | undefined,
 ): number {
@@ -49,7 +49,7 @@ export function compareNullableDate(
 
 export type SortValueKind = "text" | "number" | "date";
 
-export function compareSortValues(
+function compareSortValues(
   a: string | number | Date | null | undefined,
   b: string | number | Date | null | undefined,
   kind: SortValueKind,

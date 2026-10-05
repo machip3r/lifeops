@@ -14,12 +14,15 @@ Follow the full project standards in **`AGENTS.md`** (repo root) for every chang
 - **Read Next.js docs in `node_modules/next/dist/docs/`** before using Next APIs — this app’s Next version may differ from training data
 - **Reuse / extend shared components** — one Input, Button, FormField pattern, etc.; extract on the second copy; no one-off duplicates; use toasts, never `alert()`
 - **Spanish product UI** — user-visible copy may be Spanish; **routes, files, variables, types, comments, SQL, and API paths are English only** — no Spanish route segments or Spanish identifier names
+- **Human Spanish, few anglicisms** — natural Mexican Spanish in UI/toasts/errors; prefer `correo`, `iniciar sesión`, `enlace`, `archivo` over Spanglish; keep product terms (póliza, asesor, cobranza); see AGENTS.md “Spanish product copy”
 - **Folder structure** — `src/app`, `src/components/ui`, `src/lib`, `src/types`, `supabase/migrations`, `docs/`; colocate `actions.ts` with routes for new mutations; English route segments only (`/dashboard/contracts`, `/dashboard/projection`, …)
+- **Concentrate I/O adapters** — browser Auth → `src/lib/auth/client.ts`; Auth Admin → `src/lib/auth/admin.ts`; Storage → `src/lib/storage/admin.ts`; tables → `db.ts` / `db-admin.ts`. Do not call `supabase.auth.*` / `supabaseAdmin.auth.admin.*` / `supabaseAdmin.storage.*` from pages or routes
 - **Product docs** — if business rules or general LifeOps behavior change, update `README.md` in the same change
 - **Database migrations** — every DB change is a **new** file in `supabase/migrations/`; never edit an already-created migration; update `docs/database.md` in the same change
 - **Verify Supabase project before push** — before `supabase db push` / remote migrations, confirm project ref/name matches the intended env and local `.env` URL; ask if unclear
 - **Validate inputs on the server** with Zod schemas that include **regex + length limits** (`src/lib/validation/schemas.ts`); map failures to **per-field UI errors** via `zodFieldErrors` + `FormField` `error`; sanitize outputs (no unsafe HTML from user data)
-- **Backend on the server** — prefer Server Actions / route handlers + `src/lib/supabase/admin.ts` for privileged work; no GraphQL unless asked; safe Spanish errors
+- **Image uploads** — decode, strip metadata, resize/re-encode server-side before Storage; reject undecodable / oversized / non-allowlisted files (see AGENTS.md “File uploads”)
+- **Backend on the server** — prefer Server Actions / route handlers + adapters (`db-admin`, auth/admin, storage/admin); no GraphQL unless asked; safe Spanish errors
 - **Service role is server-only** — `SUPABASE_SERVICE_ROLE_KEY` + `@/lib/supabase/admin`; never in the browser; privileged APIs use Bearer `authFetch` + `requireOfficeContext`
-- **Design system + responsive + a11y** — CSS variables, labels, focus, icon `aria-label`s; dark UI + golden accent
+- **Design system + responsive + a11y** — CSS variables, labels, focus, icon `aria-label`s; dark UI + golden accent; primary CTAs via `Button` `variant="brand"`
 - **Office tenancy / RLS** — promotory = office-wide; consultant = own data; secrets stay server-side

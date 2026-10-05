@@ -28,5 +28,3 @@ export const PROJECT_NAME_OPTIONS = [
   "SEGUBECA",
   "VIDA MUJER",
 ] as const;
-
-export type ProjectNameOption = (typeof PROJECT_NAME_OPTIONS)[number];

@@ -13,6 +13,7 @@ export type ValidationMessages = {
   date: string;
   contractNumber: string;
   consultantCode: string;
+  consultantName: string;
   notes: string;
   invalid: string;
 };
@@ -29,6 +30,7 @@ export const VALIDATION_MESSAGES: ValidationMessages = {
   date: "Ingresa una fecha válida (AAAA-MM-DD).",
   contractNumber: "Ingresa un número de póliza válido.",
   consultantCode: "Ingresa un código de asesor válido.",
+  consultantName: "Ingresa un nombre de asesor válido.",
   notes: "El texto contiene caracteres no permitidos.",
   invalid: "El valor no es válido.",
 };
@@ -45,6 +47,8 @@ const FIELD_KIND: Record<string, keyof ValidationMessages> = {
   contractNumber: "contractNumber",
   consultant_code: "consultantCode",
   consultantCode: "consultantCode",
+  consultant_name: "consultantName",
+  consultantName: "consultantName",
   notes: "notes",
   details: "notes",
   displayName: "entityName",
@@ -54,6 +58,13 @@ const FIELD_KIND: Record<string, keyof ValidationMessages> = {
   changeType: "required",
   otherChangeType: "entityName",
   contractId: "required",
+  issueDate: "date",
+  priorPaymentDate: "date",
+  lastPaymentDate: "date",
+  collectionDay: "required",
+  paymentMethod: "required",
+  consultantId: "required",
+  clientId: "required",
 };
 
 /** Map Zod issues to per-field Spanish messages. */
@@ -79,6 +90,10 @@ function messageForIssue(
 ): string {
   if (issue.message === "mismatch") return messages.passwordMismatch;
   if (issue.message === "date") return messages.date;
+  if (issue.message === "required") return messages.required;
+  if (issue.message === "prior_after_issue") {
+    return "La fecha del último pago previo no puede ser posterior a la fecha del archivo.";
+  }
 
   if (issue.code === "too_small" && issue.origin === "string") {
     if (issue.minimum === 1) return messages.required;

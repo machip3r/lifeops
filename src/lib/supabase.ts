@@ -34,35 +34,69 @@ export interface Consultant {
     updated_at?: string;
 }
 
-/** Office-scoped label; `section` selects which entity type it applies to. */
-export type TagSection = 'consultant' | 'client';
-
-export interface Tag {
-    id: string;
-    office_id: string;
-    name: string;
-    section: TagSection;
-    created_at?: string;
-    updated_at?: string;
-}
-
-export interface ConsultantTag {
-    consultant_id: string;
-    tag_id: string;
-    created_at?: string;
-}
-
-export interface ConsultantWithTags extends Consultant {
-    tags: Tag[];
-}
-
 export interface Client {
     id: string;
     office_id?: string | null;
     name: string;
     birth_date?: string | null;
+    /** Mexican CURP when known — unique globally; preferred identity for future client login. */
+    curp?: string | null;
+    /** Mexican RFC when known — unique globally. */
+    rfc?: string | null;
     created_at?: string;
     updated_at?: string;
+}
+
+/** How a contract entered LifeOps. */
+export type ContractSource = 'import' | 'manual' | 'mixed';
+
+export interface CommissionImport {
+    id: string;
+    office_id: string;
+    uploaded_by?: string | null;
+    file_name?: string | null;
+    file_path?: string | null;
+    file_type?: string | null;
+    file_size?: number | null;
+    issue_date: string;
+    prior_payment_date?: string | null;
+    status: 'pending' | 'preview' | 'imported' | 'failed';
+    row_count?: number | null;
+    contracts_created?: number | null;
+    contracts_updated?: number | null;
+    payments_marked?: number | null;
+    error_message?: string | null;
+    metadata?: Record<string, unknown> | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface ContractAtRisk {
+    contract_id: string;
+    office_id: string;
+    consultant_id: string;
+    client_id?: string | null;
+    contract_number?: string | null;
+    client_name?: string | null;
+    consultant_name?: string | null;
+    collection_day?: number | null;
+    due_date: string;
+    days_overdue: number;
+    collection_status?: string | null;
+}
+
+export interface ContractPendingPayment {
+    contract_id: string;
+    office_id: string;
+    consultant_id: string;
+    client_id?: string | null;
+    contract_number?: string | null;
+    client_name?: string | null;
+    consultant_name?: string | null;
+    collection_day?: number | null;
+    due_date: string;
+    days_until_due: number;
+    is_overdue: boolean;
 }
 
 /** Cobranza estatus (separate from contract lifecycle `status`). */
@@ -88,9 +122,13 @@ export type CollectionAuditActionType =
 
 export interface Contract {
     id: string;
+    /** Denormalized from consultant for tenancy / unique poliza per office. */
+    office_id: string;
     consultant_id: string;
     client_id?: string | null;
     contract_number?: string | null; // This stores the poliza ID
+    source?: ContractSource;
+    issue_date?: string | null;
     capture_date?: string | null;
     project_name?: string | null;
     insured_amount?: string | null;
@@ -118,19 +156,27 @@ export interface ContractCollectionPayment {
     amount?: number | null;
     notes?: string | null;
     source: CollectionPaymentSource;
+    commission_import_id?: string | null;
     created_by?: string | null;
     updated_by?: string | null;
     created_at?: string;
     updated_at?: string;
 }
 
-export interface CollectionAuditLog {
+export type AuditSource = 'ui' | 'import' | 'api' | 'system';
+/** Stored in audit_log; UI copy uses "promotoría" / "promotora", never this slug. */
+export type AuditActorRole = 'office' | 'consultant' | 'system';
+
+/** Append-only office activity (replaces collection_audit_log + contract_reassignment_log). */
+export interface AuditLog {
     id: string;
     office_id: string;
-    contract_id?: string | null;
     actor_user_id?: string | null;
-    action_type: CollectionAuditActionType;
-    source: CollectionPaymentSource;
+    actor_role?: AuditActorRole | null;
+    action: string;
+    entity_type: string;
+    entity_id?: string | null;
+    source: AuditSource;
     old_values?: Record<string, unknown> | null;
     new_values?: Record<string, unknown> | null;
     created_at?: string;
@@ -153,6 +199,7 @@ export interface ContractChangeRequest {
 export interface ContractDetail {
     id: string;
     contract_id: string;
+    commission_import_id?: string | null;
     issue_date?: string | null; // FECHA EMISION
     payment_date?: string | null; // FECHA PAGO
     premium_payment?: number | null; // PRIMA PAGO
@@ -174,6 +221,8 @@ export interface File {
     consultant_id: string;
     contract_id: string;
     change_request_id?: string | null;
+    /** When set, this file is evidence for a cobranza month payment. */
+    collection_payment_id?: string | null;
     display_name: string;
     file_name: string;
     file_path: string;
@@ -182,52 +231,6 @@ export interface File {
     file_url?: string | null;
     status: string; // Default 'ACTIVE'
     metadata?: { [key: string]: any };
-    created_at?: string;
-    updated_at?: string;
-}
-
-// Legacy Policy interface for backward compatibility (will be removed)
-export interface Policy {
-    id?: string;
-    request_type: 'EMIT' | 'CHANGE' | 'CORRECT';
-    consultant_id: string;
-    consultant_code?: string;
-    consultant_name: string;
-    contract_number?: string;
-    contract_number_status?: string;
-    capture_date?: string;
-    days_in_process?: number;
-    completion_date?: string;
-    days_in_payment_process?: number;
-    deadline_without_coverage?: string;
-    who_processed?: string;
-    drive_link?: string;
-    client_full_name?: string;
-    project_name?: string;
-    insured_amount?: string;
-    annual_premium?: string;
-    weighting?: string;
-    with_payment_method?: string;
-    real_paid?: string;
-    payment_method?: string;
-    currency?: string;
-    collection_channel?: string;
-    payment_date?: string;
-    payment_day?: number;
-    payment_month?: number;
-    payment_year?: number;
-    policy_number?: string;
-    change_type?: string;
-    change_description?: string;
-    bank?: string;
-    token_clabe?: string;
-    card_type?: string;
-    collection_day?: string;
-    folio_to_correct?: string;
-    correction_description?: string;
-    drive_updated?: string;
-    status?: string;
-    notes?: string;
     created_at?: string;
     updated_at?: string;
 }

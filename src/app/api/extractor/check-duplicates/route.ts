@@ -2,16 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   assertOfficeAccess,
-  assertPromotory,
   requireOfficeContext,
 } from "@/lib/auth/api";
 import { findContractsByNumbers } from "@/lib/db-admin";
-import {
-  chunkArray,
-  EXTRACTOR_CONTRACT_NUMBER_BATCH,
-  EXTRACTOR_DB_IN_BATCH,
-  EXTRACTOR_DETAIL_CHECK_BATCH,
-} from "@/lib/extractor/batch";
+import { chunkArray, IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   contractNumberSchema,
@@ -21,7 +15,7 @@ import {
 const bodySchema = z.object({
   officeId: z.string().uuid(),
   /** Accept raw strings; validate each entry so one bad póliza does not blank the import. */
-  contractNumbers: z.array(z.coerce.string()).max(EXTRACTOR_CONTRACT_NUMBER_BATCH),
+  contractNumbers: z.array(z.coerce.string()).max(IMPORT_BATCH_SIZE),
   /** Optional detail checks: contract_number + payment_date + premium for duplicate detection */
   details: z
     .array(
@@ -40,7 +34,7 @@ const bodySchema = z.object({
       }),
     )
     /** Client batches above this; keep a single-request cap aligned with batch helper. */
-    .max(EXTRACTOR_DETAIL_CHECK_BATCH)
+    .max(IMPORT_BATCH_SIZE)
     .optional(),
 });
 
@@ -52,11 +46,6 @@ export async function POST(request: NextRequest) {
   const auth = await requireOfficeContext(request);
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status });
-  }
-
-  const promotory = assertPromotory(auth.ctx);
-  if (!promotory.ok) {
-    return NextResponse.json({ error: promotory.error }, { status: promotory.status });
   }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => ({})));
@@ -99,7 +88,12 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const existing = await findContractsByNumbers(validContractNumbers);
+    // Promotoría: office-wide. Asesor: only their own contracts (tenancy).
+    const existing = await findContractsByNumbers(validContractNumbers, {
+      officeId: parsed.data.officeId,
+      consultantId:
+        auth.ctx.role === "consultant" ? auth.ctx.consultantId : undefined,
+    });
     const byNumber = new Map(existing.map((c) => [c.contract_number, c]));
 
     const duplicateDetails: Array<{
@@ -116,7 +110,7 @@ export async function POST(request: NextRequest) {
           payment_date: string | null;
           premium_payment: number | null;
         }> = [];
-        for (const idChunk of chunkArray(contractIds, EXTRACTOR_DB_IN_BATCH)) {
+        for (const idChunk of chunkArray(contractIds, IMPORT_BATCH_SIZE)) {
           const { data: details, error: detailsError } = await supabaseAdmin
             .from("contract_detail")
             .select("contract_id, payment_date, premium_payment")

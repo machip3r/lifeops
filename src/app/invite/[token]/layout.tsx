@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Accept Invitation - LifeOps",
-  description: "Accept your invitation and create your LifeOps account",
+  title: "Aceptar invitación - LifeOps",
+  description: "Acepta tu invitación y crea tu cuenta en LifeOps",
 };
 
 export default function InviteLayout({

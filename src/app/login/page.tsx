@@ -7,6 +7,8 @@ import Link from 'next/link';
 import { assets } from '../theme/assets';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
+import { Button } from '@/components/ui/button';
 import {
   LIMITS,
   loginSchema,
@@ -173,79 +175,102 @@ export default function LoginPage() {
             {assets.brand.name}
           </Link>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
-            {isSignUp ? 'Crea tu cuenta' : 'Inicia sesión en tu cuenta'}
+            {needsVerification
+              ? 'Verifica tu correo'
+              : isSignUp
+                ? 'Crea tu cuenta'
+                : 'Inicia sesión en tu cuenta'}
           </p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
           {needsVerification ? (
-            <div className="space-y-6">
-              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <p className="text-sm text-blue-800 dark:text-blue-200 mb-4">
-                  Hemos enviado un código de verificación a <strong>{email}</strong>. Por favor
-                  ingresa el código a continuación para verificar tu cuenta.
+            <form onSubmit={handleVerifyCode} className="space-y-6">
+              <div className="space-y-1">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Enviamos un código de 6 dígitos a
                 </p>
-                <form onSubmit={handleVerifyCode} className="space-y-3">
-                  <FormField
-                    label="Código de Verificación"
-                    htmlFor="verificationCode"
-                    variant="auth"
-                    error={fieldErrors.otp}
-                  >
-                    <Input
-                      id="verificationCode"
-                      type="text"
-                      inputMode="numeric"
-                      value={verificationCode}
-                      onChange={(e) =>
-                        setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, LIMITS.otp.max))
-                      }
-                      required
-                      maxLength={LIMITS.otp.max}
-                      className="h-12 text-center text-2xl tracking-widest"
-                      placeholder="000000"
-                      autoComplete="one-time-code"
-                    />
-                  </FormField>
-                  <button
-                    type="submit"
-                    disabled={verifyingCode || verificationCode.length !== LIMITS.otp.max}
-                    className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {verifyingCode ? 'Verificando...' : 'Verificar Código'}
-                  </button>
-                </form>
-                <div className="mt-3 text-center">
-                  <button
-                    type="button"
-                    onClick={handleResendVerification}
-                    disabled={resendingEmail}
-                    className="text-sm text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-                  >
-                    {resendingEmail ? 'Enviando...' : '¿No recibiste el código? Reenviar'}
-                  </button>
-                </div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white break-all">
+                  {email}
+                </p>
               </div>
+
+              <FormField
+                label="Código de verificación"
+                htmlFor="verificationCode"
+                variant="auth"
+                error={fieldErrors.otp}
+              >
+                <Input
+                  id="verificationCode"
+                  type="text"
+                  inputMode="numeric"
+                  value={verificationCode}
+                  onChange={(e) =>
+                    setVerificationCode(
+                      e.target.value.replace(/\D/g, '').slice(0, LIMITS.otp.max),
+                    )
+                  }
+                  required
+                  maxLength={LIMITS.otp.max}
+                  className="h-12 text-center text-2xl tracking-[0.35em] font-medium"
+                  placeholder="000000"
+                  autoComplete="one-time-code"
+                  autoFocus
+                />
+              </FormField>
+
               {success && (
-                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                  <p className="text-sm text-green-800 dark:text-green-200" role="status">
-                    {success}
-                  </p>
-                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300" role="status">
+                  {success}
+                </p>
               )}
               {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-                  <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
-                </div>
+                <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+                  {error}
+                </p>
               )}
-            </div>
+
+              <Button
+                type="submit"
+                disabled={verifyingCode || verificationCode.length !== LIMITS.otp.max}
+                className="w-full h-11"
+              >
+                {verifyingCode ? 'Verificando…' : 'Verificar código'}
+              </Button>
+
+              <div className="flex flex-col items-center gap-2 text-center">
+                <Button
+                  type="button"
+                  variant="link"
+                  onClick={handleResendVerification}
+                  disabled={resendingEmail}
+                  className="h-auto p-0 text-sm"
+                >
+                  {resendingEmail ? 'Enviando…' : 'Reenviar código'}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNeedsVerification(false);
+                    setVerificationCode('');
+                    setError('');
+                    setSuccess('');
+                    setFieldErrors({});
+                  }}
+                  className="text-sm text-gray-600 dark:text-gray-400 hover:underline"
+                >
+                  Usar otro correo
+                </button>
+              </div>
+            </form>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
               {isSignUp && (
                 <>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Los asesores deben ser invitados por una oficina. Solo se pueden crear cuentas
-                    de oficina aquí.
+                    Los asesores deben ser invitados por una promotoría. Solo se pueden crear cuentas
+                    de promotoría aquí.
                   </p>
                   <FormField
                     label="Nombre Completo"
@@ -290,9 +315,8 @@ export default function LoginPage() {
                 variant="auth"
                 error={fieldErrors.password}
               >
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -336,7 +360,7 @@ export default function LoginPage() {
                 </button>
                 {!isSignUp && (
                   <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    ¿Necesitas una cuenta? Contacta a tu oficina para una invitación.
+                    ¿Necesitas una cuenta? Contacta a tu promotoría para una invitación.
                   </p>
                 )}
               </div>
