@@ -78,8 +78,9 @@ office (promotory) ── owns ──► consultants (asesores)
 
 ### Cobranza (`/dashboard/collections`)
 
-- How due dates are calculated (vista general vs list): see [`collection-due-dates.md`](collection-due-dates.md).
-- Year-scoped payment-control grid for **active** contracts (current calendar year): clave, asesor, póliza, cliente, proyecto, moneda, forma/medio de pago, prima al cobro, día de cobro, estatus, and ENE–DIC cells.
+- How due dates are calculated (last payment wins over old commission files): see [`collection-due-dates.md`](collection-due-dates.md).
+- Live list: one row per póliza; next due from latest `paid_at` / prior payment + forma de pago; filter current/upcoming months.
+- Year-scoped payment-control grid (parked/legacy path): clave, asesor, póliza, cliente, proyecto, moneda, forma/medio de pago, prima al cobro, día de cobro, estatus, and ENE–DIC cells.
 - Estatus is editable (`AMPARADO`, `CORRIENTE`, `FLEXIBLE`, `FLEXIBLE/REVISAR`, `MES`, `PERIODO GRACIA`, `ATRASADO`) — stored as `contract.collection_status`, separate from lifecycle `contract.status`.
 - Month cells show scheduled day; highlighted when paid (`paid_at`). Click opens dialog requiring real payment date (optional amount/notes); **manual** marks require payment evidence (image/PDF) linked via `file.collection_payment_id`; import marks do not. Cells with evidence show a paperclip; dialog has **Ver evidencia** (signed URL). Can clear a paid mark.
 - Month marks seed from import/`contract_detail` (`source=import`) without overwriting manual paid marks; edits write `audit_log` (no dedicated Historial UI yet — see [`audit-log-plan.md`](audit-log-plan.md)).

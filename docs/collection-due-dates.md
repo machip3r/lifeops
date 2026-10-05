@@ -1,142 +1,116 @@
 # Fechas de cobro — cómo se calculan y dónde se muestran
 
-Guía corta para entender **de dónde sale la fecha** que ves en Cobranza y en Vista general / Mi resumen.
+Guía corta: **de dónde sale la fecha** en Cobranza y en Vista general / Mi resumen.
 
-Hay **dos caminos**. No usan exactamente la misma regla.
+Regla de producto: la pantalla debe mostrar cobros **actuales y próximos**. Un archivo de comisiones viejo **no** debe “ganar” sobre la fecha de último pago que el usuario registró.
 
 ---
 
-## Ideas base (vocabulario)
+## Ideas base
 
 | Concepto | Qué es |
 | --- | --- |
-| **Fecha de pago del archivo** | `FECHA PAGO` de cada línea en el HTML de comisiones → se guarda en `contract_detail.payment_date`. |
-| **Fecha previa / último pago** | La que pides al dar de alta una póliza nueva (import o registro manual). Es el último cobro **antes** de este archivo / alta. |
-| **Día de cobro** | `contract.collection_day` — número del mes (1–31). Suele tomarse del día de la fecha previa. |
-| **Marca de pago** | Fila en `contract_collection_payment` (año + mes + `paid_at`). Dice “este mes ya se cobró”. |
-| **Forma de pago** | Mensual (+1 mes), Trimestral (+3), Semestral (+6), Anual (+12). |
+| **Último pago conocido** | La fecha más reciente entre: marca en `contract_collection_payment.paid_at` (incluye fecha previa del alta/import) y, si no hay marcas, la `FECHA PAGO` más reciente en `contract_detail`. |
+| **Fecha previa / último pago** | La que pides al dar de alta una póliza nueva (import o registro manual). |
+| **Día de cobro** | `contract.collection_day` (1–31). Suele ser el día de la fecha previa. |
+| **Forma de pago** | Mensual +1 mes, Trimestral +3, Semestral +6, Anual +12. |
+| **FECHA PAGO del archivo** | Líneas de comisión → `contract_detail`. Sirven para monto / historial; **no mandan** si hay un último pago más reciente. |
+
+Código compartido: `src/lib/collections/next-due.ts`.
 
 ---
 
-## Camino A — Importación o alta manual (dónde entra la fecha previa)
+## Alta e import (misma huella)
+
+Import (póliza nueva) y registro manual escriben lo mismo:
 
 ```
-Usuario ingresa "último pago previo"
+Usuario ingresa "último pago" (ej. 5/Oct/2026)
         │
-        ├─► contract.collection_day  = día de esa fecha (ej. 10)
+        ├─► contract.collection_day = 5
         │
         └─► contract_collection_payment
-              year / month de esa fecha
-              paid_at = esa fecha completa
+              paid_at = 2026-10-05  (ese mes queda marcado como pagado)
 ```
 
-**Import (pólizas nuevas):** diálogo de fechas → `priorPaymentByContract` → al importar se llama `seedPriorPaymentsForNewContracts`.
-
-**Alta manual:** campo “fecha último pago” + “día de cobro” → mismo efecto al crear la póliza.
-
-Eso **no** escribe una columna “próximo cobro”. Solo deja:
-
-1. el **día** del mes acordado, y  
-2. que **ese mes ya está marcado como pagado**.
+Así import y alta manual quedan **alineados** para prioridades y para Cobranza.
 
 ---
 
-## Camino B — Vista general / Mi resumen (usa día de cobro + marcas)
-
-Pantallas: `/dashboard` (promotoría) y home del asesor.
-
-### Fórmula de la fecha mostrada
+## Fórmula del próximo cobro (única regla de negocio)
 
 ```
-fecha de cobro = año/mes actual (o el mes evaluado)
-                 + día = collection_day
-```
-
-Si el día no existe en ese mes (ej. 31 en febrero), se usa el último día del mes (`month_due_date` en SQL).
-
-### Flujo hasta la pantalla
-
-```
-contract.collection_day
+último pago conocido  (la más reciente)
         +
-contract_collection_payment (¿hay paid_at ese mes?)
+N meses según forma de pago
+        +
+día = collection_day (si existe; si no, el día del último pago)
         │
         ▼
-RPC SQL
-  • list_contracts_pending_payment  → "Pagos pendientes"
-  • list_contracts_at_risk          → "En riesgo"
-        │
-        ▼
-CollectionPriorityLists
-  muestra: "Cobro: DD/Mmm/AAAA"
+fecha de cobro mostrada
 ```
 
-### Qué lista cuándo
+**Ejemplo (tu caso):**
 
-| Lista | Regla (resumen) |
-| --- | --- |
-| **Pagos pendientes** | Mes actual, con `collection_day`, **sin** marca pagada ese mes, y la fecha cae en los **próximos 15 días** (o ya venció). |
-| **En riesgo** | Hubo una fecha de cobro esperada **sin pago** y llevan más de **30 días** de atraso. |
+1. Importas comisiones de **marzo 2026** (archivo viejo).  
+2. Al registrar la póliza nueva pones **último pago = 5/Oct/2026**, forma **Mensual**.  
+3. Próximo cobro = **5/Nov/2026** (no 10/Abr/2026 del archivo).
 
-Aquí **sí importa la fecha previa**: define el `collection_day` y deja pagado el mes del último cobro, para no pedir de nuevo ese mes.
+Si no hubiera fecha previa ni marcas, recién ahí se usa la `FECHA PAGO` del detalle como respaldo.
 
 ---
 
-## Camino C — Página Cobranza (usa líneas del archivo)
-
-Pantalla: `/dashboard/collections`.
-
-### Fórmula de la fecha mostrada (“Fecha de cobro”)
+## Flujo hasta Cobranza (`/dashboard/collections`)
 
 ```
-fecha de cobro = última payment_date de contract_detail
-                 + N meses según forma de pago
-```
-
-Ejemplo: último `FECHA PAGO` = 10/Mar/2026 + Mensual → **10/Abr/2026**.
-
-Varias líneas de la misma póliza se **suman en monto**; la fecha usa la `payment_date` **más reciente**.
-
-### Flujo hasta la pantalla
-
-```
-Archivo HTML (FECHA PAGO, FORMA DE PAGO, PRIMA PAGO…)
+contract (+ collection_day, payment_method, cliente)
+        +
+última paid_at en contract_collection_payment
+        +
+(opcional) FECHA PAGO del detalle solo si no hay marcas
         │
         ▼
-contract_detail (varias filas por póliza)
+db.collections.listScheduleRows
+  next_due = nextDueFromLastPayment(...)
+  monto ≈ suma de primas del grupo FECHA PAGO más reciente del archivo
         │
         ▼
-Página Cobranza
-  1) lee detalles
-  2) agrupa por póliza (suma montos)
-  3) nextDue = payment_date + meses
-  4) muestra "Fecha de cobro"
+Tabla Cobranza
+  filtro: "Desde este mes en adelante" (default) u "Solo este mes"
+  → oculta vencimientos viejos (ej. Abr/2026 cuando ya estás en Oct)
 ```
-
-La **fecha previa del diálogo de import** **no** entra en esta fórmula. Cobranza mira solo lo que vino en las líneas de comisión.
-
-Filtro “Hasta fin de este mes”: hoy filtra por `payment_date` del detalle (no por la fecha calculada `nextDue`).
 
 ---
 
-## Comparación rápida
+## Flujo hasta Vista general / Mi resumen
+
+```
+collection_day + marcas paid_at por mes
+        │
+        ▼
+RPC
+  • list_contracts_pending_payment  → pagos del mes actual sin marca, ≤ 15 días
+  • list_contracts_at_risk          → sin pago y > 30 días de atraso
+        │
+        ▼
+CollectionPriorityLists → "Cobro: DD/Mmm/AAAA"
+```
+
+Aquí también manda el **día de cobro** y las **marcas** (incluida la fecha previa). Un archivo viejo no redefine el próximo cobro si ya marcaste un último pago más reciente.
+
+---
+
+## Comparación
 
 | | Vista general | Cobranza |
 | --- | --- | --- |
-| Fuente principal | `collection_day` + marcas de pago | `contract_detail.payment_date` |
-| ¿Usa fecha previa? | Sí (vía día + marca) | No |
-| ¿Usa FECHA PAGO del archivo? | Indirecto (al sincronizar marcas / día) | Sí, directo |
-| Qué responde | “¿Este mes ya cobré / voy a cobrar / estoy atrasado?” | “Según el archivo, ¿cuándo sería el siguiente cobro y de cuánto?” |
+| Motor | `collection_day` + marcas del mes | `último paid_at` + forma de pago (+ `collection_day`) |
+| ¿Fecha previa? | Sí (día + marca) | Sí (es el `paid_at` más reciente) |
+| Archivo viejo | No desplaza el próximo cobro si hay pago reciente | Tampoco: manda el último pago conocido |
+| Monto | No muestra monto en las listas de prioridad | Prima del último grupo de líneas del archivo |
 
 ---
 
-## Ejemplo de punta a punta (póliza nueva)
+## Pendiente (backlog)
 
-1. Importas comisiones; la póliza es nueva.  
-2. Ingresas **último pago previo** = `10/Mar/2026`.  
-3. El sistema guarda `collection_day = 10` y marca marzo 2026 como pagado.  
-4. **Vista general:** próximo cobro esperado ≈ **10 del mes actual** (si ese mes no tiene marca).  
-5. En el archivo hay `FECHA PAGO` = `10/Mar/2026` (Mensual).  
-6. **Cobranza:** muestra **10/Abr/2026** (= pago del archivo + 1 mes) y el monto sumado de las líneas.
-
-Si las dos pantallas no coinciden, casi siempre es porque una mira el **día acordado + marcas** y la otra mira el **archivo + forma de pago**.
+Registrar un pago **desde la lista de Cobranza** con evidencia (foto/PDF) — ver `docs/backlog.md` (P1-7). La evidencia al marcar un mes en el grid de control ya existía en el flujo de marca mensual; falta el CTA en esta lista.

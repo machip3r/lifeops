@@ -237,7 +237,7 @@ contract (1) ──< (many) file
 **User Roles**:
 - `promotory`: Office administrators (can manage consultants, contracts, import data; Asesores page)
 - `consultant`: Individual consultants (own contracts, clients, cobranza, and commission import scoped to their `consultant_code`; **no** Asesores page). Profile shows their promotoría name and `consultant_code`. Session profile `id` is always `consultant.id` (not `auth.users.id` / `auth_user_id`).
-- Cobranza list shows **one row per póliza** (sum of commission detail amounts), not one row per detail line.
+- Cobranza list shows **one row per póliza**; next due uses the **latest known payment** (prior/manual mark beats old commission `FECHA PAGO`). See [`docs/collection-due-dates.md`](docs/collection-due-dates.md).
 
 **Authentication Flow**:
 - Uses Supabase Auth

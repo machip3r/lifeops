@@ -29,6 +29,7 @@ Companion: [`scope-fase1.md`](scope-fase1.md) · [`plan-p0-p1.md`](plan-p0-p1.md
 | P1-4 | Badge “En peligro” en listados pólizas / cobranza | todo | |
 | P1-5 | UX pass asesor (móvil cobranza, fewer clicks) | todo | |
 | P1-6 | Al reasignar: bloquear cross-office + conservar historial | done | Cubierto en P0-1 |
+| P1-7 | Cobranza lista: registrar pago con evidencia desde la fila | todo | CTA en `/dashboard/collections`; reutilizar upload `file.collection_payment_id` (P0-3). Ver [`collection-due-dates.md`](collection-due-dates.md) |
 
 ---
 
