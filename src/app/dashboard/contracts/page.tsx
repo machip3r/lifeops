@@ -15,6 +15,8 @@ import { ListSearchFilters } from '@/components/list-search-filters';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { AtRiskBadge } from '@/components/collections/at-risk-badge';
+import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 
 type ContractRow = Contract & { client_name?: string };
 type SortKey = 'client_name' | 'contract_number' | 'project_name' | 'payment_method' | 'capture_date';
@@ -50,6 +52,7 @@ function ContractsPageContent() {
   const [manualOpen, setManualOpen] = useState(false);
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
+  const [atRiskById, setAtRiskById] = useState<Record<string, number>>({});
 
   const loadContracts = useCallback(async () => {
     try {
@@ -60,17 +63,29 @@ function ContractsPageContent() {
           ? { column: sortKey, ascending: sortDir === 'asc' }
           : undefined;
 
-      const result = await db.contract.getContractsWithClientsPage({
-        consultantId: profile.role === 'consultant' ? profile.id : undefined,
-        officeId: profile.role === 'promotory' ? profile.id : undefined,
-        search: search || undefined,
-        sort: dbSort,
-        page,
-        pageSize,
-      });
+      const [result, atRiskRows] = await Promise.all([
+        db.contract.getContractsWithClientsPage({
+          consultantId: profile.role === 'consultant' ? profile.id : undefined,
+          officeId: profile.role === 'promotory' ? profile.id : undefined,
+          search: search || undefined,
+          sort: dbSort,
+          page,
+          pageSize,
+        }),
+        db.dashboard.listContractsAtRisk({
+          consultantId: profile.role === 'consultant' ? profile.id : undefined,
+          officeId: profile.role === 'promotory' ? profile.id : undefined,
+          riskDays: POLICY_AT_RISK_DAYS,
+        }),
+      ]);
 
       setContracts(result.rows);
       setTotal(result.total);
+      const map: Record<string, number> = {};
+      for (const row of atRiskRows) {
+        map[row.contract_id] = row.days_overdue;
+      }
+      setAtRiskById(map);
     } catch (error) {
       console.error('Error loading contracts:', error);
     } finally {
@@ -221,7 +236,12 @@ function ContractsPageContent() {
                       {contract.client_name || '—'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {contract.contract_number || '—'}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{contract.contract_number || '—'}</span>
+                        {atRiskById[contract.id] != null ? (
+                          <AtRiskBadge daysOverdue={atRiskById[contract.id]} />
+                        ) : null}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {contract.project_name || '—'}

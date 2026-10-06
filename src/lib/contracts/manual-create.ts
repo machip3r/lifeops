@@ -9,6 +9,8 @@ export type ManualContractInput = {
   clientId?: string | null;
   clientName: string;
   birthDate?: string | null;
+  curp?: string | null;
+  rfc?: string | null;
   issueDate: string;
   collectionDay: number;
   lastPaymentDate: string;
@@ -94,18 +96,47 @@ async function resolveClient(
     return { ok: true, data: { id: data.id as string } };
   }
 
+  const curp = input.curp?.trim().toUpperCase() || null;
+  const rfc = input.rfc?.trim().toUpperCase() || null;
+
+  if (curp) {
+    const { data: byCurp } = await client
+      .from("client")
+      .select("id")
+      .ilike("curp", curp)
+      .maybeSingle();
+    if (byCurp) return { ok: true, data: { id: byCurp.id as string } };
+  }
+  if (rfc) {
+    const { data: byRfc } = await client
+      .from("client")
+      .select("id")
+      .ilike("rfc", rfc)
+      .maybeSingle();
+    if (byRfc) return { ok: true, data: { id: byRfc.id as string } };
+  }
+
   const { data: created, error } = await client
     .from("client")
     .insert({
       name: input.clientName.trim(),
       birth_date: input.birthDate || null,
       office_id: actor.officeId,
+      curp,
+      rfc,
     })
     .select("id")
     .single();
 
   if (error || !created) {
     console.error(error);
+    if (error?.code === "23505") {
+      return {
+        ok: false,
+        error: "Ya existe un cliente con ese CURP o RFC.",
+        fieldErrors: { curp: "CURP o RFC ya registrado." },
+      };
+    }
     return { ok: false, error: "No se pudo registrar el cliente." };
   }
 

@@ -223,10 +223,13 @@ Collections helper (see `002_collections_control.sql`):
 
 - `seed_collection_payments_from_details(year_param)` — SECURITY INVOKER; upserts import-sourced month marks from `contract_detail.payment_date` for the year; never overwrites paid **manual** rows; prefills `contract.collection_day` when null.
 
-Risk / reminders (see `011_commission_import_risk_evidence.sql`):
+Risk / reminders (see `011_commission_import_risk_evidence.sql`, `012_at_risk_days_30.sql`, `023_at_risk_from_last_payment.sql`):
 
-- `list_contracts_at_risk(office_id, consultant_id, risk_days=30, lookback_months=12)` — SECURITY DEFINER + `caller_can_access_*`; unpaid expected cobro dates older than `risk_days` (default **30**; see migration `012_at_risk_days_30.sql`).
-- `list_contracts_pending_payment(office_id, consultant_id, within_days=15)` — current month unpaid with due within horizon.
+- `payment_method_step_months(text)` — Mensual=1, Trimestral=3, Semestral=6, Anual=12.
+- `next_due_from_last_payment(last_paid, payment_method, collection_day)` — same next-due rule as Cobranza (`src/lib/collections/next-due.ts`).
+- `contract_last_known_payment(contract_id)` — latest `contract_collection_payment.paid_at`, else latest `contract_detail.payment_date`.
+- `list_contracts_at_risk(office_id, consultant_id, risk_days=30, lookback_months=12)` — SECURITY DEFINER + `caller_can_access_*`; next due from last known payment more than `risk_days` overdue (`lookback_months` unused, kept for API compat).
+- `list_contracts_pending_payment(office_id, consultant_id, within_days=15)` — next due within horizon (or overdue ≤ 30 days); excludes at-risk.
 - `month_due_date(y, m, day)` — clamps day-of-month to calendar month length.
 
 Prefer **extending RPCs** over client-side heavy aggregation. Any signature change ships as a **new migration** and an update to this doc.

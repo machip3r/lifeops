@@ -76,6 +76,24 @@ function parseFlexibleDateToIso(value: string): string | null {
   return `${m[3]}-${mm}-${dd}`;
 }
 
+function todayIsoDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Calendar day before `iso` (YYYY-MM-DD), or null if invalid. */
+function dayBeforeIso(iso: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function minIsoDate(a: string, b: string): string {
+  return a <= b ? a : b;
+}
+
 function isoToDdMmYyyy(iso: string): string {
   const [y, m, d] = iso.split('-');
   if (!y || !m || !d) return iso;
@@ -1144,9 +1162,9 @@ function ExtractorPageContent() {
             }],
             warnings: skippedOtherCodes > 0
               ? [{
-                  row: 0,
-                  message: `Se omitieron ${skippedOtherCodes} fila(s) de otros asesores.`,
-                }]
+                row: 0,
+                message: `Se omitieron ${skippedOtherCodes} fila(s) de otros asesores.`,
+              }]
               : [],
           });
           return;
@@ -1245,23 +1263,31 @@ function ExtractorPageContent() {
 
     const errors: Record<string, string> = {};
     const fileIso = dialogFileIssueDate.trim();
+    const todayIso = todayIsoDate();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fileIso)) {
       errors.issueDate = 'Indica la fecha de emisión del archivo.';
+    } else if (fileIso > todayIso) {
+      errors.issueDate = 'No puede ser una fecha futura.';
     }
 
     for (const row of newPolicyDateRows) {
       const prior = row.priorPaymentDate.trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(prior)) {
         errors[`prior:${row.key}`] = 'Obligatoria para pólizas nuevas.';
-      } else if (fileIso && prior > fileIso) {
-        errors[`prior:${row.key}`] =
-          'No puede ser posterior a la fecha del archivo.';
+      } else if (prior > todayIso) {
+        errors[`prior:${row.key}`] = 'No puede ser una fecha futura.';
       }
     }
 
     for (const row of missingIssueDateRows) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(row.issueDate.trim())) {
+      const issue = row.issueDate.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(issue)) {
         errors[`issue:${row.key}`] = 'Obligatoria para importar.';
+      } else if (issue > todayIso) {
+        errors[`issue:${row.key}`] = 'No puede ser una fecha futura.';
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(fileIso) && issue >= fileIso) {
+        errors[`issue:${row.key}`] =
+          'Debe ser anterior a la fecha del archivo de comisiones.';
       }
     }
 
@@ -1605,6 +1631,12 @@ function ExtractorPageContent() {
     }
   };
 
+  const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+  const canContinueImportDates =
+    isIsoDate(dialogFileIssueDate) &&
+    newPolicyDateRows.every((row) => isIsoDate(row.priorPaymentDate)) &&
+    missingIssueDateRows.every((row) => isIsoDate(row.issueDate));
+
   return (
     <div>
       <div className="text-center mb-6">
@@ -1822,8 +1854,8 @@ function ExtractorPageContent() {
                   : 'text-yellow-800 dark:text-yellow-200'
                   }`}>
                   {importResult.errors.length === 0
-                    ? `✅ ¡Se importaron exitosamente ${importResult.success} póliza(s)!`
-                    : `⚠️ Importación completada: ${importResult.success} importados, ${importResult.errors.length} error(es)`
+                    ? `¡Se importaron exitosamente ${importResult.success} póliza(s)!`
+                    : `Importación completada: ${importResult.success} importados, ${importResult.errors.length} error(es)`
                   }
                 </h3>
                 {importResult.errors.length > 0 && (
@@ -2040,6 +2072,7 @@ function ExtractorPageContent() {
                   id="import-file-issue-date"
                   type="date"
                   value={dialogFileIssueDate}
+                  max={todayIsoDate()}
                   onChange={(e) => {
                     setDialogFileIssueDate(e.target.value);
                     setImportDateErrors((prev) => {
@@ -2058,8 +2091,9 @@ function ExtractorPageContent() {
                     Último pago previo (pólizas nuevas)
                   </h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Indica, por póliza, la fecha del último pago <strong>antes</strong> de este
-                    archivo.
+                    Indica, por póliza, la fecha del <strong>último pago real</strong> conocido
+                    (puede ser más reciente que el archivo si el archivo es viejo). Sirve para
+                    calcular el próximo cobro. No se admiten fechas futuras.
                   </p>
                   <div className="space-y-3">
                     {newPolicyDateRows.map((row, index) => (
@@ -2075,7 +2109,7 @@ function ExtractorPageContent() {
                           </span>
                         </p>
                         <FormField
-                          label="Último pago previo"
+                          label="Último pago conocido"
                           htmlFor={`prior-payment-${index}`}
                           variant="auth"
                           error={importDateErrors[`prior:${row.key}`]}
@@ -2084,7 +2118,7 @@ function ExtractorPageContent() {
                             id={`prior-payment-${index}`}
                             type="date"
                             value={row.priorPaymentDate}
-                            max={dialogFileIssueDate || undefined}
+                            max={todayIsoDate()}
                             onChange={(e) => {
                               const value = e.target.value;
                               setNewPolicyDateRows((prev) =>
@@ -2115,53 +2149,62 @@ function ExtractorPageContent() {
                     Fecha de emisión faltante
                   </h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Estas pólizas no traen FECHA EMISION en el archivo. Complétala para
-                    importarlas.
+                    Estas pólizas no traen FECHA EMISION en el archivo. Debe ser{' '}
+                    <strong>anterior</strong> a la fecha del archivo de comisiones (hoy sí se
+                    permite si el archivo es más reciente).
                   </p>
                   <div className="space-y-3">
-                    {missingIssueDateRows.map((row, index) => (
-                      <div
-                        key={row.key}
-                        className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-                      >
-                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">
-                          {row.contractNumber}
-                          <span className="text-gray-500 dark:text-gray-400 font-normal">
-                            {' '}
-                            · {row.clientName}
-                            {row.rowIndexes.length > 1
-                              ? ` · ${row.rowIndexes.length} filas`
-                              : ''}
-                          </span>
-                        </p>
-                        <FormField
-                          label="Fecha de emisión"
-                          htmlFor={`missing-issue-${index}`}
-                          variant="auth"
-                          error={importDateErrors[`issue:${row.key}`]}
+                    {missingIssueDateRows.map((row, index) => {
+                      const todayIso = todayIsoDate();
+                      const dayBeforeFile = dayBeforeIso(dialogFileIssueDate.trim());
+                      const issueMax = dayBeforeFile
+                        ? minIsoDate(todayIso, dayBeforeFile)
+                        : todayIso;
+                      return (
+                        <div
+                          key={row.key}
+                          className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
                         >
-                          <Input
-                            id={`missing-issue-${index}`}
-                            type="date"
-                            value={row.issueDate}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setMissingIssueDateRows((prev) =>
-                                prev.map((r) =>
-                                  r.key === row.key ? { ...r, issueDate: value } : r,
-                                ),
-                              );
-                              setImportDateErrors((prev) => {
-                                const next = { ...prev };
-                                delete next[`issue:${row.key}`];
-                                return next;
-                              });
-                            }}
-                            required
-                          />
-                        </FormField>
-                      </div>
-                    ))}
+                          <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+                            {row.contractNumber}
+                            <span className="text-gray-500 dark:text-gray-400 font-normal">
+                              {' '}
+                              · {row.clientName}
+                              {row.rowIndexes.length > 1
+                                ? ` · ${row.rowIndexes.length} filas`
+                                : ''}
+                            </span>
+                          </p>
+                          <FormField
+                            label="Fecha de emisión"
+                            htmlFor={`missing-issue-${index}`}
+                            variant="auth"
+                            error={importDateErrors[`issue:${row.key}`]}
+                          >
+                            <Input
+                              id={`missing-issue-${index}`}
+                              type="date"
+                              value={row.issueDate}
+                              max={issueMax}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setMissingIssueDateRows((prev) =>
+                                  prev.map((r) =>
+                                    r.key === row.key ? { ...r, issueDate: value } : r,
+                                  ),
+                                );
+                                setImportDateErrors((prev) => {
+                                  const next = { ...prev };
+                                  delete next[`issue:${row.key}`];
+                                  return next;
+                                });
+                              }}
+                              required
+                            />
+                          </FormField>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2180,7 +2223,8 @@ function ExtractorPageContent() {
                 <button
                   type="button"
                   onClick={() => void handleConfirmImportDates()}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold"
+                  disabled={!canContinueImportDates}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-50 disabled:pointer-events-none disabled:hover:bg-green-600"
                 >
                   Continuar importación
                 </button>

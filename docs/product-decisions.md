@@ -15,7 +15,7 @@ Validated decisions for the registration + collections refactor. Complements [`h
 | Roles MVP | Dueño (`promotory`) + asesor (`consultant`). Rol operaciones = post-MVP. |
 | Peligro | Más de **30 días** después de la fecha de cobro esperada sin pago registrado. |
 | Reasignación | La promotoría puede mover una póliza a otro asesor de la **misma office** (mismo `contract_number` y cliente; se actualiza `consultant_id` / `office_id` vía trigger). |
-| Alta inicial vía comisiones | Si la póliza entra **por primera vez**, el import exige **fecha del último pago previo** al archivo actual (+ fecha de emisión del archivo). Se usa para día de cobro, predicción y estatus inicial. |
+| Alta inicial vía comisiones | Si la póliza entra **por primera vez**, el import exige **fecha del último pago conocido** (+ fecha de emisión del archivo). Puede ser **más reciente** que el archivo (archivos viejos); solo se rechazan fechas futuras. Se usa para día de cobro, predicción y estatus inicial. |
 | Portal Monterrey | Sin sync automática obligatoria; humanos actualizan. |
 
 ## Dedupe de cliente (B + C)

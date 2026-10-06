@@ -721,6 +721,9 @@ export const db = {
             const fileIssueDate = importMeta?.fileIssueDate?.trim() || null;
             const priorPaymentByContract = importMeta?.priorPaymentByContract ?? {};
 
+            const today = new Date();
+            const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
             if (!fileIssueDate || !/^\d{4}-\d{2}-\d{2}$/.test(fileIssueDate)) {
                 return {
                     success: 0,
@@ -731,15 +734,26 @@ export const db = {
                     warnings: [],
                 };
             }
+            if (fileIssueDate > todayIso) {
+                return {
+                    success: 0,
+                    errors: [{
+                        row: 0,
+                        error: 'La fecha de emisión del archivo no puede ser futura.',
+                    }],
+                    warnings: [],
+                };
+            }
 
             for (const [key, prior] of Object.entries(priorPaymentByContract)) {
                 const paidAt = prior?.trim() || '';
-                if (!/^\d{4}-\d{2}-\d{2}$/.test(paidAt) || paidAt > fileIssueDate) {
+                // May be after file issue date (old commission files); only reject future dates.
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(paidAt) || paidAt > todayIso) {
                     return {
                         success: 0,
                         errors: [{
                             row: 0,
-                            error: `La fecha del último pago previo de la póliza "${key}" debe ser válida y no posterior a la fecha del archivo.`,
+                            error: `La fecha del último pago de la póliza "${key}" debe ser válida y no futura.`,
                         }],
                         warnings: [],
                     };
@@ -1795,7 +1809,12 @@ export const db = {
                 .select()
                 .single();
 
-            if (error) throw error;
+            if (error) {
+                if (error.code === '23505') {
+                    throw new Error('Ya existe un cliente con ese CURP o RFC.');
+                }
+                throw error;
+            }
             return data;
         },
 
@@ -1872,17 +1891,29 @@ export const db = {
         },
 
         updateClient: async (id: string, updates: Partial<Client>): Promise<Client> => {
+            const payload: Partial<Client> = { ...updates };
+            if (payload.curp != null) {
+                payload.curp = String(payload.curp).trim().toUpperCase() || null;
+            }
+            if (payload.rfc != null) {
+                payload.rfc = String(payload.rfc).trim().toUpperCase() || null;
+            }
             const { data, error } = await supabase
                 .from('client')
                 .update({
-                    ...updates,
+                    ...payload,
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', id)
                 .select()
                 .single();
 
-            if (error) throw error;
+            if (error) {
+                if (error.code === '23505') {
+                    throw new Error('Ya existe un cliente con ese CURP o RFC.');
+                }
+                throw error;
+            }
             return data;
         },
 

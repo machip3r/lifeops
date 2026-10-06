@@ -49,6 +49,8 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
   const [clientId, setClientId] = useState('');
   const [clientName, setClientName] = useState('');
   const [birthDate, setBirthDate] = useState('');
+  const [clientCurp, setClientCurp] = useState('');
+  const [clientRfc, setClientRfc] = useState('');
   const [issueDate, setIssueDate] = useState('');
   const [collectionDay, setCollectionDay] = useState('');
   const [lastPaymentDate, setLastPaymentDate] = useState('');
@@ -115,6 +117,8 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
     setClientId('');
     setClientName('');
     setBirthDate('');
+    setClientCurp('');
+    setClientRfc('');
     setIssueDate('');
     setCollectionDay('');
     setLastPaymentDate('');
@@ -145,10 +149,14 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
     setClientId('');
     setClientName('');
     setBirthDate('');
+    setClientCurp('');
+    setClientRfc('');
     setFieldErrors((prev) => {
       const next = { ...prev };
       delete next.clientId;
       delete next.clientName;
+      delete next.curp;
+      delete next.rfc;
       return next;
     });
   };
@@ -194,6 +202,8 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
             ? (clients.find((c) => c.id === clientId)?.name || clientName).trim()
             : clientName.trim(),
         birthDate: birthDate.trim() || null,
+        curp: clientMode === 'new' ? clientCurp.trim().toUpperCase() || null : null,
+        rfc: clientMode === 'new' ? clientRfc.trim().toUpperCase() || null : null,
         issueDate,
         collectionDay: Number(collectionDay),
         lastPaymentDate: lastPaymentDate.trim(),
@@ -377,6 +387,42 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                     className="block w-full min-w-0"
                   />
                 </FormField>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    label="CURP"
+                    htmlFor="manual-client-curp"
+                    variant="auth"
+                    hint="Opcional"
+                    error={fieldErrors.curp}
+                  >
+                    <Input
+                      id="manual-client-curp"
+                      value={clientCurp}
+                      onChange={(e) => setClientCurp(e.target.value.toUpperCase())}
+                      maxLength={18}
+                      autoCapitalize="characters"
+                      placeholder="XXXX000000XXXXXX00"
+                      className="uppercase"
+                    />
+                  </FormField>
+                  <FormField
+                    label="RFC"
+                    htmlFor="manual-client-rfc"
+                    variant="auth"
+                    hint="Opcional"
+                    error={fieldErrors.rfc}
+                  >
+                    <Input
+                      id="manual-client-rfc"
+                      value={clientRfc}
+                      onChange={(e) => setClientRfc(e.target.value.toUpperCase())}
+                      maxLength={13}
+                      autoCapitalize="characters"
+                      placeholder="XXXX000000XXX"
+                      className="uppercase"
+                    />
+                  </FormField>
+                </div>
               </div>
             )}
           </section>

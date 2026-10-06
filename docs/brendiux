@@ -1,0 +1,45 @@
+[12:43, 9/25/2026] Brendiux: mira
+
+
+cuando registran una póliza puede ser que se tomen los datos
+
+CLAVE DE ASESOR
+NUMERO DE POLIZA
+NOMBRE DE CLIENTE
+FECHA DE EMISION
+PROYECTO
+CONDUCTO DE COBRO
+DÍA DE COBRO
+
+los que no se es
+FORMA DE PAGO
+
+Porque por ejemplo ya que se agregue el de comisiones , de ahi la idea es que se jale o se complete la info y pues de ahi se jalaria lo de
+
+ (5,2, etc) que son las formas de pago y pues de hecho no dice escrito como tal si es mensual , entonces para esa relacion a lo mejor seria mejor que lo tome directo de esta parte (si es que ya vas a empezar con el de comisiones)
+
+Luego tambien ya pensando , luego pasa que los clientes meten AVE a su proyecto, y ahi tambien se ve en comisiones , entonces si ellos meten pero es una de AVE y no de un recibo real, si…
+[12:45, 9/25/2026] Brendiux: en cuanto a folios de CAMBIOS
+
+pues seria
+CLAVE DE ASESOR
+NUMERO DE POLIZA
+
+y seleccionar el cambio por hacer, de que por ejemplo forma de pago pues no se como se podria vincular a la poliza real a ese campo por cambiar o sea mas manual, como de ya que se le ponga que se ACEPTO el cambio (el usuario de operaciones) le lance poder editar los campos de la póliza en base a lo que cambio y al portal real (ya se que no se conecta real jajaja)
+[12:53, 9/25/2026] Brendiux: en donde cambia un poco es con el FOLIO DE EMISION porque la idea es que no tenga que registrar tantas cosas el asesor entonces actualmente lo que les pedimos es
+
+CLAVE
+NOMBRE CLIENTE COMPLETO
+PROYECTO
+FOLIO (En caso de haber hecho el tramite digital , porque cuando se hace digital se hace automático el folio , pero si es fisico nosotros como operaciones lo tenemos que hacer el folio, me explico?)
+SUBIR DOCS: solicitud inicial, cotizacion, Ine , y asi  (por estos docs nosotros podemos completar toda la informacion que me sirve a mi para proyectar como es: ESTADO DE TRÁMITE	ESTADO DE FOLIO	FECHA DE TERMINO (EMISIÓN)	DÍAS TRANSCURRIDOS	NOMBRE DE CLIENTE (COMPLETO)	PROYECTO	TIPO (vida o gmm)	SUMA ASEGURADA	PRIMA ANUAL	 FORMA DE PAGO	CONTEO(valor de poliza)	MONEDA	CONDUCTO DE COBRO	FECHA DE PAGO	DÍA DE PAGO	MES PAGO	AÑO PAGO	BANCO
+
+y datos asi , que la verdad estan medio revueltos porque con eso puedo yo sacar varios listados
+
+De que si le pongo que el tramite esta en proceso , pues en otra hoja me arroja la lista de polizas en proceso y ahi me interesa a lo mejor de que el estado del folio
+
+pero en otra hoja que ponle que sea de pendientes de primera aportacion , ahi es donde me sirve a lo mejor lo del banco y la fecha de emision y etc sabes?
+
+
+
+al momento de subir comisiones, checar nombres de clientes ya creados, relacionarlos con un algoritmo de similitud de cadenas de texto, y si tiene un cierto umbral, pues seria el mismo

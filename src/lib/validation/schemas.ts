@@ -205,6 +205,17 @@ export const commissionImportMetaSchema = z
     requiresPriorPayment: z.boolean().default(false),
   })
   .superRefine((val, ctx) => {
+    const today = new Date();
+    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+    if (val.issueDate > todayIso) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["issueDate"],
+        message: "date",
+      });
+    }
+
     if (val.requiresPriorPayment && !val.priorPaymentDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -212,15 +223,13 @@ export const commissionImportMetaSchema = z
         message: "required",
       });
     }
-    if (
-      val.priorPaymentDate &&
-      val.issueDate &&
-      val.priorPaymentDate > val.issueDate
-    ) {
+    // Last known payment may be after the commission file date (old files).
+    // Only reject future calendar dates.
+    if (val.priorPaymentDate && val.priorPaymentDate > todayIso) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["priorPaymentDate"],
-        message: "prior_after_issue",
+        message: "date",
       });
     }
   });
@@ -442,6 +451,8 @@ export const createManualContractSchema = z.object({
   clientId: uuidSchema.optional().nullable(),
   clientName: personNameSchema,
   birthDate: optionalIsoDateSchema,
+  curp: optionalCurpSchema.optional(),
+  rfc: optionalRfcSchema.optional(),
   issueDate: isoDateRequiredSchema,
   collectionDay: collectionDaySchema,
   lastPaymentDate: isoDateRequiredSchema,

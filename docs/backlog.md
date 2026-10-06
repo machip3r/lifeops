@@ -23,13 +23,13 @@ Companion: [`scope-fase1.md`](scope-fase1.md) · [`plan-p0-p1.md`](plan-p0-p1.md
 
 | ID | Tarea | Estado | Notas |
 | --- | --- | --- | --- |
-| P1-1 | CURP/RFC en formularios de cliente | todo | Validación Zod ya existe |
-| P1-2 | Día de cobro (`collection_day`) en alta manual de póliza | todo | |
+| P1-1 | CURP/RFC en formularios de cliente | done | Dialog clientes + alta manual de póliza; dedupe por CURP/RFC |
+| P1-2 | Día de cobro (`collection_day`) en alta manual de póliza | done | Ya en `ManualContractDialog` |
 | P1-3 | Historial de lotes `commission_import` | todo | Lista en extractor o página simple |
-| P1-4 | Badge “En peligro” en listados pólizas / cobranza | todo | |
-| P1-5 | UX pass asesor (móvil cobranza, fewer clicks) | todo | |
+| P1-4 | Badge “En peligro” en listados pólizas / cobranza | done | `AtRiskBadge` en pólizas + cobranza |
+| P1-5 | UX pass asesor (móvil cobranza, fewer clicks) | done | CTA Pago compacto, columnas responsive en cobranza |
 | P1-6 | Al reasignar: bloquear cross-office + conservar historial | done | Cubierto en P0-1 |
-| P1-7 | Cobranza lista: registrar pago con evidencia desde la fila | todo | CTA en `/dashboard/collections`; reutilizar upload `file.collection_payment_id` (P0-3). Ver [`collection-due-dates.md`](collection-due-dates.md) |
+| P1-7 | Cobranza lista: registrar pago con evidencia desde la fila | done | `RegisterPaymentDialog` + `collections/actions.ts`; evidencia obligatoria |
 
 ---
 

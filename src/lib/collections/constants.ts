@@ -3,6 +3,9 @@ import type { CollectionStatus } from "@/lib/supabase";
 /** Days after expected collection date without payment ⇒ policy is at risk. */
 export const POLICY_AT_RISK_DAYS = 30;
 
+/** Horizon for "pagos por registrar" on Vista general / Mi resumen. */
+export const PENDING_PAYMENT_WITHIN_DAYS = 15;
+
 export const COLLECTION_STATUS_OPTIONS: {
   value: CollectionStatus;
   label: string;

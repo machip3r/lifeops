@@ -65,7 +65,7 @@ office (promotory) ── owns ──► consultants (asesores)
 1. Upload HTML/MHTML commission files (portal sync and Excel import are out of the live product).
 2. Preview combined rows; validate consultants by `consultant_code` (asesor).
 3. **Asesor:** only rows matching their own `consultant_code` are kept; other codes are skipped (and rejected again in `importContractsFromTable`). They never auto-create other asesores.
-4. Before import, user must enter **fecha de emisión del archivo**. If the file includes **pólizas nuevas** (first time in LifeOps), also enter **fecha del último pago previo** (last payment before this file) — used to seed cobranza, predict next dues, and set initial collection status.
+4. Before import, user must enter **fecha de emisión del archivo**. If the file includes **pólizas nuevas** (first time in LifeOps), also enter **fecha del último pago conocido** — may be after the file date when the commission file is old; future dates are rejected. Used to seed cobranza, predict next dues, and set initial collection status.
 5. **Promotoría only:** missing consultants on import — default auto-create (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API; if `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`, UI requires email/password per new code. Same asesor code may exist in another office.
 6. Import creates `commission_import` batch; upserts contracts + `contract_detail` rows; seeds prior payment for new policies; seeds cobranza marks from payment dates in the file.
 

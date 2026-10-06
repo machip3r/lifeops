@@ -91,10 +91,6 @@ function messageForIssue(
   if (issue.message === "mismatch") return messages.passwordMismatch;
   if (issue.message === "date") return messages.date;
   if (issue.message === "required") return messages.required;
-  if (issue.message === "prior_after_issue") {
-    return "La fecha del último pago previo no puede ser posterior a la fecha del archivo.";
-  }
-
   if (issue.code === "too_small" && issue.origin === "string") {
     if (issue.minimum === 1) return messages.required;
     if (field === "password" || field === "confirmPassword") {

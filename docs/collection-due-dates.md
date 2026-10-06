@@ -11,7 +11,8 @@ Regla de producto: la pantalla debe mostrar cobros **actuales y próximos**. Un 
 | Concepto | Qué es |
 | --- | --- |
 | **Último pago conocido** | La fecha más reciente entre: marca en `contract_collection_payment.paid_at` (incluye fecha previa del alta/import) y, si no hay marcas, la `FECHA PAGO` más reciente en `contract_detail`. |
-| **Fecha previa / último pago** | La que pides al dar de alta una póliza nueva (import o registro manual). |
+| **Fecha previa / último pago** | La que pides al dar de alta una póliza nueva (import o registro manual). Puede ser **más reciente** que el archivo de comisiones (archivo viejo). Solo se rechazan fechas futuras (hoy sí). |
+| **FECHA EMISION (póliza)** | Si falta en el archivo, se pide en el dialog. Debe ser **anterior** a la fecha del archivo de comisiones; no futuras (hoy sí, si el archivo es más reciente). |
 | **Día de cobro** | `contract.collection_day` (1–31). Suele ser el día de la fecha previa. |
 | **Forma de pago** | Mensual +1 mes, Trimestral +3, Semestral +6, Anual +12. |
 | **FECHA PAGO del archivo** | Líneas de comisión → `contract_detail`. Sirven para monto / historial; **no mandan** si hay un último pago más reciente. |
@@ -85,18 +86,18 @@ Tabla Cobranza
 ## Flujo hasta Vista general / Mi resumen
 
 ```
-collection_day + marcas paid_at por mes
+último pago conocido + forma de pago (+ collection_day)
         │
         ▼
-RPC
-  • list_contracts_pending_payment  → pagos del mes actual sin marca, ≤ 15 días
-  • list_contracts_at_risk          → sin pago y > 30 días de atraso
+RPC (misma fórmula que Cobranza → next_due_from_last_payment)
+  • list_contracts_pending_payment  → próximo cobro en ≤ 15 días (o vencido ≤ 30)
+  • list_contracts_at_risk          → próximo cobro con > 30 días de atraso
         │
         ▼
 CollectionPriorityLists → "Cobro: DD/Mmm/AAAA"
 ```
 
-Aquí también manda el **día de cobro** y las **marcas** (incluida la fecha previa). Un archivo viejo no redefine el próximo cobro si ya marcaste un último pago más reciente.
+Un archivo de comisiones viejo **no** mete en peligro meses intermedios vacíos: solo cuenta el **próximo cobro** desde el último pago conocido.
 
 ---
 
@@ -104,13 +105,22 @@ Aquí también manda el **día de cobro** y las **marcas** (incluida la fecha pr
 
 | | Vista general | Cobranza |
 | --- | --- | --- |
-| Motor | `collection_day` + marcas del mes | `último paid_at` + forma de pago (+ `collection_day`) |
-| ¿Fecha previa? | Sí (día + marca) | Sí (es el `paid_at` más reciente) |
-| Archivo viejo | No desplaza el próximo cobro si hay pago reciente | Tampoco: manda el último pago conocido |
+| Motor | `último paid_at` / FECHA PAGO + forma de pago (+ `collection_day`) | Igual |
+| ¿Fecha previa? | Sí (es el `paid_at` más reciente) | Sí |
+| Archivo viejo | No inventa atrasos mes a mes; manda el último pago | Igual |
 | Monto | No muestra monto en las listas de prioridad | Prima del último grupo de líneas del archivo |
 
 ---
 
-## Pendiente (backlog)
+## Registrar pago desde Cobranza
 
-Registrar un pago **desde la lista de Cobranza** con evidencia (foto/PDF) — ver `docs/backlog.md` (P1-7). La evidencia al marcar un mes en el grid de control ya existía en el flujo de marca mensual; falta el CTA en esta lista.
+En `/dashboard/collections`, cada fila tiene **Registrar pago**:
+
+1. Fecha real de pago (por defecto = próximo cobro sugerido)  
+2. Día de cobro + monto/notas opcionales  
+3. **Evidencia obligatoria** (imagen/PDF) → `contract_collection_payment` + `file.collection_payment_id`  
+4. Al guardar, el próximo cobro se recalcula desde ese `paid_at`
+
+---
+
+Siguiente foco (backlog): CURP/RFC en clientes (P1-1), badges “en peligro” + UX (P1-4 / P1-5).

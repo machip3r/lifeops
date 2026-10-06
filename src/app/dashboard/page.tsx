@@ -6,7 +6,10 @@ import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { ConsultantHome } from '@/components/dashboard/consultant-home';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
-import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
+import {
+  PENDING_PAYMENT_WITHIN_DAYS,
+  POLICY_AT_RISK_DAYS,
+} from '@/lib/collections/constants';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
 
 export default function DashboardPage() {
@@ -29,7 +32,7 @@ export default function DashboardPage() {
         }),
         db.dashboard.listContractsPendingPayment({
           officeId: profile.id,
-          withinDays: 15,
+          withinDays: PENDING_PAYMENT_WITHIN_DAYS,
         }),
       ]);
       setAtRisk(riskRows);
@@ -65,11 +68,11 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="text-center mb-4">
+      <div className="text-center mb-6">
         <h1 className="dashboard-page-title text-4xl font-bold mb-2">
           Vista General
         </h1>
-        <p className="text-white">
+        <p className="text-gray-600 dark:text-gray-400">
           Prioriza cobranza y recordatorios de tu promotoría.
         </p>
       </div>

@@ -34,11 +34,12 @@ What is **in**, **done**, **todo**, **parked**, and **ideas**. Companion to [`hi
 | --- | --- |
 | P0 | Apply migrations `010`–`012` | **done** |
 | P0 | Apply migrations `015`–`017` (audit unify + drop tags) | confirm on target project |
-| P1 | CURP/RFC fields on client create/edit UI |
-| P1 | Explicit `collection_day` on manual policy create |
-| P1 | History of commission import batches (what file changed what) |
-| P1 | Badges “en peligro” on contracts/collections lists |
-| P1 | UX pass: simplify agent flows, mobile cobranza |
+| P1 | CURP/RFC fields on client create/edit UI | **done** |
+| P1 | Explicit `collection_day` on manual policy create | **done** |
+| P1 | Register payment + evidence from Cobranza list | **done** |
+| P1 | Badges “en peligro” on contracts/collections lists | **done** |
+| P1 | UX pass: simplify agent flows, mobile cobranza | **done** (first pass) |
+| P1 | History of commission import batches (what file changed what) | todo |
 | P2 | Office-wide reminders filters (7 / 15 / 30 days) |
 
 ---

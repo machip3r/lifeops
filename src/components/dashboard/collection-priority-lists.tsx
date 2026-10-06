@@ -2,7 +2,10 @@
 
 import Link from 'next/link';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
-import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
+import {
+  PENDING_PAYMENT_WITHIN_DAYS,
+  POLICY_AT_RISK_DAYS,
+} from '@/lib/collections/constants';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 
 type Props = {
@@ -95,7 +98,8 @@ export function CollectionPriorityLists({
               Pagos por registrar
             </h2>
             <p className="text-sm text-[#9ca3af]">
-              Mes actual sin pago, con fecha de cobro próxima
+              Próximo cobro en los próximos {PENDING_PAYMENT_WITHIN_DAYS} días
+              (o recién vencido)
             </p>
           </div>
           <span className="text-sm text-white/70">{pending.length} póliza(s)</span>

@@ -176,7 +176,7 @@ contract (1) ──< (many) file
 - One contract has exactly one client and one consultant and one office (`contract.office_id` denormalized)
 - `contract_number` is unique per office when set
 - Client identity: CURP/RFC when available (global unique); otherwise local to office — see [`docs/product-decisions.md`](docs/product-decisions.md)
-- A policy is **at risk** when unpaid more than **30 days** after its expected collection date
+- A policy is **at risk** when its **next due** (from last known payment + forma de pago) is more than **30 days** overdue — same rule in Cobranza and Vista general (not every empty month in a lookback window)
 - Promotory may **reassign** a policy to another consultant in the same office (same policy number + client)
 - Solicitud documents attach to a contract; CHANGE/CORRECT also link `change_request_id`; payment evidence may link `file.collection_payment_id`
 - One contract can have many contract_detail rows (from HTML import)
@@ -198,8 +198,9 @@ contract (1) ──< (many) file
 **Import Process**:
 1. **Import dates dialog** (on "Importar a Base de Datos"):
    - File `issue_date` is suggested from the most common `FECHA PAGO` (fecha de cobro) and stays editable
-   - **New policies** require a per-póliza "último pago previo" (not one date for the whole file)
-   - Rows missing `FECHA EMISION` must be filled before import (written back into the preview table)
+   - **New policies** require a per-póliza "último pago conocido" (not one date for the whole file). That date may be after the commission file date when the file is old; only future dates are rejected (today is allowed).
+   - File `issue_date` cannot be in the future (today is allowed).
+   - Rows missing `FECHA EMISION` must be filled before import (written back into the preview table); that date must be **before** the commission file date and not in the future
 2. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist. Asesores only keep rows matching their own `consultant_code`; other codes are skipped (and rejected again in `importContractsFromTable` when scoped to that consultant).
 3. **Missing-consultant creation** (promotoría only): If codes are missing for the office:
    - Default: auto-create via `POST /api/extractor/create-consultants` (`mode: auto`)

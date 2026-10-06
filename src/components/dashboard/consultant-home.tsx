@@ -6,7 +6,10 @@ import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
-import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
+import {
+  PENDING_PAYMENT_WITHIN_DAYS,
+  POLICY_AT_RISK_DAYS,
+} from '@/lib/collections/constants';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
 
 /** Asesor home: at-risk + pending payments + shortcuts. */
@@ -36,7 +39,7 @@ export function ConsultantHome() {
         }),
         db.dashboard.listContractsPendingPayment({
           consultantId: consultant.id,
-          withinDays: 15,
+          withinDays: PENDING_PAYMENT_WITHIN_DAYS,
         }),
       ]);
       setAtRisk(riskRows);

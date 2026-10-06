@@ -96,7 +96,7 @@ Asesor
 1. **Como** promotora de la promotoría, **quiero** ver todos los asesores, clientes y pólizas de mi oficina, **para** tener el control de la cartera en un solo lugar.
 2. **Como** promotora, **quiero** invitar asesores por correo, **para** que entren a LifeOps y trabajen solo con su información.
 3. **Como** promotora, **quiero** subir el archivo de comisiones del día, **para** que se registren o actualicen pólizas, clientes, asesores y pagos sin capturar todo a mano.
-4. **Como** promotora, **quiero** indicar la fecha de emisión del archivo y, si hay pólizas nuevas, la fecha del último pago previo a ese archivo, **para** predecir próximos cobros y definir el estado de cada póliza.
+4. **Como** promotora, **quiero** indicar la fecha de emisión del archivo y, si hay pólizas nuevas, la fecha del último pago conocido (puede ser más reciente que el archivo), **para** predecir próximos cobros y definir el estado de cada póliza.
 5. **Como** promotora, **quiero** registrar una póliza manualmente cuando no venga en el archivo, **para** no perder información importante.
 6. **Como** promotora, **quiero** ver qué pólizas están por vencer y cuáles llevan más de 30 días sin pago, **para** priorizar a quién contactar.
 7. **Como** promotora, **quiero** una lista clara de clientes a los que hay que recordar el pago, **para** actuar sin depender del portal de Monterrey.
@@ -129,7 +129,7 @@ Asesor
 - Si un asesor deja de trabajar con la oficina, se **desactiva** (no se borran sus pólizas).
 - El número de póliza identifica la póliza dentro de la promotoría.
 - CURP o RFC del cliente cuando se conozcan; si no, el cliente queda registrado solo en esa oficina.
-- Al subir comisiones, si una póliza entra **por primera vez**, se pide la fecha del **último pago previo** al archivo (además de la fecha del archivo).
+- Al subir comisiones, si una póliza entra **por primera vez**, se pide la fecha del **último pago conocido** (además de la fecha del archivo). Puede ser posterior al archivo si este es viejo; no se admiten fechas futuras.
 - **Peligro** = más de **30 días** después de la fecha de cobro sin pago.
 - La promotoría puede **reasignar pólizas entre asesores** de la misma oficina (pendiente de implementar en UI).
 

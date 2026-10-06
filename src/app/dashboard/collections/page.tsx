@@ -7,6 +7,17 @@ import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { SortableTh } from '@/components/sortable-th';
 import { TablePagination } from '@/components/table-pagination';
+import { Button } from '@/components/ui/button';
+import {
+  RegisterPaymentDialog,
+  type RegisterPaymentTarget,
+} from '@/components/collections/register-payment-dialog';
+import {
+  AtRiskBadge,
+  OverdueBadge,
+  daysPastDue,
+} from '@/components/collections/at-risk-badge';
+import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
@@ -19,12 +30,17 @@ type SortKey =
   | 'premium_payment';
 
 const TH = 'px-4 py-3 text-[#9ca3af]';
+const ACTIONS_TH =
+  'px-4 py-3 text-right text-xs font-medium text-[#9ca3af] uppercase tracking-wider sticky right-0 bg-[#2a2f38] z-10';
+const ACTIONS_TD =
+  'px-4 py-3 whitespace-nowrap text-right sticky right-0 bg-[#242830] z-10';
 
 type ScheduleRow = {
   contract_id: string;
   contract_number: string | null;
   client_name: string | null;
   payment_method: string | null;
+  collection_day: number | null;
   last_paid_at: string | null;
   premium_payment: number;
   nextDue: Date | null;
@@ -48,6 +64,8 @@ function CollectionsPageContent() {
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [sortKey, setSortKey] = useState<SortKey | null>('nextDue');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [paymentTarget, setPaymentTarget] =
+    useState<RegisterPaymentTarget | null>(null);
 
   const loadSchedule = useCallback(async () => {
     if (!profile?.id) return;
@@ -63,6 +81,7 @@ function CollectionsPageContent() {
           contract_number: r.contract_number,
           client_name: r.client_name,
           payment_method: r.payment_method,
+          collection_day: r.collection_day,
           last_paid_at: r.last_paid_at,
           premium_payment: r.premium_payment,
           nextDue: r.next_due,
@@ -93,7 +112,6 @@ function CollectionsPageContent() {
       if (rangeMode === 'month') {
         return t >= monthStart.getTime() && t <= monthEnd.getTime();
       }
-      // Hide stale next-dues from old commission files when last payment is current.
       return t >= monthStart.getTime();
     });
   }, [rows, rangeMode]);
@@ -146,8 +164,8 @@ function CollectionsPageContent() {
       <div className="text-center mb-2">
         <h1 className="dashboard-page-title text-4xl font-bold mb-2">Cobranza</h1>
         <p className="text-[#9ca3af] mt-1 max-w-xl mx-auto">
-          Próximos cobros según el último pago conocido (alta / import) y la forma
-          de pago — no solo la fecha vieja del archivo de comisiones.
+          Próximos cobros según el último pago conocido. Registra el pago con
+          evidencia para avanzar la fecha.
         </p>
       </div>
 
@@ -209,7 +227,7 @@ function CollectionsPageContent() {
                     active={sortKey === 'payment_method'}
                     dir={sortDir}
                     onSort={() => toggleSort('payment_method')}
-                    className={TH}
+                    className={`${TH} hidden sm:table-cell`}
                   />
                   <SortableTh
                     label="Monto"
@@ -218,6 +236,7 @@ function CollectionsPageContent() {
                     onSort={() => toggleSort('premium_payment')}
                     className={`${TH} text-right`}
                   />
+                  <th className={ACTIONS_TH}>Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#2a2f38]">
@@ -227,20 +246,30 @@ function CollectionsPageContent() {
                     className="hover:bg-[#2a2f38]/50"
                   >
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <Link
-                        href={`/dashboard/contracts/${row.contract_id}`}
-                        className="text-sm font-medium text-[#FBDBAC] hover:underline"
-                      >
-                        {row.contract_number || '—'}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/dashboard/contracts/${row.contract_id}`}
+                          className="text-sm font-medium text-[#FBDBAC] hover:underline"
+                        >
+                          {row.contract_number || '—'}
+                        </Link>
+                        {(() => {
+                          const past = daysPastDue(row.nextDue);
+                          if (past == null || past <= 0) return null;
+                          if (past > POLICY_AT_RISK_DAYS) {
+                            return <AtRiskBadge daysOverdue={past} />;
+                          }
+                          return <OverdueBadge />;
+                        })()}
+                      </div>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-white">
+                    <td className="px-4 py-3 text-sm text-white max-w-[10rem] sm:max-w-none truncate sm:whitespace-nowrap">
                       {row.client_name || '—'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-[#e5e7eb]">
                       {row.nextDue ? formatDateShortEsLocal(row.nextDue) : '—'}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-[#9ca3af]">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-[#9ca3af] hidden sm:table-cell">
                       {row.payment_method || '—'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-white">
@@ -248,6 +277,27 @@ function CollectionsPageContent() {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}`}
+                    </td>
+                    <td className={ACTIONS_TD}>
+                      <Button
+                        type="button"
+                        variant="brand"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        onClick={() =>
+                          setPaymentTarget({
+                            contractId: row.contract_id,
+                            contractNumber: row.contract_number,
+                            clientName: row.client_name,
+                            nextDue: row.nextDue,
+                            suggestedAmount: row.premium_payment,
+                            collectionDay: row.collection_day,
+                          })
+                        }
+                      >
+                        <span className="sm:hidden">Pago</span>
+                        <span className="hidden sm:inline">Registrar pago</span>
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -267,6 +317,15 @@ function CollectionsPageContent() {
           />
         </div>
       )}
+
+      <RegisterPaymentDialog
+        open={paymentTarget != null}
+        target={paymentTarget}
+        onClose={() => setPaymentTarget(null)}
+        onSaved={async () => {
+          await loadSchedule();
+        }}
+      />
     </div>
   );
 }

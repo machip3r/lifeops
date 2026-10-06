@@ -82,26 +82,46 @@ function ClientsPageContent() {
     setShowForm(true);
   };
 
-  const handleSubmit = async (data: { name: string; date_of_birth: string }) => {
-    if (editingClient) {
-      await db.client.updateClient(editingClient.id, {
-        name: data.name,
-        birth_date: data.date_of_birth || null,
-      });
-      toast.success('Cliente actualizado.');
-    } else {
-      const officeId = profile?.role === 'promotory' ? profile?.id : profile?.office_id;
-      await db.client.createClient(
-        data.name,
-        data.date_of_birth || undefined,
-        officeId ?? undefined,
-      );
-      toast.success('Cliente creado.');
-    }
+  const handleSubmit = async (data: {
+    name: string;
+    date_of_birth: string;
+    curp: string | null;
+    rfc: string | null;
+  }) => {
+    try {
+      if (editingClient) {
+        await db.client.updateClient(editingClient.id, {
+          name: data.name,
+          birth_date: data.date_of_birth || null,
+          curp: data.curp,
+          rfc: data.rfc,
+        });
+        toast.success('Cliente actualizado.');
+      } else {
+        const officeId =
+          profile?.role === 'promotory' ? profile?.id : profile?.office_id;
+        await db.client.findOrCreateClient({
+          name: data.name,
+          birthDate: data.date_of_birth || null,
+          officeId: officeId ?? null,
+          curp: data.curp,
+          rfc: data.rfc,
+        });
+        toast.success('Cliente creado.');
+      }
 
-    setShowForm(false);
-    setEditingClient(null);
-    await loadClients();
+      setShowForm(false);
+      setEditingClient(null);
+      await loadClients();
+    } catch (err: unknown) {
+      const message =
+        err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === '23505'
+          ? 'Ya existe un cliente con ese CURP o RFC.'
+          : err instanceof Error
+            ? err.message
+            : 'No se pudo guardar el cliente.';
+      throw new Error(message);
+    }
   };
 
   const handleEdit = (client: Client) => {
@@ -218,6 +238,7 @@ function ClientsPageContent() {
                   onSort={() => toggleSort('name')}
                   className={TH}
                 />
+                <th className={TH}>CURP / RFC</th>
                 <SortableTh
                   label="Fecha de Nacimiento"
                   active={sortKey === 'birth_date'}
@@ -252,7 +273,7 @@ function ClientsPageContent() {
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {sortedClients.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
                     {total === 0 && !appliedSearch.trim()
                       ? 'Aún no hay clientes registrados.'
                       : 'No hay clientes que coincidan con la búsqueda.'}
@@ -261,6 +282,7 @@ function ClientsPageContent() {
               ) : (
                 sortedClients.map((client) => {
                   const age = calculateAge(client.birth_date);
+                  const identity = client.curp || client.rfc || '—';
                   return (
                     <tr
                       key={client.id}
@@ -269,6 +291,9 @@ function ClientsPageContent() {
                     >
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                         {client.name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono text-xs">
+                        {identity}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {formatDateShortEsLocal(client.birth_date)}
