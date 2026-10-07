@@ -21,6 +21,8 @@ import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { PageHeader } from '@/components/dashboard/page-header';
+import { ListSearchFilters } from '@/components/list-search-filters';
 
 type SortKey =
   | 'contract_number'
@@ -29,11 +31,11 @@ type SortKey =
   | 'payment_method'
   | 'premium_payment';
 
-const TH = 'px-4 py-3 text-[#9ca3af]';
+const TH = 'px-4 py-3 text-(--lifeops-muted)';
 const ACTIONS_TH =
-  'px-4 py-3 text-right text-xs font-medium text-[#9ca3af] uppercase tracking-wider sticky right-0 bg-[#2a2f38] z-10';
+  'px-4 py-3 text-right text-xs font-medium text-(--lifeops-muted) uppercase tracking-wider sticky right-0 bg-[var(--lifeops-hover)] z-10';
 const ACTIONS_TD =
-  'px-4 py-3 whitespace-nowrap text-right sticky right-0 bg-[#242830] z-10';
+  'px-4 py-3 whitespace-nowrap text-right sticky right-0 bg-[var(--lifeops-chrome)] z-10';
 
 type ScheduleRow = {
   contract_id: string;
@@ -66,6 +68,8 @@ function CollectionsPageContent() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [paymentTarget, setPaymentTarget] =
     useState<RegisterPaymentTarget | null>(null);
+  const [searchDraft, setSearchDraft] = useState('');
+  const [search, setSearch] = useState('');
 
   const loadSchedule = useCallback(async () => {
     if (!profile?.id) return;
@@ -101,20 +105,25 @@ function CollectionsPageContent() {
 
   useEffect(() => {
     setPage(1);
-  }, [rangeMode]);
+  }, [rangeMode, search]);
 
   const filtered = useMemo(() => {
     const monthStart = startOfMonthLocal();
     const monthEnd = endOfMonthLocal();
+    const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (!r.nextDue) return false;
       const t = r.nextDue.getTime();
       if (rangeMode === 'month') {
-        return t >= monthStart.getTime() && t <= monthEnd.getTime();
+        if (t < monthStart.getTime() || t > monthEnd.getTime()) return false;
+      } else if (t < monthStart.getTime()) {
+        return false;
       }
-      return t >= monthStart.getTime();
+      if (!q) return true;
+      const hay = `${r.contract_number ?? ''} ${r.client_name ?? ''} ${r.payment_method ?? ''}`.toLowerCase();
+      return hay.includes(q);
     });
-  }, [rows, rangeMode]);
+  }, [rows, rangeMode, search]);
 
   const sortedItems = useMemo(
     () =>
@@ -152,7 +161,7 @@ function CollectionsPageContent() {
   if (authLoading) {
     return (
       <div className="flex justify-center items-center min-h-[40vh]">
-        <p className="text-[#9ca3af]">Cargando…</p>
+        <p className="text-(--lifeops-muted)">Cargando…</p>
       </div>
     );
   }
@@ -161,162 +170,175 @@ function CollectionsPageContent() {
 
   return (
     <div className="space-y-6">
-      <div className="text-center mb-2">
-        <h1 className="dashboard-page-title text-4xl font-bold mb-2">Cobranza</h1>
-        <p className="text-[#9ca3af] mt-1 max-w-xl mx-auto">
-          Próximos cobros según el último pago conocido. Registra el pago con
-          evidencia para avanzar la fecha.
-        </p>
-      </div>
+      <PageHeader
+        title="Cobranza"
+        watermark="Cobranza"
+        description="Próximos cobros según el último pago conocido. Registra el pago con evidencia para avanzar la fecha."
+      />
 
-      <div className="flex flex-col sm:flex-row sm:justify-end sm:items-center gap-3">
-        <label className="text-sm text-[#9ca3af] flex items-center gap-2">
-          <span>Mostrar</span>
-          <select
-            value={rangeMode}
-            onChange={(e) => {
-              setRangeMode(e.target.value === 'month' ? 'month' : 'upcoming');
-            }}
-            className="rounded-md border border-[#3a4049] bg-[#242830] text-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
-          >
-            <option value="upcoming">Desde este mes en adelante</option>
-            <option value="month">Solo este mes</option>
-          </select>
-        </label>
-      </div>
+      <div className="overflow-hidden rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] shadow-lg">
+        <ListSearchFilters
+          value={searchDraft}
+          onChange={setSearchDraft}
+          onSubmit={() => {
+            setSearch(searchDraft);
+            setPage(1);
+          }}
+          placeholder="Póliza, cliente o forma de pago…"
+          id="collections-search"
+          extras={
+            <label className="flex min-w-[12rem] flex-col gap-1 text-sm text-(--lifeops-muted)">
+              <span className="sr-only">Mostrar</span>
+              <select
+                value={rangeMode}
+                onChange={(e) => {
+                  setRangeMode(e.target.value === 'month' ? 'month' : 'upcoming');
+                }}
+                className="h-12 rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-page)] px-3 text-[var(--lifeops-fg)] focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
+                aria-label="Periodo de cobranza"
+              >
+                <option value="upcoming">Desde este mes en adelante</option>
+                <option value="month">Solo este mes</option>
+              </select>
+            </label>
+          }
+        />
 
-      {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <p className="text-[#9ca3af]">Cargando cobranza…</p>
-        </div>
-      ) : total === 0 ? (
-        <div className="rounded-lg border border-[#2a2f38] bg-[#242830] p-8 text-center">
-          <p className="text-[#9ca3af]">
-            No hay cobros pendientes en el periodo seleccionado.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-[#2a2f38] bg-[#242830] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-[#2a2f38]">
-              <thead className="bg-[#2a2f38]">
-                <tr>
-                  <SortableTh
-                    label="Póliza"
-                    active={sortKey === 'contract_number'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('contract_number')}
-                    className={TH}
-                  />
-                  <SortableTh
-                    label="Cliente"
-                    active={sortKey === 'client_name'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('client_name')}
-                    className={TH}
-                  />
-                  <SortableTh
-                    label="Fecha de cobro"
-                    active={sortKey === 'nextDue'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('nextDue')}
-                    className={TH}
-                  />
-                  <SortableTh
-                    label="Forma de pago"
-                    active={sortKey === 'payment_method'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('payment_method')}
-                    className={`${TH} hidden sm:table-cell`}
-                  />
-                  <SortableTh
-                    label="Monto"
-                    active={sortKey === 'premium_payment'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('premium_payment')}
-                    className={`${TH} text-right`}
-                  />
-                  <th className={ACTIONS_TH}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#2a2f38]">
-                {pageRows.map((row) => (
-                  <tr
-                    key={row.contract_id}
-                    className="hover:bg-[#2a2f38]/50"
-                  >
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/dashboard/contracts/${row.contract_id}`}
-                          className="text-sm font-medium text-[#FBDBAC] hover:underline"
-                        >
-                          {row.contract_number || '—'}
-                        </Link>
-                        {(() => {
-                          const past = daysPastDue(row.nextDue);
-                          if (past == null || past <= 0) return null;
-                          if (past > POLICY_AT_RISK_DAYS) {
-                            return <AtRiskBadge daysOverdue={past} />;
-                          }
-                          return <OverdueBadge />;
-                        })()}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-white max-w-[10rem] sm:max-w-none truncate sm:whitespace-nowrap">
-                      {row.client_name || '—'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-[#e5e7eb]">
-                      {row.nextDue ? formatDateShortEsLocal(row.nextDue) : '—'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-[#9ca3af] hidden sm:table-cell">
-                      {row.payment_method || '—'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-white">
-                      {`$${Number(row.premium_payment).toLocaleString('es-MX', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}`}
-                    </td>
-                    <td className={ACTIONS_TD}>
-                      <Button
-                        type="button"
-                        variant="brand"
-                        size="sm"
-                        className="w-full sm:w-auto"
-                        onClick={() =>
-                          setPaymentTarget({
-                            contractId: row.contract_id,
-                            contractNumber: row.contract_number,
-                            clientName: row.client_name,
-                            nextDue: row.nextDue,
-                            suggestedAmount: row.premium_payment,
-                            collectionDay: row.collection_day,
-                          })
-                        }
-                      >
-                        <span className="sm:hidden">Pago</span>
-                        <span className="hidden sm:inline">Registrar pago</span>
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {loading ? (
+          <div className="flex items-center justify-center px-6 py-12">
+            <p className="text-(--lifeops-muted)">Cargando cobranza…</p>
           </div>
-          <TablePagination
-            page={page}
-            pageSize={pageSize}
-            total={total}
-            disabled={loading}
-            onPageChange={setPage}
-            onPageSizeChange={(size) => {
-              setPageSize(size);
-              setPage(1);
-            }}
-          />
-        </div>
-      )}
+        ) : total === 0 ? (
+          <div className="flex items-center justify-center px-6 py-12 text-center">
+            <p className="text-(--lifeops-muted)">
+              {search.trim()
+                ? 'No hay cobros que coincidan con la búsqueda.'
+                : 'No hay cobros pendientes en el periodo seleccionado.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-[var(--lifeops-border)]">
+                <thead className="bg-[var(--lifeops-hover)]">
+                  <tr>
+                    <SortableTh
+                      label="Póliza"
+                      active={sortKey === 'contract_number'}
+                      dir={sortDir}
+                      onSort={() => toggleSort('contract_number')}
+                      className={TH}
+                    />
+                    <SortableTh
+                      label="Cliente"
+                      active={sortKey === 'client_name'}
+                      dir={sortDir}
+                      onSort={() => toggleSort('client_name')}
+                      className={TH}
+                    />
+                    <SortableTh
+                      label="Fecha de cobro"
+                      active={sortKey === 'nextDue'}
+                      dir={sortDir}
+                      onSort={() => toggleSort('nextDue')}
+                      className={TH}
+                    />
+                    <SortableTh
+                      label="Forma de pago"
+                      active={sortKey === 'payment_method'}
+                      dir={sortDir}
+                      onSort={() => toggleSort('payment_method')}
+                      className={`${TH} hidden sm:table-cell`}
+                    />
+                    <SortableTh
+                      label="Monto"
+                      active={sortKey === 'premium_payment'}
+                      dir={sortDir}
+                      onSort={() => toggleSort('premium_payment')}
+                      className={`${TH} text-right`}
+                    />
+                    <th className={ACTIONS_TH}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--lifeops-border)]">
+                  {pageRows.map((row) => (
+                    <tr
+                      key={row.contract_id}
+                      className="hover:bg-[var(--lifeops-hover)]/70"
+                    >
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Link
+                            href={`/dashboard/contracts/${row.contract_id}`}
+                            className="text-sm font-medium text-[var(--lifeops-accent)] hover:underline"
+                          >
+                            {row.contract_number || '—'}
+                          </Link>
+                          {(() => {
+                            const past = daysPastDue(row.nextDue);
+                            if (past == null || past <= 0) return null;
+                            if (past > POLICY_AT_RISK_DAYS) {
+                              return <AtRiskBadge daysOverdue={past} />;
+                            }
+                            return <OverdueBadge />;
+                          })()}
+                        </div>
+                      </td>
+                      <td className="max-w-[10rem] truncate px-4 py-3 text-sm text-[var(--lifeops-fg)] sm:max-w-none sm:whitespace-nowrap">
+                        {row.client_name || '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-[var(--lifeops-fg)]">
+                        {row.nextDue ? formatDateShortEsLocal(row.nextDue) : '—'}
+                      </td>
+                      <td className="hidden whitespace-nowrap px-4 py-3 text-sm text-(--lifeops-muted) sm:table-cell">
+                        {row.payment_method || '—'}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-[var(--lifeops-fg)]">
+                        {`$${Number(row.premium_payment).toLocaleString('es-MX', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}`}
+                      </td>
+                      <td className={ACTIONS_TD}>
+                        <Button
+                          type="button"
+                          variant="brand"
+                          size="sm"
+                          className="w-full sm:w-auto"
+                          onClick={() =>
+                            setPaymentTarget({
+                              contractId: row.contract_id,
+                              contractNumber: row.contract_number,
+                              clientName: row.client_name,
+                              nextDue: row.nextDue,
+                              suggestedAmount: row.premium_payment,
+                              collectionDay: row.collection_day,
+                            })
+                          }
+                        >
+                          <span className="sm:hidden">Pago</span>
+                          <span className="hidden sm:inline">Registrar pago</span>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              total={total}
+              disabled={loading}
+              onPageChange={setPage}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+            />
+          </>
+        )}
+      </div>
 
       <RegisterPaymentDialog
         open={paymentTarget != null}

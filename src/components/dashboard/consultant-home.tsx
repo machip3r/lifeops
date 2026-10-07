@@ -1,11 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
-import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/dashboard/page-header';
 import {
   PENDING_PAYMENT_WITHIN_DAYS,
   POLICY_AT_RISK_DAYS,
@@ -72,24 +71,11 @@ export function ConsultantHome() {
 
   return (
     <div className="space-y-8">
-      <div className="text-center mb-2">
-        <h1 className="dashboard-page-title text-4xl font-bold mb-2">
-          Mi resumen
-        </h1>
-        <p className="text-white/90 max-w-xl mx-auto">
-          Revisa pólizas en peligro y pagos pendientes de registrar. Luego ve a
-          cobranza o registra evidencia.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap justify-center gap-3">
-        <Button asChild className="bg-[#FBDBAC] text-black hover:bg-[#f5c98a]">
-          <Link href="/dashboard/collections">Ir a cobranza</Link>
-        </Button>
-        <Button asChild variant="outline" className="border-white/40 text-white">
-          <Link href="/dashboard/contracts">Mis pólizas</Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Vista general"
+        watermark="Vista general"
+        description="Revisa pólizas en peligro y pagos pendientes de registrar."
+      />
 
       {error && (
         <p className="text-center text-red-400" role="alert">

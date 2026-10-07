@@ -1,6 +1,18 @@
 'use client';
 
-import { useState, useRef, useLayoutEffect, useCallback, memo } from 'react';
+import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  CalendarDays,
+  CheckCircle2,
+  ClipboardList,
+  Download,
+  FileText,
+  FileUp,
+  HelpCircle,
+  Upload,
+  X,
+} from 'lucide-react';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
@@ -14,9 +26,15 @@ import {
   formatEtaSeconds,
   type ImportProgress,
 } from '@/lib/extractor/import-progress';
-import { FormField } from '@/components/ui/form-field';
-import { Input } from '@/components/ui/input';
-import { PasswordInput } from '@/components/ui/password-input';
+import { DateInput } from '@/components/ui/date-input';
+import { PageHeader } from '@/components/dashboard/page-header';
+import { Button } from '@/components/ui/button';
+import { AppDialog } from '@/components/ui/app-dialog';
+import {
+  MissingConsultantsDialog,
+  type MissingConsultantDraft,
+} from '@/components/extractor/missing-consultants-dialog';
+import { cn } from '@/lib/utils';
 
 interface ContractorMetadata {
   policyholder?: string;
@@ -34,26 +52,19 @@ interface TableData {
   sectionName?: string;
 }
 
-interface MissingConsultant {
-  consultantCode: string; // This is the asesor field (row[5] in combined row: Cliente, Poliza, TIPO POLIZA, Moneda, Tipo Cambio, Asesor)
-  name: string;
-  email: string;
-  password: string;
-}
-
-type NewPolicyDateRow = {
+/** Unified step-2/3 row: emission + optional prior payment for new policies. */
+type ImportDateRow = {
   key: string;
   contractNumber: string;
   clientName: string;
-  priorPaymentDate: string;
-};
-
-type MissingIssueDateRow = {
-  key: string;
-  contractNumber: string;
-  clientName: string;
+  consultantCode: string;
   rowIndexes: number[];
+  /** ISO YYYY-MM-DD from extract or user */
   issueDate: string;
+  /** True when HTML had no emission date (input shown by default). */
+  issueMissing: boolean;
+  needsPriorPayment: boolean;
+  priorPaymentDate: string;
 };
 
 function normalizeHeaderKey(h?: string | null): string {
@@ -149,82 +160,14 @@ interface UploadedFile {
   content: string;
 }
 
-// Cell with local state so typing doesn't re-render the whole table; commits to parent on blur
-const EditableCell = memo(function EditableCell({
-  value,
-  tableIndex,
-  rowIndex,
-  cellIndex,
-  isEditable,
-  updateCell,
-  onFocusEmpty,
-  onBlurEmpty,
-}: {
-  value: string;
-  tableIndex: number;
-  rowIndex: number;
-  cellIndex: number;
-  isEditable: boolean;
-  updateCell: (ti: number, ri: number, ci: number, v: string) => void;
-  onFocusEmpty: (ti: number, ri: number, ci: number) => void;
-  onBlurEmpty: () => void;
-}) {
-  const [localValue, setLocalValue] = useState(value);
-  const [isFocused, setIsFocused] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Sync from parent value when it changes and input is not focused
-  // Using useLayoutEffect for DOM synchronization (acceptable for input value sync)
-  useLayoutEffect(() => {
-    if (!isFocused && value !== localValue) {
-      setLocalValue(value);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, isFocused]); // localValue intentionally excluded to avoid infinite loop
-
-  const handleBlur = useCallback(() => {
-    setIsFocused(false);
-    if (localValue !== value) {
-      updateCell(tableIndex, rowIndex, cellIndex, localValue);
-    }
-    onBlurEmpty();
-  }, [localValue, value, tableIndex, rowIndex, cellIndex, updateCell, onBlurEmpty]);
-
-  const handleFocus = useCallback(() => {
-    setIsFocused(true);
-    onFocusEmpty(tableIndex, rowIndex, cellIndex);
-  }, [onFocusEmpty, tableIndex, rowIndex, cellIndex]);
-
-  if (!isEditable) {
-    return (
-      <span className="block px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100">
-        {value || '-'}
-      </span>
-    );
-  }
-
-  return (
-    <input
-      ref={inputRef}
-      type="text"
-      value={localValue}
-      onChange={(e) => setLocalValue(e.target.value)}
-      onFocus={() => {
-        if (String(value).trim() === '') handleFocus();
-      }}
-      onBlur={handleBlur}
-      className="w-full min-w-16 px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-    />
-  );
-});
-
-/** When true, promotoría must enter email/password for new asesores instead of auto-create. */
+/** When true, promotoría registers/invites new asesores in a dialog instead of auto-create. */
 const REQUIRE_MANUAL_CONSULTANT_CREDENTIALS =
   process.env.NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS === 'true';
 
 function ExtractorPageContent() {
   const { profile } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [tables, setTables] = useState<TableData[]>([]);
   const [fileName, setFileName] = useState<string>('');
@@ -234,20 +177,30 @@ function ExtractorPageContent() {
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
   const [importResult, setImportResult] = useState<{ success: number; errors: Array<{ row: number; error: string }>; warnings: Array<{ row: number; message: string }> } | null>(null);
+  const [showImportOutcomeDialog, setShowImportOutcomeDialog] = useState(false);
   const [showConsultantDialog, setShowConsultantDialog] = useState(false);
   const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
   const [showInfoDialog, setShowInfoDialog] = useState(false);
   const [duplicates, setDuplicates] = useState<{ contracts: string[]; details: Array<{ contract: string; ticket: string; row: number }> }>({ contracts: [], details: [] });
-  const [missingConsultants, setMissingConsultants] = useState<MissingConsultant[]>([]);
-  const [isCreatingConsultants, setIsCreatingConsultants] = useState(false);
-  const [allCellsEditable, setAllCellsEditable] = useState(false);
-  const [focusedEmptyCell, setFocusedEmptyCell] = useState<{ tableIndex: number; rowIndex: number; cellIndex: number } | null>(null);
+  const [missingConsultants, setMissingConsultants] = useState<
+    MissingConsultantDraft[]
+  >([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const continueLockRef = useRef(false);
   const [showImportDatesDialog, setShowImportDatesDialog] = useState(false);
   const [dialogFileIssueDate, setDialogFileIssueDate] = useState('');
-  const [newPolicyDateRows, setNewPolicyDateRows] = useState<NewPolicyDateRow[]>([]);
-  const [missingIssueDateRows, setMissingIssueDateRows] = useState<MissingIssueDateRow[]>([]);
+  const [importDateRows, setImportDateRows] = useState<ImportDateRow[]>([]);
   const [importDateErrors, setImportDateErrors] = useState<Record<string, string>>({});
+  /** Keys where extracted emission date is being edited inline. */
+  const [editingIssueKeys, setEditingIssueKeys] = useState<Record<string, boolean>>({});
+  /** Missing asesor codes previewed on step 3 (manual create on import). */
+  const [summaryMissingConsultants, setSummaryMissingConsultants] = useState<
+    Array<{ code: string; name?: string }>
+  >([]);
+  const [summaryMissingLoading, setSummaryMissingLoading] = useState(false);
+  /** 1 = archivos, 2 = importación (fechas), 3 = resumen */
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [pendingImportTable, setPendingImportTable] = useState<TableData | null>(null);
   const [confirmedImportMeta, setConfirmedImportMeta] = useState<{
     fileIssueDate: string;
     priorPaymentByContract: Record<string, string>;
@@ -678,63 +631,7 @@ function ExtractorPageContent() {
     return lines.join('\n');
   };
 
-  const convertToClipboardFormat = (table: TableData): string => {
-    // Use tab-separated values (TSV) for better Excel compatibility
-    const lines: string[] = [];
-
-    // Add headers
-    lines.push(table.headers.join('\t'));
-
-    // Add rows
-    table.rows.forEach(row => {
-      // Replace newlines and tabs in cells, use tab as separator
-      const tsvRow = row.map(cell => {
-        const cellStr = String(cell || '');
-        // Replace tabs with spaces and newlines with spaces for cleaner paste
-        return cellStr.replace(/\t/g, ' ').replace(/\n/g, ' ').replace(/\r/g, '');
-      }).join('\t');
-      lines.push(tsvRow);
-    });
-
-    return lines.join('\n');
-  };
-
-  const copyToClipboard = async (table: TableData, index: number) => {
-    try {
-      const text = convertToClipboardFormat(table);
-      await navigator.clipboard.writeText(text);
-
-      // Show temporary success message
-      const button = document.getElementById(`copy-btn-${index}`);
-      if (button) {
-        const originalText = button.textContent;
-        button.textContent = '¡Copiado!';
-        button.classList.add('bg-green-600');
-        setTimeout(() => {
-          button.textContent = originalText;
-          button.classList.remove('bg-green-600');
-        }, 2000);
-      }
-    } catch (error) {
-      console.error('Error copying to clipboard:', error);
-      toast.error('Error al copiar al portapapeles. Por favor, intenta de nuevo.');
-    }
-  };
-
-  const copyAllToClipboard = async () => {
-    try {
-      if (tables.length > 0) {
-        const tableText = convertToClipboardFormat(tables[0]);
-        await navigator.clipboard.writeText(tableText);
-        toast.success('Tabla copiada al portapapeles');
-      }
-    } catch (error) {
-      console.error('Error copying to clipboard:', error);
-      toast.error('Error al copiar al portapapeles. Por favor, intenta de nuevo.');
-    }
-  };
-
-  const downloadCSV = (table: TableData, index: number) => {
+  const downloadCSV = (table: TableData) => {
     const csv = convertToCSV(table);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
@@ -752,35 +649,9 @@ function ExtractorPageContent() {
 
   const downloadAllCSV = () => {
     if (tables.length > 0) {
-      downloadCSV(tables[0], 0);
+      downloadCSV(tables[0]);
     }
   };
-
-  const updateCell = useCallback((tableIndex: number, rowIndex: number, cellIndex: number, value: string) => {
-    setTables((prev) => {
-      const next = prev.map((t, ti) => {
-        if (ti !== tableIndex) return t;
-        return {
-          ...t,
-          rows: t.rows.map((row, ri) => {
-            if (ri !== rowIndex) return row;
-            const newRow = [...row];
-            newRow[cellIndex] = value;
-            return newRow;
-          }),
-        };
-      });
-      return next;
-    });
-  }, []);
-
-  const handleFocusEmpty = useCallback((ti: number, ri: number, ci: number) => {
-    setFocusedEmptyCell({ tableIndex: ti, rowIndex: ri, cellIndex: ci });
-  }, []);
-
-  const handleBlurEmpty = useCallback(() => {
-    setFocusedEmptyCell(null);
-  }, []);
 
   const addFiles = async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -808,6 +679,12 @@ function ExtractorPageContent() {
       setUploadedFiles((prev) => [...prev, ...newEntries]);
       setTables([]);
       setImportResult(null);
+      setImportDateRows([]);
+      setEditingIssueKeys({});
+      setSummaryMissingConsultants([]);
+      setStep(1);
+      setPendingImportTable(null);
+      setConfirmedImportMeta(null);
     } catch (err) {
       console.error(err);
       toast.error('Error al leer uno o más archivos. Intenta de nuevo.');
@@ -832,19 +709,31 @@ function ExtractorPageContent() {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
     setTables([]);
     setImportResult(null);
+    setImportDateRows([]);
+    setEditingIssueKeys({});
+    setSummaryMissingConsultants([]);
+    setStep(1);
+    setPendingImportTable(null);
+    setConfirmedImportMeta(null);
   };
 
   const clearUploadedFiles = () => {
     setUploadedFiles([]);
     setTables([]);
     setImportResult(null);
+    setImportDateRows([]);
+    setEditingIssueKeys({});
+    setSummaryMissingConsultants([]);
     setFileName('');
+    setStep(1);
+    setPendingImportTable(null);
+    setConfirmedImportMeta(null);
   };
 
-  const extractFromFiles = (files: UploadedFile[]) => {
+  const extractFromFiles = async (files: UploadedFile[]): Promise<TableData | null> => {
     if (files.length === 0) {
       toast.error('Sube al menos un archivo HTML y luego haz clic en Extraer');
-      return;
+      return null;
     }
     setIsExtracting(true);
     try {
@@ -868,25 +757,27 @@ function ExtractorPageContent() {
 
       if (combinedHeaders.length === 0) {
         setTables([]);
-        setIsExtracting(false);
         toast.error('No se encontraron tablas válidas. Abre el reporte de comisiones en el navegador (o sube un HTML guardado) e intenta de nuevo.');
-        return;
+        return null;
       }
 
-      // Preserve original row order from the uploaded files
+      const extracted: TableData = {
+        headers: combinedHeaders,
+        rows: allRows,
+        metadata: undefined,
+        sectionName: 'combined',
+      };
       setFileName(files.map(f => f.name.replace(/\.[^/.]+$/, '')).join('_'));
-      setTables([{ headers: combinedHeaders, rows: allRows, metadata: undefined, sectionName: 'combined' }]);
+      setTables([extracted]);
       setImportResult(null);
+      return extracted;
     } catch (err) {
       console.error(err);
       toast.error('Error al extraer datos. Revisa que los archivos sean HTML válidos.');
+      return null;
     } finally {
       setIsExtracting(false);
     }
-  };
-
-  const handleExtract = () => {
-    extractFromFiles(uploadedFiles);
   };
 
   const normalizeHeaderKey = (h?: string | null): string =>
@@ -1097,32 +988,26 @@ function ExtractorPageContent() {
     };
   };
 
-  const handleImport = async () => {
-    if (tables.length === 0 || tables[0].rows.length === 0) {
-      setImportResult({ success: 0, errors: [{ row: 0, error: 'No hay datos para importar. Por favor extrae una tabla primero.' }], warnings: [] });
+  const handleImport = async (sourceTable?: TableData) => {
+    const baseTable = sourceTable ?? tables[0];
+    if (!baseTable || baseTable.rows.length === 0) {
+      toast.error('No hay datos para importar. Revisa que el HTML tenga tablas válidas.');
       return;
     }
 
     if (!profile?.id) {
-      setImportResult({ success: 0, errors: [{ row: 0, error: 'Debes iniciar sesión para importar datos.' }], warnings: [] });
+      toast.error('Debes iniciar sesión para importar datos.');
       return;
     }
 
     const officeId = profile.role === 'consultant' ? (profile.office_id || profile.id) : profile.id;
     if (!officeId) {
-      setImportResult({ success: 0, errors: [{ row: 0, error: 'No se pudo determinar la promotoría. Por favor contacta al soporte.' }], warnings: [] });
+      toast.error('No se pudo determinar la promotoría. Contacta a soporte.');
       return;
     }
 
     if (profile.role === 'consultant' && !profile.consultant_code?.trim()) {
-      setImportResult({
-        success: 0,
-        errors: [{
-          row: 0,
-          error: 'Tu perfil de asesor no tiene código. Contacta a tu promotoría.',
-        }],
-        warnings: [],
-      });
+      toast.error('Tu perfil de asesor no tiene código. Contacta a tu promotoría.');
       return;
     }
 
@@ -1131,7 +1016,7 @@ function ExtractorPageContent() {
     setImportDateErrors({});
 
     try {
-      const headers = tables[0].headers || [];
+      const headers = baseTable.headers || [];
       const map = headerIndexMap(headers);
       const polizaIdx = map.get('POLIZA') ?? 1;
       const clienteIdx = map.get('CLIENTE') ?? 0;
@@ -1139,12 +1024,13 @@ function ExtractorPageContent() {
       const asesorIdx = map.get('ASESOR') ?? 5;
 
       // Asesores only import rows for their own code
-      let rowsForImport = tables[0].rows;
+      let rowsForImport = baseTable.rows;
       let skippedOtherCodes = 0;
       if (profile.role === 'consultant' && profile.consultant_code) {
         const myCode = profile.consultant_code.trim().toLowerCase();
         const kept: string[][] = [];
-        for (const row of tables[0].rows) {
+        // Use baseTable (not React state) so Continuar works right after extract
+        for (const row of baseTable.rows) {
           const code = (row[asesorIdx] ?? '').trim().toLowerCase();
           if (code && code === myCode) {
             kept.push(row);
@@ -1186,57 +1072,58 @@ function ExtractorPageContent() {
         duplicateData.contracts.map((c) => c.trim().replace(/,/g, '').replace(/\s+/g, '')),
       );
 
-      const newPolicyMap = new Map<string, NewPolicyDateRow>();
-      const missingIssueMap = new Map<string, MissingIssueDateRow>();
+      const dateRowMap = new Map<string, ImportDateRow>();
 
       rowsForImport.forEach((row, rowIndex) => {
         const rawNumber = (row[polizaIdx] ?? '').trim();
         const contractNumber = rawNumber.replace(/,/g, '').replace(/\s+/g, '');
         const clientName = (row[clienteIdx] ?? '').trim();
         const issueRaw = (row[issueIdx] ?? '').trim();
-        const hasIssue = Boolean(parseFlexibleDateToIso(issueRaw));
+        const issueIso = parseFlexibleDateToIso(issueRaw);
+        const consultantCode = (row[asesorIdx] ?? '').trim();
+        // Already in the office DB: skip date capture (HTML often omits FECHA EMISION
+        // on commission rows; we must not ask again for imported pólizas).
+        const isNew = !contractNumber || !existingSet.has(contractNumber);
+        if (!isNew) return;
 
-        const isNew =
-          !contractNumber || !existingSet.has(contractNumber);
-        if (isNew) {
-          const key = contractNumber || `__unnamed__:${clientName.toLowerCase() || rowIndex}`;
-          if (!newPolicyMap.has(key)) {
-            newPolicyMap.set(key, {
-              key,
-              contractNumber: contractNumber || '(sin número)',
-              clientName: clientName || '—',
-              priorPaymentDate: '',
-            });
+        const key = contractNumber || `__unnamed__:${clientName.toLowerCase() || rowIndex}`;
+        const existing = dateRowMap.get(key);
+        if (existing) {
+          existing.rowIndexes.push(rowIndex);
+          if (!issueIso) existing.issueMissing = true;
+          else if (!existing.issueDate) existing.issueDate = issueIso;
+          if (!existing.consultantCode && consultantCode) {
+            existing.consultantCode = consultantCode;
           }
+          return;
         }
-
-        if (!hasIssue) {
-          const key = contractNumber || `__unnamed__:${clientName.toLowerCase() || rowIndex}`;
-          const existing = missingIssueMap.get(key);
-          if (existing) {
-            existing.rowIndexes.push(rowIndex);
-          } else {
-            missingIssueMap.set(key, {
-              key,
-              contractNumber: contractNumber || '(sin número)',
-              clientName: clientName || '—',
-              rowIndexes: [rowIndex],
-              issueDate: '',
-            });
-          }
-        }
+        dateRowMap.set(key, {
+          key,
+          contractNumber: contractNumber || '(sin número)',
+          clientName: clientName || '—',
+          consultantCode,
+          rowIndexes: [rowIndex],
+          issueDate: issueIso ?? '',
+          issueMissing: !issueIso,
+          needsPriorPayment: true,
+          priorPaymentDate: '',
+        });
       });
 
       // Persist scoped rows for the import dialog → continue flow
-      if (rowsForImport !== tables[0].rows) {
-        setTables([{ ...tables[0], rows: rowsForImport }, ...tables.slice(1)]);
+      if (rowsForImport !== baseTable.rows) {
+        setTables([{ ...baseTable, rows: rowsForImport }, ...tables.slice(1)]);
+      } else if (sourceTable) {
+        setTables([baseTable, ...tables.slice(1)]);
       }
 
       const suggested = suggestFileIssueDateFromPaymentColumn(headers, rowsForImport);
       setDialogFileIssueDate(suggested);
-      setNewPolicyDateRows([...newPolicyMap.values()]);
-      setMissingIssueDateRows([...missingIssueMap.values()]);
-      setShowImportDatesDialog(true);
+      setImportDateRows([...dateRowMap.values()]);
+      setEditingIssueKeys({});
+      setSummaryMissingConsultants([]);
+      setShowImportDatesDialog(false);
+      setStep(2);
     } catch (error: unknown) {
       setImportResult({
         success: 0,
@@ -1270,16 +1157,7 @@ function ExtractorPageContent() {
       errors.issueDate = 'No puede ser una fecha futura.';
     }
 
-    for (const row of newPolicyDateRows) {
-      const prior = row.priorPaymentDate.trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(prior)) {
-        errors[`prior:${row.key}`] = 'Obligatoria para pólizas nuevas.';
-      } else if (prior > todayIso) {
-        errors[`prior:${row.key}`] = 'No puede ser una fecha futura.';
-      }
-    }
-
-    for (const row of missingIssueDateRows) {
+    for (const row of importDateRows) {
       const issue = row.issueDate.trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(issue)) {
         errors[`issue:${row.key}`] = 'Obligatoria para importar.';
@@ -1289,6 +1167,15 @@ function ExtractorPageContent() {
         errors[`issue:${row.key}`] =
           'Debe ser anterior a la fecha del archivo de comisiones.';
       }
+
+      if (row.needsPriorPayment) {
+        const prior = row.priorPaymentDate.trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(prior)) {
+          errors[`prior:${row.key}`] = 'Obligatoria para pólizas nuevas.';
+        } else if (prior > todayIso) {
+          errors[`prior:${row.key}`] = 'No puede ser una fecha futura.';
+        }
+      }
     }
 
     if (Object.keys(errors).length > 0) {
@@ -1297,14 +1184,14 @@ function ExtractorPageContent() {
     }
     setImportDateErrors({});
 
-    // Write missing FECHA EMISION (+ mes/año) into the editable table (sync for import)
+    // Write FECHA EMISION (+ mes/año) into the editable table (sync for import)
     const headers = tables[0].headers || [];
     const map = headerIndexMap(headers);
     const issueIdx = map.get('FECHAEMISION') ?? 8;
     const mesIdx = map.get('MESEMISION') ?? 9;
     const anioIdx = map.get('ANOEMISION') ?? map.get('ANIOEMISION') ?? 10;
     const nextRows = tables[0].rows.map((r) => [...r]);
-    for (const item of missingIssueDateRows) {
+    for (const item of importDateRows) {
       const iso = item.issueDate.trim();
       const display = isoToDdMmYyyy(iso);
       const [, mm, yyyy] = iso.split('-');
@@ -1322,8 +1209,10 @@ function ExtractorPageContent() {
     );
 
     const priorPaymentByContract: Record<string, string> = {};
-    for (const row of newPolicyDateRows) {
-      priorPaymentByContract[row.key] = row.priorPaymentDate.trim();
+    for (const row of importDateRows) {
+      if (row.needsPriorPayment) {
+        priorPaymentByContract[row.key] = row.priorPaymentDate.trim();
+      }
     }
 
     const meta = {
@@ -1331,9 +1220,86 @@ function ExtractorPageContent() {
       priorPaymentByContract,
     };
     setConfirmedImportMeta(meta);
+    setPendingImportTable(tableForImport);
     setShowImportDatesDialog(false);
-    await continueImportAfterDates(officeId, tableForImport, meta);
+    setStep(3);
+
+    // Preview missing asesores so step 3 can warn they will be created manually
+    if (profile.role !== 'consultant') {
+      setSummaryMissingLoading(true);
+      void checkMissingConsultants(
+        tableForImport.rows,
+        officeId,
+        tableForImport.headers,
+      )
+        .then(({ missing, consultants }) => {
+          const missingSet = new Set(
+            missing.map((c) => c.trim().toLowerCase()),
+          );
+          setSummaryMissingConsultants(
+            consultants.filter((c) =>
+              missingSet.has(c.code.trim().toLowerCase()),
+            ),
+          );
+        })
+        .catch(() => {
+          setSummaryMissingConsultants([]);
+        })
+        .finally(() => {
+          setSummaryMissingLoading(false);
+        });
+    } else {
+      setSummaryMissingConsultants([]);
+      setSummaryMissingLoading(false);
+    }
   };
+
+  const handleRunImportFromSummary = async () => {
+    const officeId =
+      profile?.role === 'consultant'
+        ? profile.office_id || profile.id
+        : profile?.id;
+    if (!officeId || !confirmedImportMeta || !pendingImportTable) {
+      toast.error('Falta confirmar las fechas de importación.');
+      setStep(2);
+      return;
+    }
+    await continueImportAfterDates(officeId, pendingImportTable, confirmedImportMeta);
+  };
+
+  const handleStepperContinue = async () => {
+    if (continueLockRef.current) return;
+    if (isExtracting || isImporting || isCheckingDuplicates) return;
+    continueLockRef.current = true;
+    try {
+      if (step === 1) {
+        if (uploadedFiles.length === 0) {
+          toast.error('Sube al menos un archivo HTML para continuar.');
+          return;
+        }
+        // Always re-extract from current files so Continuar advances in one click
+        const extracted = await extractFromFiles(uploadedFiles);
+        if (!extracted) return;
+        await handleImport(extracted);
+        return;
+      }
+      if (step === 2) {
+        await handleConfirmImportDates();
+        return;
+      }
+      if (step === 3) {
+        await handleRunImportFromSummary();
+      }
+    } finally {
+      continueLockRef.current = false;
+    }
+  };
+
+  const STEPS = [
+    { id: 1 as const, label: 'Archivos', icon: FileUp },
+    { id: 2 as const, label: 'Importación', icon: CalendarDays },
+    { id: 3 as const, label: 'Resumen', icon: ClipboardList },
+  ];
 
   const continueImportAfterDates = async (
     officeId: string,
@@ -1374,14 +1340,14 @@ function ExtractorPageContent() {
     );
 
     if (missingEntries.length > 0) {
-      // Manual mode: force email/password dialog (env flag).
+      // Manual mode: register/invite dialog (env flag).
       if (REQUIRE_MANUAL_CONSULTANT_CREDENTIALS) {
         setMissingConsultants(
           missingEntries.map((c) => ({
             consultantCode: c.code,
             name: c.name || c.code,
             email: '',
-            password: '',
+            selected: true,
           })),
         );
         setShowConsultantDialog(true);
@@ -1442,7 +1408,9 @@ function ExtractorPageContent() {
       } catch (error: unknown) {
         console.error('Error auto-creating consultants:', error);
         const message =
-          error instanceof Error ? error.message : 'No se pudieron crear los asesores faltantes.';
+          error instanceof Error
+            ? error.message
+            : 'No se pudieron crear los asesores faltantes.';
         setImportResult({
           success: 0,
           errors: [{ row: 0, error: message }],
@@ -1491,84 +1459,54 @@ function ExtractorPageContent() {
     }
   };
 
-  const handleCreateConsultants = async () => {
-    if (!profile?.id) return;
+  const continueAfterMissingConsultants = async () => {
+    setShowConsultantDialog(false);
+    setMissingConsultants([]);
 
-    const officeId = profile.role === 'consultant' ? (profile.office_id || profile.id) : profile.id;
-    setIsCreatingConsultants(true);
+    const officeId =
+      profile?.role === 'consultant'
+        ? profile.office_id || profile.id
+        : profile?.id;
+    if (!officeId || !tables[0] || !confirmedImportMeta) return;
 
+    setIsCheckingDuplicates(true);
     try {
-      // Validate all consultants have email and password
-      for (const consultant of missingConsultants) {
-        if (!consultant.email || !consultant.password) {
-          throw new Error(`Por favor proporciona correo electrónico y contraseña para ${consultant.consultantCode}`);
-        }
-        if (consultant.password.length < 8) {
-          throw new Error(`La contraseña para ${consultant.consultantCode} debe tener al menos 8 caracteres`);
-        }
+      const duplicateData = await checkDuplicates(
+        tables[0].rows,
+        officeId,
+        tables[0].headers,
+      );
+
+      setIsCheckingDuplicates(false);
+
+      if (duplicateData.details.length > 0) {
+        setDuplicates(duplicateData);
+        setShowDuplicateDialog(true);
+        return;
       }
 
-      const res = await authFetch('/api/extractor/create-consultants', {
-        method: 'POST',
-        body: JSON.stringify({
-          mode: 'manual',
-          officeId,
-          consultants: missingConsultants.map(c => ({
-            consultantCode: c.consultantCode,
-            name: c.name || c.consultantCode,
-            email: c.email,
-            password: c.password,
-          })),
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'No se pudieron crear los asesores.');
-      }
-
-      // Close dialog
-      setShowConsultantDialog(false);
-      setMissingConsultants([]);
-
-      // Check for duplicates before importing
-      setIsCheckingDuplicates(true);
-      try {
-        const duplicateData = await checkDuplicates(
-          tables[0].rows,
-          officeId,
-          tables[0].headers,
-        );
-
-        setIsCheckingDuplicates(false);
-
-        if (duplicateData.details.length > 0) {
-          setDuplicates(duplicateData);
-          setShowDuplicateDialog(true);
-          return;
-        }
-
-        // No duplicates, proceed with import
-        if (confirmedImportMeta) {
-          await performImport(officeId, tables[0], confirmedImportMeta);
-        }
-      } catch (error: any) {
-        setIsCheckingDuplicates(false);
-        setImportResult({
-          success: 0,
-          errors: [{ row: 0, error: error.message || 'Error al verificar duplicados' }],
-          warnings: []
-        });
-      }
-    } catch (error: any) {
-      console.error('Error creating consultants:', error);
+      await performImport(officeId, tables[0], confirmedImportMeta);
+    } catch (error: unknown) {
+      setIsCheckingDuplicates(false);
       setImportResult({
         success: 0,
-        errors: [{ row: 0, error: error.message || 'Error al crear asesores' }],
-        warnings: []
+        errors: [
+          {
+            row: 0,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Error al verificar duplicados',
+          },
+        ],
+        warnings: [],
       });
-    } finally {
-      setIsCreatingConsultants(false);
     }
+  };
+
+  const goToContractsAfterImport = () => {
+    setShowImportOutcomeDialog(false);
+    router.push('/dashboard/contracts');
   };
 
   const performImport = async (
@@ -1577,6 +1515,7 @@ function ExtractorPageContent() {
     meta: { fileIssueDate: string; priorPaymentByContract: Record<string, string> },
   ) => {
     setIsImporting(true);
+    setShowImportOutcomeDialog(false);
     setImportResult(null);
     setImportProgress({
       phase: 'grouping',
@@ -1618,216 +1557,735 @@ function ExtractorPageContent() {
         );
       }
       setImportResult(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Import error:', error);
       setImportResult({
         success: 0,
-        errors: [{ row: 0, error: error.message || 'Error desconocido durante la importación' }],
-        warnings: []
+        errors: [
+          {
+            row: 0,
+            error:
+              error instanceof Error
+                ? error.message
+                : 'Error desconocido durante la importación',
+          },
+        ],
+        warnings: [],
       });
     } finally {
       setIsImporting(false);
       setImportProgress(null);
+      setShowImportOutcomeDialog(true);
     }
   };
 
   const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
   const canContinueImportDates =
     isIsoDate(dialogFileIssueDate) &&
-    newPolicyDateRows.every((row) => isIsoDate(row.priorPaymentDate)) &&
-    missingIssueDateRows.every((row) => isIsoDate(row.issueDate));
+    importDateRows.every(
+      (row) =>
+        isIsoDate(row.issueDate) &&
+        (!row.needsPriorPayment || isIsoDate(row.priorPaymentDate)),
+    );
+
+  const priorNeeded = importDateRows.filter((row) => row.needsPriorPayment).length;
+  const dateTasksTotal = 1 + importDateRows.length + priorNeeded;
+  const dateTasksReady =
+    (isIsoDate(dialogFileIssueDate) ? 1 : 0) +
+    importDateRows.filter((row) => isIsoDate(row.issueDate)).length +
+    importDateRows.filter(
+      (row) => row.needsPriorPayment && isIsoDate(row.priorPaymentDate),
+    ).length;
+  const dateProgressPct =
+    dateTasksTotal > 0
+      ? Math.round((dateTasksReady / dateTasksTotal) * 100)
+      : 0;
+
+  const nothingToImport =
+    importDateRows.length === 0 &&
+    !summaryMissingLoading &&
+    summaryMissingConsultants.length === 0;
+
+  const summaryMissingCount = summaryMissingConsultants.length;
+  const showMissingConsultantsAlert =
+    profile?.role !== 'consultant' &&
+    !summaryMissingLoading &&
+    summaryMissingCount > 0;
+  const missingConsultantsTip =
+    'Al importar tendrás que registrar estos asesores. Los códigos resaltados en la tabla son los que faltan.';
+
+  const importOutcomeOk =
+    Boolean(importResult) && (importResult?.errors.length ?? 0) === 0;
+  const importOutcomeTitle = !importResult
+    ? 'Importación'
+    : importOutcomeOk
+      ? 'Importación lista'
+      : importResult.success > 0
+        ? 'Importación parcial'
+        : 'No se pudo importar';
+  const importOutcomeDescription = (() => {
+    if (!importResult) return 'La importación terminó.';
+    const parts: string[] = [];
+    if (importOutcomeOk) {
+      parts.push(
+        importResult.success === 1
+          ? 'Se importó 1 póliza correctamente.'
+          : `Se importaron ${importResult.success} pólizas correctamente.`,
+      );
+    } else if (importResult.success > 0) {
+      parts.push(
+        `Se importaron ${importResult.success} póliza(s), pero hubo ${importResult.errors.length} error(es).`,
+      );
+    } else {
+      parts.push(
+        importResult.errors[0]?.error ||
+          'No se pudo completar la importación.',
+      );
+    }
+    if (importResult.warnings.length > 0) {
+      parts.push(
+        `${importResult.warnings.length} aviso(s): algunas filas ya existían y se omitieron.`,
+      );
+    }
+    if (!importOutcomeOk && importResult.errors.length > 1) {
+      const extra = importResult.errors
+        .slice(0, 3)
+        .map((e) => (e.row > 0 ? `Fila ${e.row}: ${e.error}` : e.error))
+        .join('\n');
+      parts.push(extra);
+    }
+    return parts.join('\n\n');
+  })();
+
+  const continueDisabled =
+    isExtracting ||
+    isImporting ||
+    isCheckingDuplicates ||
+    (step === 1 && uploadedFiles.length === 0) ||
+    (step === 2 && !canContinueImportDates);
+
+  const showPrimaryAction = !(step === 3 && nothingToImport);
+
+  const stepSurface =
+    'mb-24 space-y-6 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] p-5 sm:p-6';
+
+  const bottomNavBtnClass = 'min-w-[10.5rem] justify-center';
+
+  const focusDateInput = (inputId: string) => {
+    const el = document.getElementById(inputId);
+    if (el instanceof HTMLInputElement) {
+      el.focus();
+      el.select();
+    }
+  };
+
+  /** Ordered date fields for Tab/Enter navigation on step 2. */
+  const getImportDateFieldIds = (): string[] => {
+    const ids = ['import-file-issue-date'];
+    importDateRows.forEach((row, index) => {
+      ids.push(`issue-date-${index}`);
+      if (row.needsPriorPayment) ids.push(`prior-payment-${index}`);
+    });
+    return ids;
+  };
+
+  const isImportDateFieldComplete = (fieldId: string): boolean => {
+    if (fieldId === 'import-file-issue-date') {
+      return isIsoDate(dialogFileIssueDate);
+    }
+    const issueMatch = fieldId.match(/^issue-date-(\d+)$/);
+    if (issueMatch) {
+      const row = importDateRows[Number(issueMatch[1])];
+      return Boolean(row && isIsoDate(row.issueDate));
+    }
+    const priorMatch = fieldId.match(/^prior-payment-(\d+)$/);
+    if (priorMatch) {
+      const row = importDateRows[Number(priorMatch[1])];
+      return Boolean(row && isIsoDate(row.priorPaymentDate));
+    }
+    return false;
+  };
+
+  const focusImportDateField = (fieldId: string) => {
+    const issueMatch = fieldId.match(/^issue-date-(\d+)$/);
+    if (issueMatch) {
+      const row = importDateRows[Number(issueMatch[1])];
+      if (row && !row.issueMissing && !editingIssueKeys[row.key]) {
+        setEditingIssueKeys((prev) => ({ ...prev, [row.key]: true }));
+        window.setTimeout(() => focusDateInput(fieldId), 0);
+        return;
+      }
+    }
+    window.setTimeout(() => focusDateInput(fieldId), 0);
+  };
+
+  const advanceImportDateField = (currentId: string, direction: 'next' | 'prev') => {
+    const seq = getImportDateFieldIds();
+    const i = seq.indexOf(currentId);
+    if (i < 0) return;
+
+    if (direction === 'next') {
+      for (let j = i + 1; j < seq.length; j += 1) {
+        const candidate = seq[j];
+        // Prefer empty fields; if everything ahead is filled, stop.
+        if (!isImportDateFieldComplete(candidate)) {
+          focusImportDateField(candidate);
+          return;
+        }
+      }
+      return;
+    }
+
+    for (let j = i - 1; j >= 0; j -= 1) {
+      focusImportDateField(seq[j]);
+      return;
+    }
+  };
 
   return (
-    <div>
-      <div className="text-center mb-6">
-        <h1 className="dashboard-page-title text-4xl font-bold mb-2">
-          Importar datos
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          {profile?.role === 'consultant'
+    <div className="pb-4">
+      <PageHeader
+        title="Importar datos"
+        watermark="Importar"
+        description={
+          profile?.role === 'consultant'
             ? 'Carga tus archivos HTML de comisiones. Solo se importarán las pólizas con tu código de asesor.'
-            : 'Carga los archivos HTML de comisiones extraídos del portal. Luego importa pólizas, asesores, clientes y detalles.'}
-        </p>
-      </div>
-      <div className="flex justify-end mb-8">
-        <button
-          onClick={() => setShowInfoDialog(true)}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          ¿Cómo obtener el archivo HTML?
-        </button>
-      </div>
+            : 'Carga los archivos HTML de comisiones extraídos del portal. Luego importa pólizas, asesores, clientes y detalles.'
+        }
+      />
 
-      {/* File Drop Zone */}
-      <div
-        role="button"
-        tabIndex={0}
-        className={`border-2 border-dashed rounded-lg p-12 text-center transition-colors ${isDragging
-          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800'
-          }`}
-        onDrop={handleDrop}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={() => setIsDragging(false)}
-        onClick={() => fileInputRef.current?.click()}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".html,.htm,.mhtml,.mht"
-          multiple
-          onChange={handleFileInput}
-          className="hidden"
-        />
-        <div className="space-y-4">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400"
-            stroke="currentColor"
-            fill="none"
-            viewBox="0 0 48 48"
-          >
-            <path
-              d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8m0-8h8m-8 0H28m-12 8h20m-12 0v-8m0 8l-4-4m4 4l4-4"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <div>
-            <p className="text-lg font-medium text-gray-900 dark:text-white">
-              Arrastra uno o más archivos HTML aquí, o haz clic para seleccionar
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-              Soporta archivos .html, .htm, .mhtml y .mht (varios a la vez)
-            </p>
-          </div>
-        </div>
-      </div>
+      <nav aria-label="Pasos de importación" className="mb-6 grid grid-cols-3 gap-2">
+        {STEPS.map((s) => {
+          const active = step === s.id;
+          const done = step > s.id;
+          const Icon = s.icon;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => {
+                if (s.id < step) setStep(s.id);
+              }}
+              disabled={s.id > step}
+              className={cn(
+                'flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-3 text-center transition-colors sm:px-3',
+                active
+                  ? 'border-[#FBDBAC] bg-[#FBDBAC]/15 text-[var(--lifeops-fg)]'
+                  : done
+                    ? 'cursor-pointer border-[var(--lifeops-border)] bg-[var(--lifeops-hover)] text-[var(--lifeops-fg)]'
+                    : 'cursor-default border-[var(--lifeops-border)] text-[var(--lifeops-muted)] opacity-70',
+              )}
+            >
+              <Icon
+                className={cn(
+                  'h-5 w-5',
+                  active || done ? 'text-[var(--lifeops-accent)]' : 'text-[var(--lifeops-muted)]',
+                )}
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <span className="text-xs font-semibold sm:text-sm">{s.label}</span>
+            </button>
+          );
+        })}
+      </nav>
 
-      {/* Uploaded files list + Extract button */}
-      {uploadedFiles.length > 0 && (
-        <div className="mt-6 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Archivos ({uploadedFiles.length}):
+      {step === 1 && (
+        <div className={stepSurface}>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                <Upload className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               </span>
-              {uploadedFiles.map((f, i) => (
-                <span
-                  key={`file-${i}-${f.name}`}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
-                >
-                  {f.name}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeUploadedFile(i);
-                    }}
-                    className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 hover:text-red-600 dark:hover:text-red-400"
-                    aria-label={`Quitar ${f.name}`}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </span>
-              ))}
-              <button
-                type="button"
-                onClick={clearUploadedFiles}
-                className="text-sm text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400"
-              >
-                Limpiar todo
-              </button>
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--lifeops-fg)]">
+                  Sube el reporte HTML
+                </h2>
+                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                  Arrastra o selecciona uno o más archivos del portal de comisiones.
+                </p>
+              </div>
             </div>
             <button
               type="button"
-              onClick={handleExtract}
-              disabled={isExtracting}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+              onClick={() => setShowInfoDialog(true)}
+              className="inline-flex cursor-pointer items-center gap-1.5 self-start text-sm font-medium text-[var(--lifeops-accent)] hover:underline"
             >
-              {isExtracting ? 'Extrayendo...' : 'Extraer datos'}
+              <HelpCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+              ¿Cómo obtener el HTML?
             </button>
           </div>
+
+          <div
+            role="button"
+            tabIndex={0}
+            className={cn(
+              'cursor-pointer rounded-lg border-2 border-dashed px-6 py-12 text-center transition-colors',
+              isDragging
+                ? 'border-[#FBDBAC] bg-[#FBDBAC]/10'
+                : 'border-[var(--lifeops-border)] bg-[var(--lifeops-page)] hover:border-[#FBDBAC]/60',
+            )}
+            onDrop={handleDrop}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+            }}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".html,.htm,.mhtml,.mht"
+              multiple
+              onChange={handleFileInput}
+              className="hidden"
+            />
+            <FileUp
+              className="mx-auto h-12 w-12 text-[var(--lifeops-muted)]"
+              strokeWidth={1.5}
+              aria-hidden
+            />
+            <p className="mt-4 text-base font-medium text-[var(--lifeops-fg)] sm:text-lg">
+              Arrastra archivos HTML aquí, o haz clic para elegirlos
+            </p>
+            <p className="mt-2 text-sm text-[var(--lifeops-muted)]">
+              .html, .htm, .mhtml y .mht — puedes subir varios a la vez
+            </p>
+          </div>
+
+          {uploadedFiles.length > 0 && (
+            <div className="rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                  Archivos listos ({uploadedFiles.length})
+                </p>
+                <button
+                  type="button"
+                  onClick={clearUploadedFiles}
+                  className="cursor-pointer text-sm text-[var(--lifeops-muted)] hover:text-red-500"
+                >
+                  Limpiar todo
+                </button>
+              </div>
+              <ul className="flex flex-wrap gap-2">
+                {uploadedFiles.map((f, i) => (
+                  <li
+                    key={`file-${i}-${f.name}`}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-2.5 py-1.5 text-sm text-[var(--lifeops-fg)]"
+                  >
+                    <FileText className="h-4 w-4 shrink-0 text-[var(--lifeops-accent)]" aria-hidden />
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeUploadedFile(i);
+                      }}
+                      className="rounded p-0.5 text-[var(--lifeops-muted)] hover:bg-[var(--lifeops-hover)] hover:text-red-500"
+                      aria-label={`Quitar ${f.name}`}
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Results */}
-      {tables.length > 0 && (
-        <div className="mt-8 space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-                Tabla Extraída ({tables[0].rows.length} filas)
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Las celdas vacías son editables. Activa la opción para editar todas. Los cambios se usan al importar o descargar CSV.
-                Al importar se pedirán fechas faltantes (emisión del archivo, pólizas nuevas y filas sin fecha de emisión).
-              </p>
-              <label className="inline-flex items-center gap-2 mt-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={allCellsEditable}
-                  onChange={(e) => setAllCellsEditable(e.target.checked)}
-                  className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700 dark:text-gray-300">
-                  Permitir editar todas las celdas
-                </span>
-              </label>
+      {step === 2 && (
+        <div className={stepSurface}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                <CalendarDays className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--lifeops-fg)]">
+                  Confirma las fechas
+                </h2>
+                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                  Completa los datos faltantes.
+                </p>
+              </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => void handleImport()}
-                disabled={isImporting || isCheckingDuplicates}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={downloadAllCSV}
+              disabled={tables.length === 0}
+              className="shrink-0 gap-1.5 self-start"
+            >
+              <Download className="h-4 w-4" aria-hidden />
+              Descargar CSV
+            </Button>
+          </div>
+
+          <section className="flex flex-col gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                <FileText className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+              </span>
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-base font-semibold text-[var(--lifeops-fg)]">
+                  Fecha del archivo
+                  {isIsoDate(dialogFileIssueDate) ? (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-label="Lista" />
+                  ) : null}
+                </p>
+                <p className="mt-0.5 text-sm text-[var(--lifeops-muted)]">
+                  Emisión del reporte (sugerida desde FECHA PAGO)
+                </p>
+              </div>
+            </div>
+            <div className="w-full shrink-0 sm:w-auto sm:min-w-[12rem]">
+              <DateInput
+                id="import-file-issue-date"
+                value={dialogFileIssueDate}
+                max={todayIsoDate()}
+                aria-label="Fecha del archivo de comisiones"
+                aria-invalid={Boolean(importDateErrors.issueDate)}
+                onAdvance={(dir) =>
+                  advanceImportDateField('import-file-issue-date', dir)
+                }
+                onChange={(iso) => {
+                  setDialogFileIssueDate(iso);
+                  setImportDateErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.issueDate;
+                    return next;
+                  });
+                }}
+                required
+              />
+              {importDateErrors.issueDate ? (
+                <p className="mt-1 text-xs text-red-500" role="alert">
+                  {importDateErrors.issueDate}
+                </p>
+              ) : null}
+            </div>
+          </section>
+
+          {importDateRows.length === 0 ? (
+            <div className="flex gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+              <CheckCircle2
+                className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <div>
+                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                  No hace falta nada más por póliza
+                </p>
+                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                  Todas ya tienen fecha de emisión y ninguna es nueva. Continúa cuando la
+                  fecha del archivo esté bien.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <section className="overflow-hidden rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)]">
+              <div className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                  <CalendarDays className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-base font-semibold text-[var(--lifeops-fg)]">
+                    Fechas por póliza
+                    <span className="ml-2 text-sm font-normal text-[var(--lifeops-muted)]">
+                      ({importDateRows.filter((r) => isIsoDate(r.issueDate)).length +
+                        importDateRows.filter(
+                          (r) => r.needsPriorPayment && isIsoDate(r.priorPaymentDate),
+                        ).length}
+                      /
+                      {importDateRows.length + priorNeeded})
+                    </span>
+                  </p>
+                  <p className="mt-0.5 text-sm text-[var(--lifeops-muted)]">
+                    Emisión faltante se captura aquí. Si ya viene en el archivo, clic para
+                    corregirla. Último pago solo en pólizas nuevas.
+                  </p>
+                </div>
+              </div>
+              <div className="overflow-x-auto border-t border-[var(--lifeops-border)]">
+                <table className="min-w-full divide-y divide-[var(--lifeops-border)]">
+                  <thead className="bg-[var(--lifeops-hover)]">
+                    <tr>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Póliza
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Cliente
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Fecha de emisión
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Último pago
+                      </th>
+                      <th className="w-10 px-3 py-2.5">
+                        <span className="sr-only">Estado</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--lifeops-border)]">
+                    {importDateRows.map((row, index) => {
+                      const todayIso = todayIsoDate();
+                      const dayBeforeFile = dayBeforeIso(dialogFileIssueDate.trim());
+                      const issueMax = dayBeforeFile
+                        ? minIsoDate(todayIso, dayBeforeFile)
+                        : todayIso;
+                      const issueInputId = `issue-date-${index}`;
+                      const priorInputId = `prior-payment-${index}`;
+                      const showIssueInput =
+                        row.issueMissing || Boolean(editingIssueKeys[row.key]);
+                      const rowComplete =
+                        isIsoDate(row.issueDate) &&
+                        (!row.needsPriorPayment || isIsoDate(row.priorPaymentDate));
+                      return (
+                        <tr
+                          key={row.key}
+                          className={cn(
+                            'cursor-pointer transition-colors',
+                            rowComplete
+                              ? 'bg-emerald-500/10 hover:bg-emerald-500/15'
+                              : 'hover:bg-[var(--lifeops-hover)]/50',
+                          )}
+                          onClick={() => {
+                            if (showIssueInput) focusDateInput(issueInputId);
+                            else if (row.needsPriorPayment) focusDateInput(priorInputId);
+                          }}
+                        >
+                          <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-[var(--lifeops-fg)]">
+                            {row.contractNumber}
+                          </td>
+                          <td className="max-w-[12rem] truncate px-3 py-2 text-sm text-[var(--lifeops-muted)] sm:max-w-none">
+                            {row.clientName}
+                          </td>
+                          <td
+                            className="px-3 py-2"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (!showIssueInput) {
+                                setEditingIssueKeys((prev) => ({
+                                  ...prev,
+                                  [row.key]: true,
+                                }));
+                                window.setTimeout(() => focusDateInput(issueInputId), 0);
+                              }
+                            }}
+                          >
+                            {showIssueInput ? (
+                              <>
+                                <DateInput
+                                  id={issueInputId}
+                                  value={row.issueDate}
+                                  max={issueMax}
+                                  aria-label={`Fecha de emisión de ${row.contractNumber}`}
+                                  aria-invalid={Boolean(importDateErrors[`issue:${row.key}`])}
+                                  onAdvance={(dir) =>
+                                    advanceImportDateField(issueInputId, dir)
+                                  }
+                                  onChange={(iso) => {
+                                    setImportDateRows((prev) =>
+                                      prev.map((r) =>
+                                        r.key === row.key ? { ...r, issueDate: iso } : r,
+                                      ),
+                                    );
+                                    setImportDateErrors((prev) => {
+                                      const next = { ...prev };
+                                      delete next[`issue:${row.key}`];
+                                      return next;
+                                    });
+                                  }}
+                                  required
+                                />
+                                {importDateErrors[`issue:${row.key}`] ? (
+                                  <p className="mt-1 text-xs text-red-500" role="alert">
+                                    {importDateErrors[`issue:${row.key}`]}
+                                  </p>
+                                ) : null}
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                className="rounded-md px-1 py-1 text-left font-mono text-sm text-[var(--lifeops-fg)] underline-offset-2 hover:bg-[var(--lifeops-hover)] hover:underline"
+                                title="Clic para editar"
+                              >
+                                {isoToDdMmYyyy(row.issueDate)}
+                              </button>
+                            )}
+                          </td>
+                          <td
+                            className="px-3 py-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {row.needsPriorPayment ? (
+                              <>
+                                <DateInput
+                                  id={priorInputId}
+                                  value={row.priorPaymentDate}
+                                  max={todayIso}
+                                  aria-label={`Último pago de ${row.contractNumber}`}
+                                  aria-invalid={Boolean(importDateErrors[`prior:${row.key}`])}
+                                  onAdvance={(dir) =>
+                                    advanceImportDateField(priorInputId, dir)
+                                  }
+                                  onChange={(iso) => {
+                                    setImportDateRows((prev) =>
+                                      prev.map((r) =>
+                                        r.key === row.key
+                                          ? { ...r, priorPaymentDate: iso }
+                                          : r,
+                                      ),
+                                    );
+                                    setImportDateErrors((prev) => {
+                                      const next = { ...prev };
+                                      delete next[`prior:${row.key}`];
+                                      return next;
+                                    });
+                                  }}
+                                  required
+                                />
+                                {importDateErrors[`prior:${row.key}`] ? (
+                                  <p className="mt-1 text-xs text-red-500" role="alert">
+                                    {importDateErrors[`prior:${row.key}`]}
+                                  </p>
+                                ) : null}
+                              </>
+                            ) : (
+                              <span className="text-sm text-[var(--lifeops-muted)]">—</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {rowComplete ? (
+                              <CheckCircle2
+                                className="inline-block h-5 w-5 text-emerald-500"
+                                strokeWidth={1.75}
+                                aria-label="Fila completa"
+                              />
+                            ) : null}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+
+      {step === 3 && tables.length === 0 && (
+        <div className={stepSurface}>
+          <p className="text-[var(--lifeops-muted)]">
+            No hay datos para resumir. Vuelve al paso 1 y sube un archivo válido.
+          </p>
+        </div>
+      )}
+      {step === 3 && tables.length > 0 && (
+        <div className={stepSurface}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                <ClipboardList className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+              </span>
+              <div>
+                <h2 className="text-lg font-semibold text-[var(--lifeops-fg)]">
+                  Revisa e importa
+                </h2>
+                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                  Mismo resumen que en fechas, más el código de asesor. Confirma y luego
+                  importa a la base.
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={downloadAllCSV}
+              className="shrink-0 gap-1.5 self-start"
+            >
+              <Download className="h-4 w-4" aria-hidden />
+              Descargar CSV
+            </Button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+              <p className="text-xs uppercase tracking-wide text-[var(--lifeops-muted)]">
+                Pólizas nuevas
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-[var(--lifeops-fg)]">
+                {importDateRows.length}
+              </p>
+            </div>
+            <div
+              className={cn(
+                'group relative rounded-lg border p-4',
+                showMissingConsultantsAlert
+                  ? 'cursor-help border-[#FBDBAC]/60 bg-[#FBDBAC]/15 ring-1 ring-[#FBDBAC]/35'
+                  : 'border-[var(--lifeops-border)] bg-[var(--lifeops-page)]',
+              )}
+              title={showMissingConsultantsAlert ? missingConsultantsTip : undefined}
+              tabIndex={showMissingConsultantsAlert ? 0 : undefined}
+              aria-label={
+                showMissingConsultantsAlert
+                  ? `${summaryMissingCount} asesores por crear. ${missingConsultantsTip}`
+                  : undefined
+              }
+            >
+              <p
+                className={cn(
+                  'text-xs uppercase tracking-wide',
+                  showMissingConsultantsAlert
+                    ? 'font-semibold text-[var(--lifeops-accent)]'
+                    : 'text-[var(--lifeops-muted)]',
+                )}
               >
-                {isCheckingDuplicates ? 'Preparando…' : isImporting ? 'Importando...' : 'Importar a Base de Datos'}
-              </button>
-              <button
-                onClick={downloadAllCSV}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                Asesores por crear
+              </p>
+              <p
+                className={cn(
+                  'mt-1 text-2xl font-semibold',
+                  showMissingConsultantsAlert
+                    ? 'text-[var(--lifeops-accent)]'
+                    : 'text-[var(--lifeops-fg)]',
+                )}
               >
-                Descargar CSV
-              </button>
-              <button
-                onClick={copyAllToClipboard}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Copiar
-              </button>
+                {summaryMissingLoading ? '…' : summaryMissingCount}
+              </p>
+              {showMissingConsultantsAlert ? (
+                <span
+                  role="tooltip"
+                  className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-[min(18rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-2.5 py-1.5 text-center text-xs font-medium text-[var(--lifeops-fg)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  {missingConsultantsTip}
+                </span>
+              ) : null}
             </div>
           </div>
 
           {importResult && (
             <>
-              {/* Warnings Section */}
               {importResult.warnings && importResult.warnings.length > 0 && (
-                <div className="rounded-lg p-4 border bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 mb-4">
-                  <h3 className="text-sm font-semibold mb-2 text-blue-800 dark:text-blue-200">
-                    ⚠️ Advertencias de Importación ({importResult.warnings.length})
+                <div className="rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+                  <h3 className="mb-2 text-sm font-semibold text-[var(--lifeops-fg)]">
+                    Advertencias ({importResult.warnings.length})
                   </h3>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
-                    Los siguientes elementos se omitieron porque ya existen en la base de datos:
+                  <p className="mb-2 text-xs text-[var(--lifeops-muted)]">
+                    Se omitieron porque ya existen en la base:
                   </p>
-                  <div className="text-sm text-blue-700 dark:text-blue-300 max-h-60 overflow-y-auto">
-                    <ul className="list-disc list-inside space-y-1">
+                  <div className="max-h-60 overflow-y-auto text-sm text-[var(--lifeops-muted)]">
+                    <ul className="list-inside list-disc space-y-1">
                       {importResult.warnings.slice(0, 50).map((warning, idx) => (
                         <li key={`warn-${idx}-${warning.row}`}>
                           {warning.row > 0 ? `Fila ${warning.row}: ` : ''}
@@ -1836,7 +2294,7 @@ function ExtractorPageContent() {
                       ))}
                       {importResult.warnings.length > 50 && (
                         <li key="warn-more">
-                          ... y {importResult.warnings.length - 50} advertencias más
+                          … y {importResult.warnings.length - 50} más
                         </li>
                       )}
                     </ul>
@@ -1844,23 +2302,22 @@ function ExtractorPageContent() {
                 </div>
               )}
 
-              {/* Results Section */}
-              <div className={`rounded-lg p-4 border ${importResult.errors.length === 0
-                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-                }`}>
-                <h3 className={`text-sm font-semibold mb-2 ${importResult.errors.length === 0
-                  ? 'text-green-800 dark:text-green-200'
-                  : 'text-yellow-800 dark:text-yellow-200'
-                  }`}>
+              <div
+                className={cn(
+                  'rounded-lg border p-4',
+                  importResult.errors.length === 0
+                    ? 'border-emerald-500/40 bg-emerald-500/10'
+                    : 'border-amber-500/40 bg-amber-500/10',
+                )}
+              >
+                <h3 className="mb-2 text-sm font-semibold text-[var(--lifeops-fg)]">
                   {importResult.errors.length === 0
-                    ? `¡Se importaron exitosamente ${importResult.success} póliza(s)!`
-                    : `Importación completada: ${importResult.success} importados, ${importResult.errors.length} error(es)`
-                  }
+                    ? `Se importaron ${importResult.success} póliza(s)`
+                    : `Importación: ${importResult.success} ok, ${importResult.errors.length} error(es)`}
                 </h3>
                 {importResult.errors.length > 0 && (
-                  <div className="text-sm text-yellow-700 dark:text-yellow-300 max-h-60 overflow-y-auto">
-                    <ul className="list-disc list-inside space-y-1">
+                  <div className="max-h-60 overflow-y-auto text-sm text-[var(--lifeops-muted)]">
+                    <ul className="list-inside list-disc space-y-1">
                       {importResult.errors.slice(0, 50).map((error, idx) => (
                         <li key={`err-${idx}-${error.row}`}>
                           {error.row > 0 ? `Fila ${error.row}: ` : ''}
@@ -1869,7 +2326,7 @@ function ExtractorPageContent() {
                       ))}
                       {importResult.errors.length > 50 && (
                         <li key="err-more">
-                          ... y {importResult.errors.length - 50} errores más
+                          … y {importResult.errors.length - 50} más
                         </li>
                       )}
                     </ul>
@@ -1879,63 +2336,221 @@ function ExtractorPageContent() {
             </>
           )}
 
-          {tables.map((table, index) => (
-            <div
-              key={table.sectionName ?? 'table'}
-              className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6"
-            >
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                  <thead className="bg-gray-50 dark:bg-gray-700">
+          {nothingToImport ? (
+            <div className="flex gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+              <CheckCircle2
+                className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <div>
+                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                  No hay nada nuevo que importar
+                </p>
+                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                  No hay pólizas ni asesores nuevos en este archivo
+                  {isIsoDate(dialogFileIssueDate)
+                    ? ` (fecha del archivo: ${isoToDdMmYyyy(dialogFileIssueDate)})`
+                    : ''}
+                  . Puedes volver o descargar el CSV si lo necesitas.
+                </p>
+              </div>
+            </div>
+          ) : importDateRows.length === 0 ? (
+            <div className="flex gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+              <CheckCircle2
+                className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <div>
+                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                  Sin pólizas nuevas; hay asesores por crear
+                </p>
+                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                  No hay pólizas nuevas, pero al importar se registrarán los asesores
+                  faltantes
+                  {isIsoDate(dialogFileIssueDate)
+                    ? ` · fecha del archivo: ${isoToDdMmYyyy(dialogFileIssueDate)}`
+                    : ''}
+                  .
+                </p>
+              </div>
+            </div>
+          ) : (
+            <section className="overflow-hidden rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)]">
+              <div className="flex items-start gap-3 px-4 py-3">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                  <CalendarDays className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-base font-semibold text-[var(--lifeops-fg)]">
+                    Pólizas a registrar
+                  </p>
+                  <p className="mt-0.5 text-sm text-[var(--lifeops-muted)]">
+                    Fechas confirmadas y código de asesor. Si el asesor aparece arriba como
+                    nuevo, se creará de forma manual al importar.
+                  </p>
+                </div>
+              </div>
+              <div className="overflow-x-auto border-t border-[var(--lifeops-border)]">
+                <table className="min-w-full divide-y divide-[var(--lifeops-border)]">
+                  <thead className="bg-[var(--lifeops-hover)]">
                     <tr>
-                      {table.headers.map((header, headerIndex) => (
-                        <th
-                          key={`${header}-${headerIndex}`}
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider"
-                        >
-                          {header}
-                        </th>
-                      ))}
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Póliza
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Cliente
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Asesor
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Fecha de emisión
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                        Último pago
+                      </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {table.rows.map((row, rowIndex) => (
-                      <tr
-                        key={`row-${rowIndex}`}
-                        className="hover:bg-gray-50 dark:hover:bg-gray-700"
-                      >
-                        {row.map((cell, cellIndex) => {
-                          const value = row[cellIndex] ?? '';
-                          const isEmpty = String(value).trim() === '';
-                          const isFocusedEmpty =
-                            focusedEmptyCell?.tableIndex === index &&
-                            focusedEmptyCell?.rowIndex === rowIndex &&
-                            focusedEmptyCell?.cellIndex === cellIndex;
-                          const isEditable = allCellsEditable || isEmpty || isFocusedEmpty;
-                          return (
-                            <td key={`${String(cell ?? '')}-${cellIndex}`} className="px-1 py-1">
-                              <EditableCell
-                                value={value}
-                                tableIndex={index}
-                                rowIndex={rowIndex}
-                                cellIndex={cellIndex}
-                                isEditable={isEditable}
-                                updateCell={updateCell}
-                                onFocusEmpty={handleFocusEmpty}
-                                onBlurEmpty={handleBlurEmpty}
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                  <tbody className="divide-y divide-[var(--lifeops-border)]">
+                    {importDateRows.map((row) => {
+                      const codeKey = row.consultantCode.trim().toLowerCase();
+                      const isMissingAsesor =
+                        Boolean(codeKey) &&
+                        summaryMissingConsultants.some(
+                          (c) => c.code.trim().toLowerCase() === codeKey,
+                        );
+                      return (
+                        <tr
+                          key={row.key}
+                          className="hover:bg-[var(--lifeops-hover)]/50"
+                        >
+                          <td className="whitespace-nowrap px-3 py-2.5 text-sm font-medium text-[var(--lifeops-fg)]">
+                            {row.contractNumber}
+                          </td>
+                          <td className="max-w-[12rem] truncate px-3 py-2.5 text-sm text-[var(--lifeops-muted)] sm:max-w-none">
+                            {row.clientName}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 text-sm">
+                            {row.consultantCode ? (
+                              isMissingAsesor ? (
+                                <span className="group relative inline-flex">
+                                  <span
+                                    className="cursor-help rounded-md bg-[#FBDBAC]/20 px-1.5 py-0.5 font-mono font-medium text-[var(--lifeops-accent)] ring-1 ring-[#FBDBAC]/50"
+                                    title="Asesor no registrado"
+                                    tabIndex={0}
+                                    aria-label={`${row.consultantCode}: asesor no registrado`}
+                                  >
+                                    {row.consultantCode}
+                                  </span>
+                                  <span
+                                    role="tooltip"
+                                    className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-2 py-1 text-xs font-medium text-[var(--lifeops-fg)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                                  >
+                                    Asesor no registrado
+                                  </span>
+                                </span>
+                              ) : (
+                                <span className="font-mono text-[var(--lifeops-fg)]">
+                                  {row.consultantCode}
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-[var(--lifeops-muted)]">—</span>
+                            )}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-[var(--lifeops-fg)]">
+                            {isIsoDate(row.issueDate)
+                              ? isoToDdMmYyyy(row.issueDate)
+                              : '—'}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-[var(--lifeops-fg)]">
+                            {row.needsPriorPayment && isIsoDate(row.priorPaymentDate)
+                              ? isoToDdMmYyyy(row.priorPaymentDate)
+                              : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-            </div>
-          ))}
+            </section>
+          )}
         </div>
       )}
+
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)]/95 backdrop-blur-sm lg:left-[260px]">
+        {step === 2 ? (
+          <div className="mx-auto max-w-7xl px-4 pt-2.5 sm:px-6 lg:px-8">
+            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs text-[var(--lifeops-muted)]">
+              <span>Fechas listas</span>
+              <span className="tabular-nums text-[var(--lifeops-fg)]">
+                {dateTasksReady}/{dateTasksTotal}
+                <span className="ml-1.5 text-[var(--lifeops-muted)]">
+                  ({dateProgressPct}%)
+                </span>
+              </span>
+            </div>
+            <div
+              className="h-1.5 overflow-hidden rounded-full bg-[var(--lifeops-hover)]"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={dateTasksTotal}
+              aria-valuenow={dateTasksReady}
+              aria-label="Progreso de fechas por completar"
+            >
+              <div
+                className="h-full rounded-full bg-[#FBDBAC] transition-[width] duration-300 ease-out"
+                style={{ width: `${dateProgressPct}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+          {step > 1 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="lg"
+              className={bottomNavBtnClass}
+              disabled={isExtracting || isImporting || isCheckingDuplicates}
+              onClick={() => setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s))}
+            >
+              Atrás
+            </Button>
+          ) : (
+            <span className={bottomNavBtnClass} aria-hidden />
+          )}
+          <p className="hidden text-sm text-[var(--lifeops-muted)] sm:block">
+            Paso {step} de 3
+          </p>
+          {showPrimaryAction ? (
+            <Button
+              type="button"
+              variant="brand"
+              size="lg"
+              disabled={continueDisabled}
+              className={cn(bottomNavBtnClass, !continueDisabled && 'lifeops-cta-pulse')}
+              onClick={() => void handleStepperContinue()}
+            >
+              {isExtracting
+                ? 'Procesando…'
+                : isCheckingDuplicates
+                  ? 'Preparando…'
+                  : isImporting
+                    ? 'Importando…'
+                    : step === 3
+                      ? 'Importar'
+                      : 'Continuar'}
+            </Button>
+          ) : (
+            <span className={bottomNavBtnClass} aria-hidden />
+          )}
+        </div>
+      </div>
 
       {/* Loading Overlay */}
       {(isExtracting || isCheckingDuplicates || isImporting) && (
@@ -2045,304 +2660,48 @@ function ExtractorPageContent() {
         </div>
       )}
 
-      {/* Import dates dialog (file issue + per-policy prior + missing FECHA EMISION) */}
-      {showImportDatesDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6 space-y-6">
-              <div>
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                  Fechas para importar
-                </h2>
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  La fecha del archivo se sugiere desde la columna FECHA PAGO (fecha de cobro).
-                  Las pólizas nuevas requieren su último pago previo, y las filas sin fecha de
-                  emisión deben completarse para poder importar.
-                </p>
-              </div>
+      <MissingConsultantsDialog
+        open={showConsultantDialog}
+        officeId={
+          (profile?.role === 'consultant'
+            ? profile.office_id || profile.id
+            : profile?.id) || ''
+        }
+        consultants={missingConsultants}
+        onChange={setMissingConsultants}
+        onClose={() => {
+          setShowConsultantDialog(false);
+          setMissingConsultants([]);
+        }}
+        onDone={continueAfterMissingConsultants}
+        busy={isCheckingDuplicates || isImporting}
+      />
 
-              <FormField
-                label="Fecha de emisión del archivo"
-                htmlFor="import-file-issue-date"
-                variant="auth"
-                error={importDateErrors.issueDate}
-                hint="Detectada automáticamente desde FECHA PAGO; puedes corregirla"
-              >
-                <Input
-                  id="import-file-issue-date"
-                  type="date"
-                  value={dialogFileIssueDate}
-                  max={todayIsoDate()}
-                  onChange={(e) => {
-                    setDialogFileIssueDate(e.target.value);
-                    setImportDateErrors((prev) => {
-                      const next = { ...prev };
-                      delete next.issueDate;
-                      return next;
-                    });
-                  }}
-                  required
-                />
-              </FormField>
-
-              {newPolicyDateRows.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    Último pago previo (pólizas nuevas)
-                  </h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Indica, por póliza, la fecha del <strong>último pago real</strong> conocido
-                    (puede ser más reciente que el archivo si el archivo es viejo). Sirve para
-                    calcular el próximo cobro. No se admiten fechas futuras.
-                  </p>
-                  <div className="space-y-3">
-                    {newPolicyDateRows.map((row, index) => (
-                      <div
-                        key={row.key}
-                        className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-                      >
-                        <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">
-                          {row.contractNumber}
-                          <span className="text-gray-500 dark:text-gray-400 font-normal">
-                            {' '}
-                            · {row.clientName}
-                          </span>
-                        </p>
-                        <FormField
-                          label="Último pago conocido"
-                          htmlFor={`prior-payment-${index}`}
-                          variant="auth"
-                          error={importDateErrors[`prior:${row.key}`]}
-                        >
-                          <Input
-                            id={`prior-payment-${index}`}
-                            type="date"
-                            value={row.priorPaymentDate}
-                            max={todayIsoDate()}
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              setNewPolicyDateRows((prev) =>
-                                prev.map((r) =>
-                                  r.key === row.key
-                                    ? { ...r, priorPaymentDate: value }
-                                    : r,
-                                ),
-                              );
-                              setImportDateErrors((prev) => {
-                                const next = { ...prev };
-                                delete next[`prior:${row.key}`];
-                                return next;
-                              });
-                            }}
-                            required
-                          />
-                        </FormField>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {missingIssueDateRows.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                    Fecha de emisión faltante
-                  </h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Estas pólizas no traen FECHA EMISION en el archivo. Debe ser{' '}
-                    <strong>anterior</strong> a la fecha del archivo de comisiones (hoy sí se
-                    permite si el archivo es más reciente).
-                  </p>
-                  <div className="space-y-3">
-                    {missingIssueDateRows.map((row, index) => {
-                      const todayIso = todayIsoDate();
-                      const dayBeforeFile = dayBeforeIso(dialogFileIssueDate.trim());
-                      const issueMax = dayBeforeFile
-                        ? minIsoDate(todayIso, dayBeforeFile)
-                        : todayIso;
-                      return (
-                        <div
-                          key={row.key}
-                          className="rounded-lg border border-gray-200 dark:border-gray-700 p-4"
-                        >
-                          <p className="text-sm font-medium text-gray-900 dark:text-white mb-3">
-                            {row.contractNumber}
-                            <span className="text-gray-500 dark:text-gray-400 font-normal">
-                              {' '}
-                              · {row.clientName}
-                              {row.rowIndexes.length > 1
-                                ? ` · ${row.rowIndexes.length} filas`
-                                : ''}
-                            </span>
-                          </p>
-                          <FormField
-                            label="Fecha de emisión"
-                            htmlFor={`missing-issue-${index}`}
-                            variant="auth"
-                            error={importDateErrors[`issue:${row.key}`]}
-                          >
-                            <Input
-                              id={`missing-issue-${index}`}
-                              type="date"
-                              value={row.issueDate}
-                              max={issueMax}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setMissingIssueDateRows((prev) =>
-                                  prev.map((r) =>
-                                    r.key === row.key ? { ...r, issueDate: value } : r,
-                                  ),
-                                );
-                                setImportDateErrors((prev) => {
-                                  const next = { ...prev };
-                                  delete next[`issue:${row.key}`];
-                                  return next;
-                                });
-                              }}
-                              required
-                            />
-                          </FormField>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowImportDatesDialog(false);
-                    setImportDateErrors({});
-                  }}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleConfirmImportDates()}
-                  disabled={!canContinueImportDates}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-semibold disabled:opacity-50 disabled:pointer-events-none disabled:hover:bg-green-600"
-                >
-                  Continuar importación
-                </button>
-              </div>
-            </div>
-          </div>
+      <AppDialog
+        open={showImportOutcomeDialog && !isImporting}
+        title={importOutcomeTitle}
+        description={
+          importOutcomeOk
+            ? 'Ya puedes revisar las pólizas en el listado.'
+            : 'Revisa el detalle y continúa en pólizas.'
+        }
+        onClose={goToContractsAfterImport}
+        size="md"
+      >
+        <p className="whitespace-pre-line text-sm text-[var(--lifeops-muted)]">
+          {importOutcomeDescription}
+        </p>
+        <div className="flex justify-end pt-1">
+          <Button
+            type="button"
+            variant="brand"
+            size="lg"
+            onClick={goToContractsAfterImport}
+          >
+            Ir a pólizas
+          </Button>
         </div>
-      )}
-
-      {/* Consultant Creation Dialog */}
-      {showConsultantDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                Crear Asesores Faltantes
-              </h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Los siguientes asesores no se encontraron en la base de datos. Por favor proporciona correo electrónico y contraseña para crearlos:
-              </p>
-
-              <div className="space-y-4 mb-6">
-                {missingConsultants.map((consultant, index) => (
-                  <div key={consultant.consultantCode} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                    <h3 className="font-semibold text-gray-900 dark:text-white mb-3">
-                      Código del Asesor: {consultant.consultantCode}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label htmlFor={`consultant-name-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Nombre del Asesor
-                        </label>
-                        <input
-                          id={`consultant-name-${index}`}
-                          type="text"
-                          value={consultant.name}
-                          onChange={(e) => {
-                            const updated = [...missingConsultants];
-                            updated[index].name = e.target.value;
-                            setMissingConsultants(updated);
-                          }}
-                          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="Nombre del asesor"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor={`consultant-email-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Correo Electrónico *
-                        </label>
-                        <input
-                          id={`consultant-email-${index}`}
-                          type="email"
-                          value={consultant.email}
-                          onChange={(e) => {
-                            const updated = [...missingConsultants];
-                            updated[index].email = e.target.value;
-                            setMissingConsultants(updated);
-                          }}
-                          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="asesor@ejemplo.com"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor={`consultant-password-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                          Contraseña * (mín. 8 caracteres)
-                        </label>
-                        <PasswordInput
-                          id={`consultant-password-${index}`}
-                          value={consultant.password}
-                          onChange={(e) => {
-                            const updated = [...missingConsultants];
-                            updated[index].password = e.target.value;
-                            setMissingConsultants(updated);
-                          }}
-                          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                          placeholder="••••••••"
-                        />
-                      </div>
-                    </div>
-                    <div className="mt-3">
-                      <label htmlFor={`consultant-code-${index}`} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Código del Asesor (Asesor) - Solo Lectura
-                      </label>
-                      <input
-                        id={`consultant-code-${index}`}
-                        type="text"
-                        value={consultant.consultantCode}
-                        disabled
-                        className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowConsultantDialog(false);
-                    setMissingConsultants([]);
-                  }}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                  disabled={isCreatingConsultants}
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={handleCreateConsultants}
-                  disabled={isCreatingConsultants}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isCreatingConsultants ? 'Creando...' : 'Crear Asesores e Importar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      </AppDialog>
 
       {/* Info Dialog */}
       {showInfoDialog && (

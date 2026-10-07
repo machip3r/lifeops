@@ -13,6 +13,7 @@ import { ListSearchFilters } from '@/components/list-search-filters';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { PageHeader } from '@/components/dashboard/page-header';
 
 type ContractRow = Contract & { client_name?: string };
 type SortKey = 'client_name' | 'contract_number' | 'project_name' | 'payment_method' | 'created_at';
@@ -246,20 +247,19 @@ function ConsultantDetailsPageContent() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-8">
-        <div>
+      <PageHeader
+        title="Detalles del asesor"
+        watermark="Asesor"
+        eyebrow={
           <button
             type="button"
             onClick={() => router.push('/dashboard/consultants')}
-            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-2 inline-flex items-center"
+            className="inline-flex items-center text-[#FBDBAC] hover:underline"
           >
-            ← Volver a Asesores
+            ← Volver a asesores
           </button>
-          <h1 className="dashboard-page-title text-4xl font-bold">
-            Detalles del Asesor
-          </h1>
-        </div>
-      </div>
+        }
+      />
 
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">

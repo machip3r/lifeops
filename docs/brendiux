@@ -43,3 +43,6 @@ pero en otra hoja que ponle que sea de pendientes de primera aportacion , ahi es
 
 
 al momento de subir comisiones, checar nombres de clientes ya creados, relacionarlos con un algoritmo de similitud de cadenas de texto, y si tiene un cierto umbral, pues seria el mismo
+
+normalizar nombres clientes (trim uppercase A-Z)
+agregar opcion de editarlos en el extractor

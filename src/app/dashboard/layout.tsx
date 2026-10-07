@@ -1,11 +1,16 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { assets } from '../theme/assets';
 import { useAuth } from '@/contexts/auth-context';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { Menu } from 'lucide-react';
 import { ToastProvider } from '@/components/toast';
+import {
+  DashboardSidebar,
+  consultantNavItems,
+  promotoryNavItems,
+} from '@/components/dashboard/sidebar';
+import { assets } from '@/app/theme/assets';
 
 export default function DashboardLayout({
   children,
@@ -15,157 +20,91 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { profile, loading, session, signOut } = useAuth();
   const router = useRouter();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
   useEffect(() => {
     if (!loading && !session) {
       router.push('/login');
     }
   }, [loading, session, router]);
 
-  // Show loading state only on initial load
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#1a1d24] flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--lifeops-page)]">
         <div className="text-center">
-          <p className="text-white text-lg">Cargando...</p>
+          <p className="text-lg text-[var(--lifeops-fg)]">Cargando...</p>
         </div>
       </div>
     );
   }
 
-  // If no session, redirect to login (handled by useEffect)
   if (!session) {
     return (
-      <div className="min-h-screen bg-[#1a1d24] flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--lifeops-page)]">
         <div className="text-center">
-          <p className="text-white text-lg">Redirigiendo al inicio de sesión...</p>
+          <p className="text-lg text-[var(--lifeops-fg)]">
+            Redirigiendo al inicio de sesión...
+          </p>
         </div>
       </div>
     );
   }
 
-  // If we have a session but profile is still loading, show a message
-  // Profile loads in background, so we can show a partial UI
   if (!profile) {
     return (
-      <div className="min-h-screen bg-[#1a1d24] flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-[var(--lifeops-page)]">
         <div className="text-center">
-          <p className="text-white text-lg mb-4">Cargando tu perfil...</p>
-          <p className="text-[#FBDBAC] text-sm">Esto puede tomar un momento</p>
+          <p className="mb-4 text-lg text-[var(--lifeops-fg)]">Cargando tu perfil...</p>
+          <p className="text-sm text-[var(--lifeops-accent)]">Esto puede tomar un momento</p>
         </div>
       </div>
     );
   }
 
-  // Navigation for the phase-1 product (registro + cobranza + recordatorios).
-  // Archived for later (routes still exist, just not in nav):
-  // - /dashboard/change-requests (solicitudes)
-  // - /dashboard/projection (proyección / primas)
-  // - /dashboard/collections/v0 (legacy cobranza)
-  const promotoryNavItems = [
-    { href: '/dashboard', label: 'Vista General' },
-    { href: '/dashboard/extractor', label: 'Importar datos' },
-    { href: '/dashboard/contracts', label: 'Pólizas' },
-    { href: '/dashboard/collections', label: 'Cobranza' },
-    { href: '/dashboard/clients', label: 'Clientes' },
-    { href: '/dashboard/consultants', label: 'Asesores' },
-  ];
-
-  const consultantNavItems = [
-    { href: '/dashboard', label: 'Mi resumen' },
-    { href: '/dashboard/extractor', label: 'Importar datos' },
-    { href: '/dashboard/contracts', label: 'Pólizas' },
-    { href: '/dashboard/collections', label: 'Cobranza' },
-    { href: '/dashboard/clients', label: 'Clientes' },
-  ];
-
   const navItems = profile.role === 'promotory' ? promotoryNavItems : consultantNavItems;
+  const brandParts = assets.brand.name.split('O');
 
   return (
     <ToastProvider>
-      <div className="min-h-screen dashboard-gradient-bg">
-        {/* Navigation Bar */}
-        <nav className="bg-[#242830] shadow-md border-b border-[#2a2f38]">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              {/* Logo */}
-              <div className="flex items-center">
-                <Link href="/" className="text-2xl text-white">
-                  {assets.brand.name.split('O')[0]}
-                  <strong>Ops</strong>
-                </Link>
-              </div>
+      <div className="flex min-h-screen dashboard-gradient-bg">
+        <DashboardSidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          navItems={navItems}
+          profile={profile}
+          onSignOut={signOut}
+        />
 
-              {/* Right side: Profile, Logout */}
-              <div className="flex items-center space-x-3">
-                {/* Profile Icon */}
-                <Link
-                  href="/dashboard/profile"
-                  className="p-2 rounded-lg text-white hover:bg-[#2f3540] transition-colors"
-                  title="Perfil"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </Link>
+        <div className="hidden w-[260px] shrink-0 lg:block" aria-hidden />
 
-                {/* Logout Icon */}
-                <button
-                  onClick={signOut}
-                  className="p-2 rounded-lg text-red-400 hover:bg-red-900/20 transition-colors"
-                  title="Cerrar Sesión"
-                >
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                  </svg>
-                </button>
-              </div>
-            </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-30 flex h-20 items-center justify-between gap-3 border-b border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-3 sm:h-24 lg:hidden">
+            <span
+              className="min-w-0 truncate text-3xl font-semibold tracking-tight text-[var(--lifeops-fg)] sm:text-4xl"
+              style={{ fontFamily: 'var(--font-lexend), Arial, Helvetica, sans-serif' }}
+            >
+              {brandParts[0]}
+              <strong className="font-bold">Ops</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              className="shrink-0 p-2 text-[var(--lifeops-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
+              aria-label="Abrir menú"
+            >
+              <Menu className="h-8 w-8" strokeWidth={1.75} />
+            </button>
+          </header>
 
-            {/* Single row navbar: active page has bottom border */}
-            <div className="flex items-center justify-evenly gap-10 border-t border-[#2a2f38]">
-              {navItems.map((item) => {
-                const isActive =
-                  pathname === item.href ||
-                  (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`py-3 text-sm font-medium border-b-2 transition-colors ${isActive
-                      ? 'border-[#FBDBAC] text-white'
-                      : 'border-transparent text-gray-400 hover:text-gray-200'
-                      }`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </nav>
-
-        {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {children}
-        </main>
+          <main className="min-h-0 flex-1 px-4 py-8 sm:px-6 lg:px-8">
+            <div className="mx-auto max-w-7xl">{children}</div>
+          </main>
+        </div>
       </div>
     </ToastProvider>
   );
 }
-

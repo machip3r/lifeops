@@ -6,6 +6,7 @@ import { db } from '@/lib/db';
 import { authFetch } from '@/lib/api-client';
 import ProtectedRoute from '@/components/protected-route';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { PageHeader } from '@/components/dashboard/page-header';
 
 function ProfilePageContent() {
   const { profile, loading: authLoading } = useAuth();
@@ -99,14 +100,11 @@ function ProfilePageContent() {
 
   return (
     <div>
-      <div className="text-center mb-8">
-        <h1 className="dashboard-page-title text-4xl font-bold mb-2">
-          Perfil
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Gestiona la configuración y preferencias de tu perfil
-        </p>
-      </div>
+      <PageHeader
+        title="Perfil"
+        watermark="Perfil"
+        description="Gestiona la configuración y preferencias de tu perfil"
+      />
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-2xl">
         <form onSubmit={handleSave} className="space-y-6">

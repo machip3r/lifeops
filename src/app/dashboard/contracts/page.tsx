@@ -17,6 +17,7 @@ import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { AtRiskBadge } from '@/components/collections/at-risk-badge';
 import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
+import { PageHeader } from '@/components/dashboard/page-header';
 
 type ContractRow = Contract & { client_name?: string };
 type SortKey = 'client_name' | 'contract_number' | 'project_name' | 'payment_method' | 'capture_date';
@@ -135,14 +136,15 @@ function ContractsPageContent() {
 
   return (
     <div>
-      <div className="text-center mb-6">
-        <h1 className="dashboard-page-title text-4xl font-bold mb-2">Pólizas</h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          {profile?.role === 'promotory'
+      <PageHeader
+        title="Pólizas"
+        watermark="Pólizas"
+        description={
+          profile?.role === 'promotory'
             ? 'Gestiona las pólizas de tus asesores'
-            : 'Gestiona tus pólizas'}
-        </p>
-      </div>
+            : 'Gestiona tus pólizas'
+        }
+      />
 
       <ManualContractDialog
         open={manualOpen}

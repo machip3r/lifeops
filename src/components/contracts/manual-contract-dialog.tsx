@@ -22,7 +22,7 @@ type Props = {
 };
 
 const selectClass =
-  'h-9 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
+  'h-9 w-full rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-3 text-sm text-[var(--lifeops-fg)] shadow-xs outline-none focus-visible:border-[var(--lifeops-accent)] focus-visible:ring-3 focus-visible:ring-[#FBDBAC]/30';
 
 function todayIsoDate(): string {
   const d = new Date();
@@ -278,7 +278,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
               </Button>
             </div>
           ) : (
-            <p className="text-sm text-[#9ca3af]">La póliza quedará a tu nombre.</p>
+            <p className="text-sm text-(--lifeops-muted)">La póliza quedará a tu nombre.</p>
           )}
 
           <FormField
@@ -294,33 +294,31 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
               maxLength={LIMITS.contractNumber}
               required
               placeholder="VI0001566370, GM0000682574…"
-             
+
             />
           </FormField>
 
-          <section className="rounded-lg border border-[#3a4049] bg-[#1a1d23]/50 p-4 space-y-4">
+          <section className="space-y-4 rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-hover)] p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-white">Cliente</h3>
-              <div className="inline-flex rounded-lg border border-[#3a4049] p-0.5">
+              <h3 className="text-sm font-semibold text-[var(--lifeops-fg)]">Cliente</h3>
+              <div className="inline-flex rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] p-0.5">
                 <button
                   type="button"
                   onClick={() => switchClientMode('existing')}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    clientMode === 'existing'
+                  className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${clientMode === 'existing'
                       ? 'bg-[#FBDBAC] text-[#1a1d24]'
-                      : 'text-[#9ca3af] hover:text-white'
-                  }`}
+                      : 'text-(--lifeops-muted) hover:text-[var(--lifeops-fg)]'
+                    }`}
                 >
                   Existente
                 </button>
                 <button
                   type="button"
                   onClick={() => switchClientMode('new')}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    clientMode === 'new'
+                  className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${clientMode === 'new'
                       ? 'bg-[#FBDBAC] text-[#1a1d24]'
-                      : 'text-[#9ca3af] hover:text-white'
-                  }`}
+                      : 'text-(--lifeops-muted) hover:text-[var(--lifeops-fg)]'
+                    }`}
                 >
                   Nuevo
                 </button>
@@ -364,7 +362,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                     maxLength={LIMITS.personName}
                     required
                     placeholder="Nombre completo"
-                   
+
                   />
                 </FormField>
                 <FormField
@@ -465,7 +463,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                 onChange={(e) => setCollectionDay(e.target.value)}
                 required
                 placeholder="1–31"
-               
+
               />
             </FormField>
           </div>
@@ -581,7 +579,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
               list.find(
                 (c) =>
                   c.consultant_code?.toLowerCase() ===
-                    info.consultantCode.toLowerCase() ||
+                  info.consultantCode.toLowerCase() ||
                   c.email?.toLowerCase() === info.email.toLowerCase(),
               ) ?? null;
             if (match) setConsultantId(match.id);

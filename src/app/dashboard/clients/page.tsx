@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { PageHeader } from '@/components/dashboard/page-header';
 
 type ClientRow = Client & { contract_count?: number };
 type SortKey = 'name' | 'birth_date' | 'age' | 'contracts' | 'created_at';
@@ -196,10 +197,11 @@ function ClientsPageContent() {
 
   return (
     <div>
-      <div className="text-center mb-6">
-        <h1 className="dashboard-page-title text-4xl font-bold mb-2">Clientes</h1>
-        <p className="text-gray-600 dark:text-gray-400">Gestiona tus clientes registrados</p>
-      </div>
+      <PageHeader
+        title="Clientes"
+        watermark="Clientes"
+        description="Gestiona tus clientes registrados"
+      />
 
       <ClientFormDialog
         open={showForm}

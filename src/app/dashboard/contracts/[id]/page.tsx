@@ -10,6 +10,7 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { useAuth } from '@/contexts/auth-context';
 import { ReassignConsultantDialog } from '@/components/contracts/reassign-consultant-dialog';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { PageHeader } from '@/components/dashboard/page-header';
 
 function ContractDetailsPageContent() {
     const router = useRouter();
@@ -163,44 +164,48 @@ function ContractDetailsPageContent() {
 
     return (
         <div>
-            <div className="flex justify-between items-center mb-8">
-                <div>
+            <PageHeader
+                title="Detalles de la póliza"
+                watermark="Póliza"
+                eyebrow={
                     <button
+                        type="button"
                         onClick={() => router.push('/dashboard/contracts')}
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-2 inline-flex items-center"
+                        className="inline-flex items-center text-[#FBDBAC] hover:underline"
                     >
-                        ← Volver a Contratos
+                        ← Volver a pólizas
                     </button>
-                    <h1 className="dashboard-page-title text-4xl font-bold mb-1">
-                        Detalles de la póliza
-                    </h1>
-                    {contract.contract_number && (
-                        <p className="text-gray-700 dark:text-gray-300 text-lg font-medium mb-1">
-                            {contract.contract_number.startsWith('GM')
-                                ? 'Seguro de gastos mayores'
-                                : contract.contract_number.startsWith('VI')
-                                    ? 'Seguro de vida'
-                                    : ''}
-                        </p>
-                    )}
-                    {contractType && (
-                        <p className="text-gray-700 dark:text-gray-300 text-lg font-medium mb-1">
-                            {contractType === 'inicial' ? 'Contrato Inicial' : 'Contrato Renovación'}
-                        </p>
-                    )}
-                    <p className="text-gray-600 dark:text-gray-400">
-                        Número de Contrato: {contract.contract_number || 'N/A'}
-                    </p>
-                </div>
-                {profile?.role === 'promotory' && contract.consultant_id && (
-                    <ReassignConsultantDialog
-                        officeId={profile.id}
-                        contractId={contract.id}
-                        currentConsultantId={contract.consultant_id}
-                        onReassigned={() => void loadContractMeta()}
-                    />
-                )}
-            </div>
+                }
+                description={
+                    <>
+                        {contract.contract_number ? (
+                            <p className="text-lg font-medium text-gray-300">
+                                {contract.contract_number.startsWith('GM')
+                                    ? 'Seguro de gastos mayores'
+                                    : contract.contract_number.startsWith('VI')
+                                        ? 'Seguro de vida'
+                                        : null}
+                            </p>
+                        ) : null}
+                        {contractType ? (
+                            <p className="text-lg font-medium text-gray-300">
+                                {contractType === 'inicial' ? 'Contrato inicial' : 'Contrato renovación'}
+                            </p>
+                        ) : null}
+                        <p>Número de contrato: {contract.contract_number || 'N/A'}</p>
+                    </>
+                }
+                actions={
+                    profile?.role === 'promotory' && contract.consultant_id ? (
+                        <ReassignConsultantDialog
+                            officeId={profile.id}
+                            contractId={contract.id}
+                            currentConsultantId={contract.consultant_id}
+                            onReassigned={() => void loadContractMeta()}
+                        />
+                    ) : null
+                }
+            />
 
             {/* Contract Information */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">

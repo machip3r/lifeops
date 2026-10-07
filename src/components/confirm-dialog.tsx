@@ -54,7 +54,10 @@ export function ConfirmDialog({
       busy={loading}
       size="md"
     >
-      <p id={descriptionId} className="text-sm text-[#9ca3af] whitespace-pre-line">
+      <p
+        id={descriptionId}
+        className="text-sm text-(--lifeops-muted) whitespace-pre-line"
+      >
         {description}
       </p>
       <div className="flex justify-end gap-3 pt-1">

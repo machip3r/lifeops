@@ -23,38 +23,40 @@ export function CollectionPriorityLists({
   return (
     <div className="space-y-8">
       <section aria-labelledby="at-risk-heading" className="space-y-3">
-        <div className="flex items-end justify-between gap-2 flex-wrap">
+        <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2
               id="at-risk-heading"
-              className="text-xl font-semibold text-[#FBDBAC]"
+              className="text-xl font-semibold text-[var(--lifeops-accent)]"
             >
               En peligro
             </h2>
-            <p className="text-sm text-[#9ca3af]">
+            <p className="text-sm text-[var(--lifeops-muted)]">
               Sin pago registrado más de {POLICY_AT_RISK_DAYS} días después de
               la fecha de cobro.
             </p>
           </div>
-          <span className="text-sm text-white/70">{atRisk.length} póliza(s)</span>
+          <span className="text-sm text-[var(--lifeops-muted)]">
+            {atRisk.length} póliza(s)
+          </span>
         </div>
         {atRisk.length === 0 ? (
-          <p className="rounded-lg border border-white/15 px-4 py-6 text-[#9ca3af] text-center">
+          <p className="rounded-lg border border-[var(--lifeops-border)] px-4 py-6 text-center text-[var(--lifeops-muted)]">
             Ninguna póliza en peligro por ahora.
           </p>
         ) : (
-          <ul className="rounded-lg border border-red-500/40 divide-y divide-white/10 overflow-hidden">
+          <ul className="overflow-hidden rounded-lg border border-red-500/40 divide-y divide-[var(--lifeops-border)]">
             {atRisk.slice(0, 10).map((row) => (
               <li key={row.contract_id}>
                 <Link
                   href={`/dashboard/contracts/${row.contract_id}`}
-                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-white/5"
+                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-[var(--lifeops-hover)]"
                 >
                   <div>
-                    <p className="text-white font-medium">
+                    <p className="font-medium text-[var(--lifeops-fg)]">
                       {row.contract_number || 'Sin número'}
                     </p>
-                    <p className="text-sm text-[#9ca3af]">
+                    <p className="text-sm text-[var(--lifeops-muted)]">
                       {row.client_name || 'Cliente sin nombre'}
                       {showConsultant && row.consultant_name
                         ? ` · ${row.consultant_name}`
@@ -62,10 +64,10 @@ export function CollectionPriorityLists({
                     </p>
                   </div>
                   <div className="text-right text-sm">
-                    <p className="text-red-300 font-medium">
+                    <p className="font-medium text-red-500 dark:text-red-300">
                       {row.days_overdue} días de atraso
                     </p>
-                    <p className="text-[#9ca3af]">
+                    <p className="text-[var(--lifeops-muted)]">
                       Cobro: {formatDateShortEsLocal(row.due_date)}
                     </p>
                   </div>
@@ -75,11 +77,11 @@ export function CollectionPriorityLists({
           </ul>
         )}
         {atRisk.length > 10 && (
-          <p className="text-sm text-[#9ca3af] text-center">
+          <p className="text-center text-sm text-[var(--lifeops-muted)]">
             Y {atRisk.length - 10} más — véalas en{' '}
             <Link
               href="/dashboard/collections"
-              className="text-[#FBDBAC] underline"
+              className="text-[var(--lifeops-accent)] underline"
             >
               cobranza
             </Link>
@@ -89,38 +91,40 @@ export function CollectionPriorityLists({
       </section>
 
       <section aria-labelledby="pending-heading" className="space-y-3">
-        <div className="flex items-end justify-between gap-2 flex-wrap">
+        <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <h2
               id="pending-heading"
-              className="text-xl font-semibold text-[#FBDBAC]"
+              className="text-xl font-semibold text-[var(--lifeops-accent)]"
             >
               Pagos por registrar
             </h2>
-            <p className="text-sm text-[#9ca3af]">
+            <p className="text-sm text-[var(--lifeops-muted)]">
               Próximo cobro en los próximos {PENDING_PAYMENT_WITHIN_DAYS} días
               (o recién vencido)
             </p>
           </div>
-          <span className="text-sm text-white/70">{pending.length} póliza(s)</span>
+          <span className="text-sm text-[var(--lifeops-muted)]">
+            {pending.length} póliza(s)
+          </span>
         </div>
         {pending.length === 0 ? (
-          <p className="rounded-lg border border-white/15 px-4 py-6 text-[#9ca3af] text-center">
+          <p className="rounded-lg border border-[var(--lifeops-border)] px-4 py-6 text-center text-[var(--lifeops-muted)]">
             No hay pagos pendientes en esta ventana.
           </p>
         ) : (
-          <ul className="rounded-lg border border-white/20 divide-y divide-white/10 overflow-hidden">
+          <ul className="overflow-hidden rounded-lg border border-[var(--lifeops-border)] divide-y divide-[var(--lifeops-border)]">
             {pending.slice(0, 10).map((row) => (
               <li key={row.contract_id}>
                 <Link
                   href="/dashboard/collections"
-                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-white/5"
+                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-[var(--lifeops-hover)]"
                 >
                   <div>
-                    <p className="text-white font-medium">
+                    <p className="font-medium text-[var(--lifeops-fg)]">
                       {row.contract_number || 'Sin número'}
                     </p>
-                    <p className="text-sm text-[#9ca3af]">
+                    <p className="text-sm text-[var(--lifeops-muted)]">
                       {row.client_name || 'Cliente sin nombre'}
                       {showConsultant && row.consultant_name
                         ? ` · ${row.consultant_name}`
@@ -131,15 +135,15 @@ export function CollectionPriorityLists({
                     <p
                       className={
                         row.is_overdue
-                          ? 'text-amber-300 font-medium'
-                          : 'text-white/90'
+                          ? 'font-medium text-amber-600 dark:text-amber-300'
+                          : 'text-[var(--lifeops-fg)]'
                       }
                     >
                       {row.is_overdue
                         ? `Vencida hace ${Math.abs(row.days_until_due)} día(s)`
                         : `En ${row.days_until_due} día(s)`}
                     </p>
-                    <p className="text-[#9ca3af]">
+                    <p className="text-[var(--lifeops-muted)]">
                       Cobro: {formatDateShortEsLocal(row.due_date)}
                     </p>
                   </div>

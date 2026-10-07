@@ -9,7 +9,7 @@ type Props = {
   onClose: () => void;
   children: ReactNode;
   /** Wider panel for denser forms */
-  size?: 'md' | 'lg';
+  size?: 'md' | 'lg' | 'xl';
   /** Disable backdrop / close while submitting */
   busy?: boolean;
   /** Use when stacking over another dialog (e.g. invite from registrar póliza). */
@@ -17,7 +17,7 @@ type Props = {
 };
 
 /**
- * Shared dashboard modal shell — dark chrome matching Registrar póliza.
+ * Shared dashboard modal shell — theme-aware chrome.
  */
 export function AppDialog({
   open,
@@ -31,12 +31,13 @@ export function AppDialog({
 }: Props) {
   if (!open) return null;
 
-  const maxWidth = size === 'lg' ? 'max-w-2xl' : 'max-w-lg';
+  const maxWidth =
+    size === 'xl' ? 'max-w-4xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg';
   const zClass = elevated ? 'z-[60]' : 'z-50';
 
   return (
     <div
-      className={`fixed inset-0 ${zClass} flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]`}
+      className={`fixed inset-0 ${zClass} flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px] dark:bg-black/70`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="app-dialog-title"
@@ -45,20 +46,20 @@ export function AppDialog({
       }}
     >
       <div
-        className={`w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl border border-[#3a4049] bg-[#242830] shadow-2xl`}
+        className={`w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] text-[var(--lifeops-fg)] shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-6 space-y-5">
+        <div className="space-y-5 p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2
                 id="app-dialog-title"
-                className="dashboard-page-title text-2xl font-bold"
+                className="text-2xl font-bold text-[var(--lifeops-accent)]"
               >
                 {title}
               </h2>
               {description ? (
-                <p className="mt-1 text-sm text-[#9ca3af]">{description}</p>
+                <p className="mt-1 text-sm text-(--lifeops-muted)">{description}</p>
               ) : null}
             </div>
             <button
@@ -66,7 +67,7 @@ export function AppDialog({
               onClick={onClose}
               disabled={busy}
               aria-label="Cerrar"
-              className="rounded-md p-1.5 text-[#9ca3af] transition-colors hover:bg-[#1a1d23] hover:text-[#FBDBAC] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] disabled:opacity-50"
+              className="cursor-pointer rounded-md p-1.5 text-(--lifeops-muted) transition-colors hover:bg-[var(--lifeops-hover)] hover:text-[var(--lifeops-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] disabled:opacity-50"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path

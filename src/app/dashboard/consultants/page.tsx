@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { PageHeader } from '@/components/dashboard/page-header';
 
 type SortKey = 'name' | 'email' | 'consultant_code' | 'status' | 'sales' | 'created_at';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
@@ -176,14 +177,11 @@ function ConsultantsPageContent() {
 
   return (
     <div>
-      <div className="text-center mb-6">
-        <h1 className="dashboard-page-title text-4xl font-bold mb-2">
-          Asesores
-        </h1>
-        <p className="text-gray-600 dark:text-gray-400">
-          Gestiona tus asesores. Ventas filtradas por fecha de pago (período).
-        </p>
-      </div>
+      <PageHeader
+        title="Asesores"
+        watermark="Asesores"
+        description="Gestiona tus asesores. Ventas filtradas por fecha de pago (período)."
+      />
 
       {loadError && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">

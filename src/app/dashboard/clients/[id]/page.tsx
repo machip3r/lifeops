@@ -11,6 +11,7 @@ import { ListSearchFilters } from '@/components/list-search-filters';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { PageHeader } from '@/components/dashboard/page-header';
 
 type SortKey = 'contract_number' | 'consultant' | 'project_name' | 'payment_method' | 'created_at';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
@@ -167,21 +168,20 @@ function ClientDetailsPageContent() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-8">
-        <div>
+      <PageHeader
+        title={client.name}
+        watermark="Cliente"
+        eyebrow={
           <button
             type="button"
             onClick={() => router.push('/dashboard/clients')}
-            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mb-2 inline-flex items-center"
+            className="inline-flex items-center text-[#FBDBAC] hover:underline"
           >
-            ← Volver a Clientes
+            ← Volver a clientes
           </button>
-          <h1 className="dashboard-page-title text-4xl font-bold mb-1">
-            {client.name}
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">Detalles del cliente</p>
-        </div>
-      </div>
+        }
+        description="Detalles del cliente"
+      />
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">

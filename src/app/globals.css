@@ -10,11 +10,21 @@
   --primary: oklch(0.205 0 0);
   --secondary: oklch(0.97 0 0);
   --card: oklch(1 0 0);
-  --navbar: #242830;
-  --table-header: #2a2f38;
-  --table-row: #242830;
-  --table-row-hover: #2f3540;
-  color-scheme: dark;
+  --navbar: #f4f4f5;
+  --table-header: #ebebeb;
+  --table-row: #ffffff;
+  --table-row-hover: #f4f4f5;
+  color-scheme: light;
+  /* LifeOps shell (light) */
+  --lifeops-chrome: #f4f4f5;
+  --lifeops-page: #f0f0f2;
+  --lifeops-border: #a1a1aa;
+  --lifeops-hover: #e4e4e7;
+  --lifeops-fg: #1a1d24;
+  --lifeops-muted: #52525b;
+  --lifeops-accent: #c9a86c;
+  --lifeops-on-accent: #1a1d24;
+  --lifeops-watermark-stroke: #a78b5a;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -23,12 +33,12 @@
   --primary-foreground: oklch(0.985 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.45 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.58 0.22 27);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.72 0 0);
+  --input: oklch(0.65 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
@@ -138,6 +148,19 @@ h6 {
 }
 
 .dark {
+  --navbar: #242830;
+  --table-header: #2a2f38;
+  --table-row: #242830;
+  --table-row-hover: #2f3540;
+  --lifeops-chrome: #242830;
+  --lifeops-page: #1a1d24;
+  --lifeops-border: #2a2f38;
+  --lifeops-hover: #2f3540;
+  --lifeops-fg: #ffffff;
+  --lifeops-muted: #9ba5b3;
+  --lifeops-accent: #fbdbac;
+  --lifeops-on-accent: #1a1d24;
+  --lifeops-watermark-stroke: #fbdbac;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -169,19 +192,55 @@ h6 {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  color-scheme: dark;
 }
 
-/* Dashboard: subtle dark background gradient (lighter at top, darker at bottom) */
+/* Dashboard page ground */
 .dashboard-gradient-bg {
+  background: var(--lifeops-page);
+}
+
+.dark .dashboard-gradient-bg {
   background: linear-gradient(180deg, #1f232a 0%, #1c1f26 35%, #1a1d24 70%, #16191e 100%);
 }
 
-/* Dashboard page titles: golden-beige with subtle vertical gradient (lighter top → darker bottom) */
+/* Dashboard page titles: solid LifeOps gold (left-aligned via PageHeader) */
 .dashboard-page-title {
-  background: linear-gradient(180deg, #f0ddb8 0%, #e5cf9e 40%, #d4b896 70%, #c9a86c 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--lifeops-accent);
+}
+
+/* Large page watermark — soft solid text only (no stroke / shadow border) */
+.dashboard-page-watermark {
+  font-family: var(--font-lexend), Arial, Helvetica, sans-serif;
+  font-size: clamp(4rem, 14vw, 8rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 0.85;
+  color: var(--lifeops-fg);
+  opacity: 0.07;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+  user-select: none;
+  pointer-events: none;
+}
+
+@keyframes lifeops-cta-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(251 219 172 / 55%);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgb(251 219 172 / 0%);
+    transform: scale(1.03);
+  }
+}
+
+.lifeops-cta-pulse:not(:disabled) {
+  animation: lifeops-cta-pulse 1.6s ease-out infinite;
 }
 
 @layer base {

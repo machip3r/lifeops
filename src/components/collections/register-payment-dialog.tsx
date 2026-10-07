@@ -194,7 +194,7 @@ export function RegisterPaymentDialog({
     >
       <div className="space-y-4">
         {dueHint ? (
-          <p className="text-sm text-[#9ca3af]">{dueHint}</p>
+          <p className="text-sm text-(--lifeops-muted)">{dueHint}</p>
         ) : null}
 
         <FormField
@@ -260,7 +260,7 @@ export function RegisterPaymentDialog({
             maxLength={LIMITS.notes}
             rows={3}
             onChange={(e) => setNotes(e.target.value)}
-            className="bg-[#1a1d23]"
+            className="max-h-32 resize-y overflow-y-auto bg-[var(--lifeops-page)]"
           />
         </FormField>
 

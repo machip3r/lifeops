@@ -2,7 +2,6 @@
 
 import type { FormEvent, ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 
 type Props = {
@@ -12,16 +11,17 @@ type Props = {
   /** Apply search (Enter or Buscar). */
   onSubmit: () => void;
   placeholder?: string;
-  label?: string;
   id?: string;
   className?: string;
   /** Primary create action (Nuevo cliente / Invitar asesor), rendered after Buscar. */
   actions?: ReactNode;
   searchLabel?: string;
+  /** Extra controls in the filter bar (e.g. range select). */
+  extras?: ReactNode;
 };
 
 /**
- * Shared list filter bar for Asesores / Clientes.
+ * Shared list filter bar for Asesores / Clientes / Pólizas / Cobranza.
  * Search runs only on submit — not on every keystroke.
  */
 export function ListSearchFilters({
@@ -29,11 +29,11 @@ export function ListSearchFilters({
   onChange,
   onSubmit,
   placeholder = 'Buscar…',
-  label = 'Buscar',
   id = 'list-search',
   className,
   actions,
   searchLabel = 'Buscar',
+  extras,
 }: Props) {
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -45,24 +45,21 @@ export function ListSearchFilters({
       onSubmit={handleSubmit}
       className={
         className ??
-        'p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap gap-3 items-end'
+        'flex flex-wrap items-end gap-3 border-b border-[var(--lifeops-border)] p-4'
       }
     >
-      <FormField
-        label={label}
-        htmlFor={id}
-        variant="auth"
-        className="flex-1 min-w-[200px] space-y-1"
-      >
+      <div className="min-w-[200px] flex-1">
         <Input
           id={id}
           type="search"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="bg-white dark:bg-gray-900"
+          aria-label={placeholder || 'Buscar'}
+          className="bg-[var(--lifeops-page)]"
         />
-      </FormField>
+      </div>
+      {extras}
       <Button type="submit" variant="outline" size="lg">
         {searchLabel}
       </Button>
