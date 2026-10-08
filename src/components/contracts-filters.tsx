@@ -82,6 +82,11 @@ export function ContractsFilters({
   actions,
 }: ContractsFiltersProps) {
   const [searchInput, setSearchInput] = useState(filters.search);
+  const [seenSearch, setSeenSearch] = useState(filters.search);
+  if (filters.search !== seenSearch) {
+    setSeenSearch(filters.search);
+    setSearchInput(filters.search);
+  }
   const debouncedSearch = useDebouncedValue(searchInput, TABLE_FILTER_DEBOUNCE_MS);
 
   const sortedCurrencies = useMemo(
@@ -93,10 +98,6 @@ export function ContractsFilters({
     () => Array.from(new Set(availablePaymentMethods.filter(Boolean))).sort(),
     [availablePaymentMethods]
   );
-
-  useEffect(() => {
-    setSearchInput(filters.search);
-  }, [filters.search]);
 
   useEffect(() => {
     if (debouncedSearch === filters.search) return;

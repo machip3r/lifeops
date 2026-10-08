@@ -156,11 +156,20 @@ Hexagonal light: pages and route handlers are **input**; persistence lives in ad
 ## UI: design system, responsive, a11y
 
 - Use shared design tokens / CSS variables in `src/app/globals.css` and existing Tailwind / shadcn patterns — no one-off color systems per page.
+- Write CSS-variable utilities with the Tailwind v4 shorthand: `text-(--lifeops-muted)`, `bg-(--lifeops-page)`, `border-(--lifeops-border)`, `divide-(--lifeops-border)`. Keep opacity on that form (`bg-(--lifeops-hover)/50`, `bg-(--lifeops-chrome)/95`). Leave real CSS `var(--token)` calls in stylesheets as-is.
 - Primary CTAs use shared `Button` with `variant="brand"` (golden accent `#FBDBAC`); avoid ad-hoc `bg-blue-600` / one-off button styles on dashboard pages.
 - **Responsive** by default (mobile → desktop); auth and dashboard layouts must work on small screens.
 - **Accessibility basics**: label every input (`htmlFor` / `FormField`), meaningful button text, `aria-label` for icon-only controls, visible focus, sufficient contrast, do not rely on color alone for errors.
 - Prefer semantic HTML (`button`, `label`, `nav`, headings in order).
 - **Disable submit buttons** until required form fields are filled (client-side). Do not leave primary submit actions enabled on empty required forms (auth, invites, and app forms).
+
+### React effects
+
+`react-hooks/set-state-in-effect` is an error. Do not call `setState` (or a function that calls it) directly in a `useEffect` / `useLayoutEffect` body.
+
+- **Reset when a key changes during render.** Store the previous key and update state in that same render (`useResetPage` for table pages). Do not `setPage(1)`, close a drawer, or copy props into state from an effect.
+- **Fetch with `useQueryEffect`.** The effect only starts the request. Update state after `await`. Do not call `setLoading(true)` before that await — when a refetch should show a spinner, `useQueryLoading` turns loading on during render as the query key changes.
+- **External stores** (`localStorage`, theme) use `useSyncExternalStore`. An effect may write the DOM or subscribe. `setState` belongs in the subscription, timer, or promise callback — not in the effect body itself.
 
 ---
 

@@ -5,7 +5,7 @@
  */
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { Consultant, Tag } from '@/lib/supabase';
@@ -36,6 +36,7 @@ import { ConsultantHome } from '@/components/dashboard/consultant-home';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
 import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
+import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
 import Link from 'next/link';
 
 const FORMA_PAGO_OPTIONS = ['Anual', 'Semestral', 'Trimestral', 'Mensual'] as const;
@@ -91,8 +92,23 @@ export default function DashboardPage() {
   const [totalPrimaMeta, setTotalPrimaMeta] = useState(0);
   const [primaMetaVI, setPrimaMetaVI] = useState(0);
   const [primaMetaGM, setPrimaMetaGM] = useState(0);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [priorityLoading, setPriorityLoading] = useState(true);
+  const statsKey = [
+    profile?.id ?? '',
+    profile?.role ?? '',
+    dateStart,
+    dateEnd,
+    dateBasis,
+    seniorityMin,
+    seniorityMax,
+    ramo,
+    paymentMethod ?? '',
+    selectedConsultants.join(','),
+    selectedTagIds.join(','),
+  ].join('\0');
+  const [statsLoading, setStatsLoading] = useQueryLoading(statsKey);
+  const [priorityLoading, setPriorityLoading] = useQueryLoading(
+    profile?.role === 'promotory' ? (profile.id ?? '') : '',
+  );
   const [atRisk, setAtRisk] = useState<ContractAtRisk[]>([]);
   const [pendingPayments, setPendingPayments] = useState<ContractPendingPayment[]>([]);
 
@@ -113,7 +129,6 @@ export default function DashboardPage() {
       return;
     }
     try {
-      setStatsLoading(true);
       const seniorityMinParam = seniorityMin === '' ? null : Number(seniorityMin);
       const seniorityMaxParam = seniorityMax === '' ? null : Number(seniorityMax);
       const contractTypeParam = ramo === 'all' ? null : ramo;
@@ -183,13 +198,10 @@ export default function DashboardPage() {
     paymentMethod,
     selectedConsultants,
     selectedTagIds,
+    setStatsLoading,
   ]);
 
-  useEffect(() => {
-    if (!loading && profile?.role === 'promotory') {
-      loadConsultants();
-    }
-  }, [loading, profile?.role, loadConsultants]);
+  useQueryEffect(!loading && profile?.role === 'promotory', loadConsultants);
 
   const loadPriorityLists = useCallback(async () => {
     if (!profile?.id || profile.role !== 'promotory') {
@@ -197,7 +209,6 @@ export default function DashboardPage() {
       return;
     }
     try {
-      setPriorityLoading(true);
       const [riskRows, pendingRows] = await Promise.all([
         db.dashboard.listContractsAtRisk({
           officeId: profile.id,
@@ -215,14 +226,10 @@ export default function DashboardPage() {
     } finally {
       setPriorityLoading(false);
     }
-  }, [profile?.id, profile?.role]);
+  }, [profile?.id, profile?.role, setPriorityLoading]);
 
-  useEffect(() => {
-    if (!loading && profile?.role === 'promotory') {
-      loadDashboardStats();
-      void loadPriorityLists();
-    }
-  }, [profile, loading, loadDashboardStats, loadPriorityLists]);
+  useQueryEffect(!loading && profile?.role === 'promotory', loadDashboardStats);
+  useQueryEffect(!loading && profile?.role === 'promotory', loadPriorityLists);
 
   const handleApplyFilters = () => {
     setDateStart(pendingDateStart);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
@@ -10,19 +10,20 @@ import {
   POLICY_AT_RISK_DAYS,
 } from '@/lib/collections/constants';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
+import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
 
 /** Asesor home: at-risk + pending payments + shortcuts. */
 export function ConsultantHome() {
   const { profile, loading: authLoading } = useAuth();
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useQueryLoading(
+    profile?.role === 'consultant' ? profile.id : '',
+  );
   const [error, setError] = useState<string | null>(null);
   const [atRisk, setAtRisk] = useState<ContractAtRisk[]>([]);
   const [pending, setPending] = useState<ContractPendingPayment[]>([]);
 
   const load = useCallback(async () => {
     if (!profile?.id || profile.role !== 'consultant') return;
-    setLoading(true);
-    setError(null);
     try {
       const consultant = await db.consultant.getConsultantById(profile.id);
       if (!consultant) {
@@ -41,6 +42,7 @@ export function ConsultantHome() {
           withinDays: PENDING_PAYMENT_WITHIN_DAYS,
         }),
       ]);
+      setError(null);
       setAtRisk(riskRows);
       setPending(pendingRows);
     } catch (e) {
@@ -53,13 +55,9 @@ export function ConsultantHome() {
     } finally {
       setLoading(false);
     }
-  }, [profile?.id, profile?.role]);
+  }, [profile?.id, profile?.role, setLoading]);
 
-  useEffect(() => {
-    if (!authLoading && profile?.role === 'consultant') {
-      void load();
-    }
-  }, [authLoading, profile?.role, load]);
+  useQueryEffect(!authLoading && profile?.role === 'consultant', load);
 
   if (authLoading || loading) {
     return (

@@ -24,7 +24,7 @@ export function ThemeToggle({
       onClick={toggleTheme}
       className={cn(
         'inline-flex cursor-pointer items-center justify-center p-2 transition-colors',
-        'text-(--lifeops-muted) hover:bg-[var(--lifeops-hover)] hover:text-[var(--lifeops-fg)]',
+        'text-(--lifeops-muted) hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg)',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]',
         className
       )}

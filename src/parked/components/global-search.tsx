@@ -39,21 +39,22 @@ export default function GlobalSearch() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    useEffect(() => {
-        if (debouncedQuery.trim().length < 2) {
+    const activeQuery = debouncedQuery.trim().length >= 2 && profile ? debouncedQuery.trim() : '';
+    const [seenQuery, setSeenQuery] = useState(activeQuery);
+    if (seenQuery !== activeQuery) {
+        setSeenQuery(activeQuery);
+        setLoading(activeQuery.length > 0);
+        if (!activeQuery) {
             setResults([]);
             setIsOpen(false);
-            setLoading(false);
-            return;
         }
+    }
 
-        if (!profile) {
-            return;
-        }
+    useEffect(() => {
+        if (!activeQuery || !profile) return;
 
         let cancelled = false;
-        const run = async () => {
-            setLoading(true);
+        void (async () => {
             try {
                 const officeId = profile.role === 'promotory' ? profile.id : profile.office_id || undefined;
 
@@ -94,13 +95,12 @@ export default function GlobalSearch() {
             } finally {
                 if (!cancelled) setLoading(false);
             }
-        };
+        })();
 
-        void run();
         return () => {
             cancelled = true;
         };
-    }, [debouncedQuery, profile]);
+    }, [activeQuery, profile]);
 
     const handleSelect = (result: SearchResult) => {
         setIsOpen(false);

@@ -24,5 +24,6 @@ Follow the full project standards in **`AGENTS.md`** (repo root) for every chang
 - **Image uploads** — decode, strip metadata, resize/re-encode server-side before Storage; reject undecodable / oversized / non-allowlisted files (see AGENTS.md “File uploads”)
 - **Backend on the server** — prefer Server Actions / route handlers + adapters (`db-admin`, auth/admin, storage/admin); no GraphQL unless asked; safe Spanish errors
 - **Service role is server-only** — `SUPABASE_SERVICE_ROLE_KEY` + `@/lib/supabase/admin`; never in the browser; privileged APIs use Bearer `authFetch` + `requireOfficeContext`
-- **Design system + responsive + a11y** — CSS variables, labels, focus, icon `aria-label`s; dark UI + golden accent; primary CTAs via `Button` `variant="brand"`
+- **Design system + responsive + a11y** — CSS variables via Tailwind shorthand (`text-(--token)`, `bg-(--token)`, `border-(--token)`); labels, focus, icon `aria-label`s; dark UI + golden accent; primary CTAs via `Button` `variant="brand"`
 - **Office tenancy / RLS** — promotory = office-wide; consultant = own data; secrets stay server-side
+- **No setState in effects** — `react-hooks/set-state-in-effect`. Reset state during render when a key changes (`useResetPage` / `useQueryLoading`); start fetches with `useQueryEffect` and set state only after `await`. See AGENTS.md “React effects”

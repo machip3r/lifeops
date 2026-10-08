@@ -226,6 +226,8 @@ contract (1) ──< (many) file
    - For **first-time** policies: seeds that póliza’s prior payment mark, sets `collection_day`, and initial `collection_status` (`CORRIENTE` / `ATRASADO` if prior is already past the at-risk window)
    - Clients are find-or-created by name for the office (names with spaces are supported; broken PostgREST `ilike` OR filters were fixed)
 
+While an import is in progress (files loaded, dates, summary, or the save itself), changing section, signing out, or closing the tab asks for confirmation so that work is not abandoned without noticing.
+
 **Important Mappings**:
 - `Asesor` → `consultant.consultant_code`
 - `Poliza` → `contract.contract_number`

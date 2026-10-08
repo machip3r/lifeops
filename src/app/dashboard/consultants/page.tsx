@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -18,6 +18,7 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type SortKey = 'name' | 'email' | 'consultant_code' | 'status' | 'sales' | 'created_at';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
@@ -57,8 +58,10 @@ function ConsultantsPageContent() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [consultantToDelete, setConsultantToDelete] = useState<Consultant | null>(null);
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [page, setPage] = useResetPage(
+    `${search}\0${pageSize}\0${sortKey ?? ''}\0${sortDir}`,
+  );
   const [total, setTotal] = useState(0);
 
   const loadConsultants = useCallback(async () => {
@@ -109,15 +112,7 @@ function ConsultantsPageContent() {
     sortDir,
   ]);
 
-  useEffect(() => {
-    if (profile?.role === 'promotory' && profile.id) {
-      loadConsultants();
-    }
-  }, [profile, loadConsultants]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, pageSize, sortKey, sortDir]);
+  useQueryEffect(Boolean(profile?.role === 'promotory' && profile.id), loadConsultants);
 
   const openDeleteDialog = (consultant: Consultant) => {
     setConsultantToDelete(consultant);

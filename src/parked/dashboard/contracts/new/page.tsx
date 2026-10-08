@@ -46,13 +46,24 @@ function NewContractPageContent() {
 
     const progress = ((currentStep + 1) / STEPS.length) * 100;
 
-    useEffect(() => {
-        if (profile?.role === 'promotory' && profile.id) {
-            loadData();
-        } else if (profile?.role === 'consultant') {
-            loadClients();
-            setFormData(prev => ({ ...prev, consultant_id: profile.id }));
+    const consultantFromProfile = profile?.role === 'consultant' ? profile.id : '';
+    const [seenConsultant, setSeenConsultant] = useState(consultantFromProfile);
+    if (seenConsultant !== consultantFromProfile) {
+        setSeenConsultant(consultantFromProfile);
+        if (consultantFromProfile) {
+            setFormData((prev) => ({ ...prev, consultant_id: consultantFromProfile }));
         }
+    }
+
+    useEffect(() => {
+        if (!profile) return;
+        void (async () => {
+            if (profile.role === 'promotory' && profile.id) {
+                await loadData();
+            } else if (profile.role === 'consultant') {
+                await loadClients();
+            }
+        })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [profile]);
 

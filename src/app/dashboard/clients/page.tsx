@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Client } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -16,6 +16,7 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type ClientRow = Client & { contract_count?: number };
 type SortKey = 'name' | 'birth_date' | 'age' | 'contracts' | 'created_at';
@@ -37,8 +38,10 @@ function ClientsPageContent() {
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [draftSearch, setDraftSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [page, setPage] = useResetPage(
+    `${appliedSearch}\0${pageSize}\0${sortKey ?? ''}\0${sortDir}`,
+  );
   const [total, setTotal] = useState(0);
 
   const loadClients = useCallback(async () => {
@@ -66,15 +69,10 @@ function ClientsPageContent() {
     }
   }, [profile, page, pageSize, appliedSearch, sortKey, sortDir]);
 
-  useEffect(() => {
-    if (profile && (profile.role === 'consultant' || profile.role === 'promotory')) {
-      loadClients();
-    }
-  }, [profile, loadClients]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [appliedSearch, pageSize, sortKey, sortDir]);
+  useQueryEffect(
+    Boolean(profile && (profile.role === 'consultant' || profile.role === 'promotory')),
+    loadClients,
+  );
 
   const getContractCount = (client: ClientRow) => client.contract_count ?? 0;
 

@@ -12,39 +12,39 @@ function ProfilePageContent() {
   const { profile, loading: authLoading } = useAuth();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [officeName, setOfficeName] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+  const profileKey = profile
+    ? `${profile.id}\0${profile.name ?? ''}\0${profile.email ?? ''}`
+    : '';
+  const [seenProfileKey, setSeenProfileKey] = useState(profileKey);
+  if (profile && seenProfileKey !== profileKey) {
+    setSeenProfileKey(profileKey);
+    setName(profile.name || '');
+    setEmail(profile.email || '');
+  }
+
+  const officeId = profile?.role === 'consultant' ? (profile.office_id ?? '') : '';
+  const [office, setOffice] = useState<{ id: string; name: string | null } | null>(null);
+  const officeName = office?.id === officeId ? office.name : null;
 
   useEffect(() => {
-    if (profile) {
-      setName(profile.name || '');
-      setEmail(profile.email || '');
-    }
-  }, [profile]);
-
-  useEffect(() => {
-    if (!profile || profile.role !== 'consultant' || !profile.office_id) {
-      setOfficeName(null);
-      return;
-    }
+    if (!officeId) return;
     let cancelled = false;
     void (async () => {
       try {
-        const office = await db.office.getOfficeById(profile.office_id!);
-        if (!cancelled) {
-          setOfficeName(office?.name?.trim() || null);
-        }
+        const row = await db.office.getOfficeById(officeId);
+        if (!cancelled) setOffice({ id: officeId, name: row?.name?.trim() || null });
       } catch {
-        if (!cancelled) setOfficeName(null);
+        if (!cancelled) setOffice({ id: officeId, name: null });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [profile]);
+  }, [officeId]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

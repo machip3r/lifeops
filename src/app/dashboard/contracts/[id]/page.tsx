@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Contract, ContractDetail, Client, Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { ReassignConsultantDialog } from '@/components/contracts/reassign-consultant-dialog';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 
 function ContractDetailsPageContent() {
     const router = useRouter();
@@ -20,13 +21,15 @@ function ContractDetailsPageContent() {
     const [contract, setContract] = useState<Contract | null>(null);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
     const [detailsTotal, setDetailsTotal] = useState(0);
-    const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-    const [detailsLoading, setDetailsLoading] = useState(false);
+    const [page, setPage] = useResetPage(String(pageSize));
     const [statsDetails, setStatsDetails] = useState<ContractDetail[]>([]);
     const [client, setClient] = useState<Client | null>(null);
     const [consultant, setConsultant] = useState<Consultant | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useQueryLoading(contractId);
+    const [detailsLoading, setDetailsLoading] = useQueryLoading(
+        `${contractId}\0${page}\0${pageSize}`,
+    );
 
     // UDI actual value - This should ideally be fetched from an API or stored in config
     // For now, using a placeholder. In production, this should be fetched from Banco de México API
@@ -34,7 +37,6 @@ function ContractDetailsPageContent() {
 
     const loadContractMeta = useCallback(async () => {
         try {
-            setLoading(true);
             const [contractWithRelations, allDetails] = await Promise.all([
                 db.contract.getContractWithRelations(contractId),
                 db.contractDetail.getDetailsByContract(contractId),
@@ -53,11 +55,10 @@ function ContractDetailsPageContent() {
         } finally {
             setLoading(false);
         }
-    }, [contractId]);
+    }, [contractId, setLoading]);
 
     const loadDetailsPage = useCallback(async () => {
         try {
-            setDetailsLoading(true);
             const result = await db.contractDetail.getDetailsByContractPage(contractId, {
                 page,
                 pageSize,
@@ -69,23 +70,10 @@ function ContractDetailsPageContent() {
         } finally {
             setDetailsLoading(false);
         }
-    }, [contractId, page, pageSize]);
+    }, [contractId, page, pageSize, setDetailsLoading]);
 
-    useEffect(() => {
-        if (contractId) {
-            loadContractMeta();
-        }
-    }, [contractId, loadContractMeta]);
-
-    useEffect(() => {
-        if (contractId) {
-            loadDetailsPage();
-        }
-    }, [contractId, loadDetailsPage]);
-
-    useEffect(() => {
-        setPage(1);
-    }, [pageSize]);
+    useQueryEffect(Boolean(contractId), loadContractMeta);
+    useQueryEffect(Boolean(contractId), loadDetailsPage);
 
     const formatDate = (dateString: string | null | undefined) => {
         if (!dateString) return 'N/A';
@@ -201,7 +189,10 @@ function ContractDetailsPageContent() {
                             officeId={profile.id}
                             contractId={contract.id}
                             currentConsultantId={contract.consultant_id}
-                            onReassigned={() => void loadContractMeta()}
+                            onReassigned={() => {
+                                setLoading(true);
+                                void loadContractMeta();
+                            }}
                         />
                     ) : null
                 }

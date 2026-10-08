@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
 import { AppDialog } from '@/components/ui/app-dialog';
@@ -72,25 +72,30 @@ export function RegisterPaymentDialog({
   const [evidenceFile, setEvidenceFile] = useState<globalThis.File | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!open || !target) return;
-    const due = target.nextDue ?? new Date();
-    setPaidAt(toIsoDateLocal(due));
-    setScheduledDay(
-      target.collectionDay != null
-        ? String(target.collectionDay)
-        : String(due.getDate()),
-    );
-    setAmount(
-      target.suggestedAmount != null && target.suggestedAmount > 0
-        ? String(target.suggestedAmount)
-        : '',
-    );
-    setNotes('');
-    setEvidenceFile(null);
-    setFieldErrors({});
-  }, [open, target]);
+  const formKey = open && target
+    ? `${target.contractId}\0${target.nextDue?.toISOString() ?? ''}\0${target.collectionDay ?? ''}\0${target.suggestedAmount ?? ''}`
+    : 'closed';
+  const [seenFormKey, setSeenFormKey] = useState(formKey);
+  if (seenFormKey !== formKey) {
+    setSeenFormKey(formKey);
+    if (open && target) {
+      const due = target.nextDue ?? new Date();
+      setPaidAt(toIsoDateLocal(due));
+      setScheduledDay(
+        target.collectionDay != null
+          ? String(target.collectionDay)
+          : String(due.getDate()),
+      );
+      setAmount(
+        target.suggestedAmount != null && target.suggestedAmount > 0
+          ? String(target.suggestedAmount)
+          : '',
+      );
+      setNotes('');
+      setEvidenceFile(null);
+      setFieldErrors({});
+    }
+  }
 
   if (!open || !target) return null;
 
@@ -260,7 +265,7 @@ export function RegisterPaymentDialog({
             maxLength={LIMITS.notes}
             rows={3}
             onChange={(e) => setNotes(e.target.value)}
-            className="max-h-32 resize-y overflow-y-auto bg-[var(--lifeops-page)]"
+            className="max-h-32 resize-y overflow-y-auto bg-(--lifeops-page)"
           />
         </FormField>
 

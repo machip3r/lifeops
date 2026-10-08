@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
@@ -23,6 +23,7 @@ import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { ListSearchFilters } from '@/components/list-search-filters';
+import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 
 type SortKey =
   | 'contract_number'
@@ -33,9 +34,9 @@ type SortKey =
 
 const TH = 'px-4 py-3 text-(--lifeops-muted)';
 const ACTIONS_TH =
-  'px-4 py-3 text-right text-xs font-medium text-(--lifeops-muted) uppercase tracking-wider sticky right-0 bg-[var(--lifeops-hover)] z-10';
+  'px-4 py-3 text-right text-xs font-medium text-(--lifeops-muted) uppercase tracking-wider sticky right-0 bg-(--lifeops-hover) z-10';
 const ACTIONS_TD =
-  'px-4 py-3 whitespace-nowrap text-right sticky right-0 bg-[var(--lifeops-chrome)] z-10';
+  'px-4 py-3 whitespace-nowrap text-right sticky right-0 bg-(--lifeops-chrome) z-10';
 
 type ScheduleRow = {
   contract_id: string;
@@ -59,10 +60,9 @@ function endOfMonthLocal(d = new Date()): Date {
 function CollectionsPageContent() {
   const { profile, loading: authLoading } = useAuth();
   const [rows, setRows] = useState<ScheduleRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useQueryLoading(profile?.id ?? '');
   /** month = next due in current calendar month; upcoming = from start of month forward */
   const [rangeMode, setRangeMode] = useState<'month' | 'upcoming'>('upcoming');
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [sortKey, setSortKey] = useState<SortKey | null>('nextDue');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -70,11 +70,11 @@ function CollectionsPageContent() {
     useState<RegisterPaymentTarget | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useResetPage(`${rangeMode}\0${search}`);
 
   const loadSchedule = useCallback(async () => {
     if (!profile?.id) return;
     try {
-      setLoading(true);
       const data = await db.collections.listScheduleRows({
         officeId: profile.role === 'promotory' ? profile.id : undefined,
         consultantId: profile.role === 'consultant' ? profile.id : undefined,
@@ -97,15 +97,9 @@ function CollectionsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [profile]);
+  }, [profile, setLoading]);
 
-  useEffect(() => {
-    if (profile) void loadSchedule();
-  }, [profile, loadSchedule]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [rangeMode, search]);
+  useQueryEffect(Boolean(profile), loadSchedule);
 
   const filtered = useMemo(() => {
     const monthStart = startOfMonthLocal();
@@ -176,7 +170,7 @@ function CollectionsPageContent() {
         description="Próximos cobros según el último pago conocido. Registra el pago con evidencia para avanzar la fecha."
       />
 
-      <div className="overflow-hidden rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] shadow-lg">
+      <div className="overflow-hidden rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) shadow-lg">
         <ListSearchFilters
           value={searchDraft}
           onChange={setSearchDraft}
@@ -194,7 +188,7 @@ function CollectionsPageContent() {
                 onChange={(e) => {
                   setRangeMode(e.target.value === 'month' ? 'month' : 'upcoming');
                 }}
-                className="h-12 rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-page)] px-3 text-[var(--lifeops-fg)] focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
+                className="h-12 rounded-lg border-2 border-(--lifeops-border) bg-(--lifeops-page) px-3 text-(--lifeops-fg) focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
                 aria-label="Periodo de cobranza"
               >
                 <option value="upcoming">Desde este mes en adelante</option>
@@ -219,8 +213,8 @@ function CollectionsPageContent() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-[var(--lifeops-border)]">
-                <thead className="bg-[var(--lifeops-hover)]">
+              <table className="min-w-full divide-y divide-(--lifeops-border)">
+                <thead className="bg-(--lifeops-hover)">
                   <tr>
                     <SortableTh
                       label="Póliza"
@@ -260,17 +254,17 @@ function CollectionsPageContent() {
                     <th className={ACTIONS_TH}>Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[var(--lifeops-border)]">
+                <tbody className="divide-y divide-(--lifeops-border)">
                   {pageRows.map((row) => (
                     <tr
                       key={row.contract_id}
-                      className="hover:bg-[var(--lifeops-hover)]/70"
+                      className="hover:bg-(--lifeops-hover)/70"
                     >
                       <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex flex-wrap items-center gap-2">
                           <Link
                             href={`/dashboard/contracts/${row.contract_id}`}
-                            className="text-sm font-medium text-[var(--lifeops-accent)] hover:underline"
+                            className="text-sm font-medium text-(--lifeops-accent) hover:underline"
                           >
                             {row.contract_number || '—'}
                           </Link>
@@ -284,16 +278,16 @@ function CollectionsPageContent() {
                           })()}
                         </div>
                       </td>
-                      <td className="max-w-[10rem] truncate px-4 py-3 text-sm text-[var(--lifeops-fg)] sm:max-w-none sm:whitespace-nowrap">
+                      <td className="max-w-[10rem] truncate px-4 py-3 text-sm text-(--lifeops-fg) sm:max-w-none sm:whitespace-nowrap">
                         {row.client_name || '—'}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-[var(--lifeops-fg)]">
+                      <td className="whitespace-nowrap px-4 py-3 text-sm text-(--lifeops-fg)">
                         {row.nextDue ? formatDateShortEsLocal(row.nextDue) : '—'}
                       </td>
                       <td className="hidden whitespace-nowrap px-4 py-3 text-sm text-(--lifeops-muted) sm:table-cell">
                         {row.payment_method || '—'}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-[var(--lifeops-fg)]">
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-(--lifeops-fg)">
                         {`$${Number(row.premium_payment).toLocaleString('es-MX', {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
@@ -345,6 +339,7 @@ function CollectionsPageContent() {
         target={paymentTarget}
         onClose={() => setPaymentTarget(null)}
         onSaved={async () => {
+          setLoading(true);
           await loadSchedule();
         }}
       />

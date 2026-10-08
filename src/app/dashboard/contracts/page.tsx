@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -18,6 +18,7 @@ import { formatDateShortEsLocal } from '@/lib/format/date';
 import { AtRiskBadge } from '@/components/collections/at-risk-badge';
 import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type ContractRow = Contract & { client_name?: string };
 type SortKey = 'client_name' | 'contract_number' | 'project_name' | 'payment_method' | 'capture_date';
@@ -47,12 +48,14 @@ function ContractsPageContent() {
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [total, setTotal] = useState(0);
   const [manualOpen, setManualOpen] = useState(false);
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useResetPage(
+    `${search}\0${pageSize}\0${sortKey ?? ''}\0${sortDir}`,
+  );
+  const [total, setTotal] = useState(0);
   const [atRiskById, setAtRiskById] = useState<Record<string, number>>({});
 
   const loadContracts = useCallback(async () => {
@@ -94,13 +97,7 @@ function ContractsPageContent() {
     }
   }, [profile, page, pageSize, search, sortKey, sortDir]);
 
-  useEffect(() => {
-    if (profile) void loadContracts();
-  }, [profile, loadContracts]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [search, pageSize, sortKey, sortDir]);
+  useQueryEffect(Boolean(profile), loadContracts);
 
   const handleDelete = async (id: string) => {
     if (!confirm('¿Estás seguro de que quieres eliminar esta póliza?')) return;

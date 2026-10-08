@@ -14,7 +14,7 @@ const buttonVariants = cva(
         brand:
           "bg-[#FBDBAC] text-[#1a1d24] font-semibold hover:bg-[#f5c98a] focus-visible:border-[#FBDBAC] focus-visible:ring-[#FBDBAC]/40",
         outline:
-          "border-2 border-[var(--lifeops-border)] bg-transparent text-[var(--lifeops-fg)] hover:bg-[var(--lifeops-hover)] hover:text-[var(--lifeops-fg)] aria-expanded:bg-[var(--lifeops-hover)] dark:border-[var(--lifeops-border)] dark:bg-transparent dark:text-[var(--lifeops-fg)] dark:hover:bg-[var(--lifeops-hover)]",
+          "border-2 border-(--lifeops-border) bg-transparent text-(--lifeops-fg) hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg) aria-expanded:bg-(--lifeops-hover) dark:border-(--lifeops-border) dark:bg-transparent dark:text-(--lifeops-fg) dark:hover:bg-(--lifeops-hover)",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:

@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { Tag } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { LIMITS } from '@/lib/validation/schemas';
 import { FormField } from '@/components/ui/form-field';
 import { useToast } from '@/components/toast';
+import { useQueryEffect } from '@/hooks/use-query-effect';
 
 export function TagChips({
   tags,
@@ -59,6 +60,12 @@ export function ConsultantTagsEditor({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
+  const tagKey = initialTagIds.join('\0');
+  const [seenTagKey, setSeenTagKey] = useState(tagKey);
+  if (seenTagKey !== tagKey) {
+    setSeenTagKey(tagKey);
+    setSelectedIds(initialTagIds);
+  }
 
   const loadTags = useCallback(async () => {
     try {
@@ -72,13 +79,7 @@ export function ConsultantTagsEditor({
     }
   }, [officeId, toast]);
 
-  useEffect(() => {
-    void loadTags();
-  }, [loadTags]);
-
-  useEffect(() => {
-    setSelectedIds(initialTagIds);
-  }, [initialTagIds]);
+  useQueryEffect(true, loadTags);
 
   const toggle = (tagId: string) => {
     setSelectedIds((prev) =>

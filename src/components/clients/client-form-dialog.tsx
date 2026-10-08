@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Client } from '@/lib/supabase';
 import { AppDialog } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
@@ -49,16 +49,21 @@ export function ClientFormDialog({
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const maxDate = todayIsoDate();
-
-  useEffect(() => {
-    if (!open) return;
-    setName(editingClient?.name ?? '');
-    setBirthDate(editingClient?.birth_date ?? '');
-    setCurp(editingClient?.curp ?? '');
-    setRfc(editingClient?.rfc ?? '');
-    setFieldErrors({});
-    setError('');
-  }, [open, editingClient]);
+  const formKey = open
+    ? `${editingClient?.id ?? 'new'}\0${editingClient?.name ?? ''}\0${editingClient?.birth_date ?? ''}\0${editingClient?.curp ?? ''}\0${editingClient?.rfc ?? ''}`
+    : 'closed';
+  const [seenFormKey, setSeenFormKey] = useState(formKey);
+  if (seenFormKey !== formKey) {
+    setSeenFormKey(formKey);
+    if (open) {
+      setName(editingClient?.name ?? '');
+      setBirthDate(editingClient?.birth_date ?? '');
+      setCurp(editingClient?.curp ?? '');
+      setRfc(editingClient?.rfc ?? '');
+      setFieldErrors({});
+      setError('');
+    }
+  }
 
   const handleClose = () => {
     if (submitting) return;

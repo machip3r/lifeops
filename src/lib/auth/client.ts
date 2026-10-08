@@ -65,8 +65,8 @@ export async function resendOtp(opts: {
   });
 }
 
-export async function signOut() {
-  return supabase.auth.signOut();
+export async function signOut(scope: "global" | "local" | "others" = "global") {
+  return supabase.auth.signOut({ scope });
 }
 
 export function onAuthStateChange(

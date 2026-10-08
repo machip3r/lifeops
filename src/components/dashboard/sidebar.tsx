@@ -98,7 +98,7 @@ export function DashboardSidebar({
 
       <aside
         className={cn(
-          'fixed inset-y-0 z-50 flex w-full flex-col overflow-hidden border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] text-[var(--lifeops-fg)]',
+          'fixed inset-y-0 z-50 flex w-full flex-col overflow-hidden border-(--lifeops-border) bg-(--lifeops-chrome) text-(--lifeops-fg)',
           'transition-[transform,opacity]',
           railTransition,
           'right-0 left-auto border-l max-lg:shadow-2xl',
@@ -106,7 +106,7 @@ export function DashboardSidebar({
           'lg:left-0 lg:right-auto lg:w-[260px] lg:border-l-0 lg:border-r lg:translate-x-0 lg:opacity-100'
         )}
       >
-        <div className="flex h-20 items-center border-b border-[var(--lifeops-border)] px-4 sm:h-24 lg:h-[4.75rem]">
+        <div className="flex h-20 items-center border-b border-(--lifeops-border) px-4 sm:h-24 lg:h-[4.75rem]">
           <Link
             href="/dashboard"
             onClick={onClose}
@@ -118,7 +118,7 @@ export function DashboardSidebar({
           <button
             type="button"
             onClick={onClose}
-            className="cursor-pointer shrink-0 rounded-md p-2 text-(--lifeops-muted) hover:bg-[var(--lifeops-hover)] hover:text-[var(--lifeops-fg)] lg:hidden"
+            className="cursor-pointer shrink-0 rounded-md p-2 text-(--lifeops-muted) hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg) lg:hidden"
             aria-label="Cerrar menú"
           >
             <X className="h-6 w-6" strokeWidth={1.75} />
@@ -142,7 +142,7 @@ export function DashboardSidebar({
                       'flex min-h-12 items-center gap-3.5 px-3 py-3 text-base font-medium transition-colors',
                       isActive
                         ? 'bg-[#FBDBAC] text-[#1a1d24]'
-                        : 'text-(--lifeops-muted) hover:bg-[var(--lifeops-hover)] hover:text-[var(--lifeops-fg)]'
+                        : 'text-(--lifeops-muted) hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg)'
                     )}
                     aria-current={isActive ? 'page' : undefined}
                   >
@@ -162,7 +162,7 @@ export function DashboardSidebar({
           </ul>
         </nav>
 
-        <div className="mt-auto border-t border-[var(--lifeops-border)] px-3 py-3">
+        <div className="mt-auto border-t border-(--lifeops-border) px-3 py-3">
           <Link
             href="/dashboard/profile"
             onClick={onClose}
@@ -170,13 +170,13 @@ export function DashboardSidebar({
             className="flex min-w-0 items-center gap-3 rounded-sm px-1 py-1 outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
           >
             <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center border border-[#FBDBAC]/40 bg-[var(--lifeops-hover)] text-xs font-semibold text-[var(--lifeops-accent)]"
+              className="flex h-11 w-11 shrink-0 items-center justify-center border border-[#FBDBAC]/40 bg-(--lifeops-hover) text-xs font-semibold text-(--lifeops-accent)"
               aria-hidden
             >
               {initials}
             </span>
             <span className="min-w-0 flex-1 text-left">
-              <span className="block truncate text-base font-medium text-[var(--lifeops-fg)]">
+              <span className="block truncate text-base font-medium text-(--lifeops-fg)">
                 {profile.name}
               </span>
               <span className="mt-0.5 block truncate text-sm text-(--lifeops-muted)">
@@ -191,10 +191,11 @@ export function DashboardSidebar({
           <div className="mt-3 flex w-full gap-1.5">
             <ThemeToggle
               showLabel
-              className="h-11 w-1/2 cursor-pointer gap-1.5 rounded-md text-sm hover:bg-[var(--lifeops-hover)]"
+              className="h-11 w-1/2 cursor-pointer gap-1.5 rounded-md text-sm hover:bg-(--lifeops-hover)"
             />
             <button
               type="button"
+              data-nav-guard="sign-out"
               onClick={onSignOut}
               className="inline-flex h-11 w-1/2 cursor-pointer items-center justify-center gap-1.5 rounded-md text-sm text-red-500 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
               aria-label="Cerrar sesión"

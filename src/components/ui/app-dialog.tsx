@@ -46,7 +46,7 @@ export function AppDialog({
       }}
     >
       <div
-        className={`w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] text-[var(--lifeops-fg)] shadow-2xl`}
+        className={`w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) text-(--lifeops-fg) shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="space-y-5 p-6">
@@ -54,7 +54,7 @@ export function AppDialog({
             <div>
               <h2
                 id="app-dialog-title"
-                className="text-2xl font-bold text-[var(--lifeops-accent)]"
+                className="text-2xl font-bold text-(--lifeops-accent)"
               >
                 {title}
               </h2>
@@ -67,7 +67,7 @@ export function AppDialog({
               onClick={onClose}
               disabled={busy}
               aria-label="Cerrar"
-              className="cursor-pointer rounded-md p-1.5 text-(--lifeops-muted) transition-colors hover:bg-[var(--lifeops-hover)] hover:text-[var(--lifeops-accent)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] disabled:opacity-50"
+              className="cursor-pointer rounded-md p-1.5 text-(--lifeops-muted) transition-colors hover:bg-(--lifeops-hover) hover:text-(--lifeops-accent) focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] disabled:opacity-50"
             >
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path

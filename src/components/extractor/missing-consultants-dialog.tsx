@@ -286,34 +286,34 @@ export function MissingConsultantsDialog({
           </Button>
         </div>
 
-        <div className="overflow-hidden rounded-lg border border-[var(--lifeops-border)]">
+        <div className="overflow-hidden rounded-lg border border-(--lifeops-border)">
           <div className="max-h-[50vh] overflow-y-auto">
-            <table className="min-w-full divide-y divide-[var(--lifeops-border)]">
-              <thead className="sticky top-0 bg-[var(--lifeops-hover)]">
+            <table className="min-w-full divide-y divide-(--lifeops-border)">
+              <thead className="sticky top-0 bg-(--lifeops-hover)">
                 <tr>
-                  <th className="w-10 px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                  <th className="w-10 px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                     Invitar
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                     Código
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                     Nombre
                   </th>
-                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                  <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                     Correo
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--lifeops-border)]">
+              <tbody className="divide-y divide-(--lifeops-border)">
                 {consultants.map((c, index) => (
                   <tr
                     key={c.consultantCode}
                     className={cn(
-                      'bg-[var(--lifeops-page)] transition-colors',
+                      'bg-(--lifeops-page) transition-colors',
                       locked
                         ? 'cursor-default'
-                        : 'cursor-pointer hover:bg-[var(--lifeops-hover)]/60',
+                        : 'cursor-pointer hover:bg-(--lifeops-hover)/60',
                       c.selected && 'bg-[#FBDBAC]/10',
                     )}
                     onClick={() => {
@@ -332,10 +332,10 @@ export function MissingConsultantsDialog({
                           updateRow(index, { selected: e.target.checked })
                         }
                         onClick={(e) => e.stopPropagation()}
-                        className="h-4 w-4 rounded border-[var(--lifeops-border)] text-[#FBDBAC] focus:ring-[#FBDBAC]"
+                        className="h-4 w-4 rounded border-(--lifeops-border) text-[#FBDBAC] focus:ring-[#FBDBAC]"
                       />
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 font-mono text-sm font-medium text-[var(--lifeops-accent)]">
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-sm font-medium text-(--lifeops-accent)">
                       {c.consultantCode}
                     </td>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
@@ -377,7 +377,7 @@ export function MissingConsultantsDialog({
           </div>
         </div>
 
-        <p className="text-xs text-[var(--lifeops-muted)]">
+        <p className="text-xs text-(--lifeops-muted)">
           Sin invitar: solo se crea el asesor y puedes mandar el enlace después desde
           Asesores. Con invitar: se envía el correo a los seleccionados que tengan correo.
         </p>

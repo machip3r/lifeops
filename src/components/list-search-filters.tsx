@@ -45,7 +45,7 @@ export function ListSearchFilters({
       onSubmit={handleSubmit}
       className={
         className ??
-        'flex flex-wrap items-end gap-3 border-b border-[var(--lifeops-border)] p-4'
+        'flex flex-wrap items-end gap-3 border-b border-(--lifeops-border) p-4'
       }
     >
       <div className="min-w-[200px] flex-1">
@@ -56,7 +56,7 @@ export function ListSearchFilters({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           aria-label={placeholder || 'Buscar'}
-          className="bg-[var(--lifeops-page)]"
+          className="bg-(--lifeops-page)"
         />
       </div>
       {extras}

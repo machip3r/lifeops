@@ -46,3 +46,15 @@ al momento de subir comisiones, checar nombres de clientes ya creados, relaciona
 
 normalizar nombres clientes (trim uppercase A-Z)
 agregar opcion de editarlos en el extractor
+
+validar que el correo del asesor (en la importacion e invitacion de asesor) no este repetido ni tampoco use el mismo de la promotora
+
+duplicate key value violates unique constraint "consultant_code_per_office_unique" (registrar asesor con una clave ya existente)
+en caso de poner el mismo y uno este desactivado
+
+borrar todo no borra asesores?
+
+desactivate asesor correct flow
+
+editar entidades actions
+eliminar entidades

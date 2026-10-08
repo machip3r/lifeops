@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { addMonths, parseISO } from 'date-fns';
@@ -11,6 +11,7 @@ import { SortableTh } from '@/components/sortable-th';
 import { TablePagination } from '@/components/table-pagination';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
+import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
 
 type SortKey = 'contract_number' | 'client_name' | 'nextDue' | 'payment_method' | 'premium_payment';
 const TH = 'px-4 py-3 text-[#9ca3af]';
@@ -48,17 +49,18 @@ function getNextDueDate(paymentDate: string | null, paymentMethod: string | null
 export default function CollectionsPage() {
   const { profile, loading: authLoading } = useAuth();
   const [details, setDetails] = useState<DetailRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [dueByEndOfMonth, setDueByEndOfMonth] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [loading, setLoading] = useQueryLoading(
+    `${profile?.id ?? ''}\0${page}\0${pageSize}\0${dueByEndOfMonth}`,
+  );
   const [total, setTotal] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const loadDetails = useCallback(async () => {
     try {
-      setLoading(true);
       const result = await db.contractDetail.getDetailsWithContractAndClientPage({
         page,
         pageSize,
@@ -73,11 +75,9 @@ export default function CollectionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, dueByEndOfMonth]);
+  }, [page, pageSize, dueByEndOfMonth, setLoading]);
 
-  useEffect(() => {
-    if (profile) loadDetails();
-  }, [profile, loadDetails]);
+  useQueryEffect(Boolean(profile), loadDetails);
 
   const dueItems = useMemo(
     () =>

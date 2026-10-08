@@ -68,6 +68,7 @@ office (promotory) ── owns ──► consultants (asesores)
 4. Before import, user must enter **fecha de emisión del archivo**. If the file includes **pólizas nuevas** (first time in LifeOps), also enter **fecha del último pago conocido** — may be after the file date when the commission file is old; future dates are rejected. Used to seed cobranza, predict next dues, and set initial collection status.
 5. **Promotoría only:** missing consultants on import — default auto-create (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API; if `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`, UI requires email/password per new code. Same asesor code may exist in another office.
 6. Import creates `commission_import` batch; upserts contracts + `contract_detail` rows; seeds prior payment for new policies; seeds cobranza marks from payment dates in the file.
+7. Once files are loaded, or while dates, the summary, or the save are in progress, leaving for another section, signing out, or closing/refreshing the tab asks for confirmation. A half-typed date (`12/21`) stays in the field if the user switches browser tab or window.
 
 ### Pólizas (`/dashboard/contracts`)
 

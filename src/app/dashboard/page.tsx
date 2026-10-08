@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
@@ -12,10 +12,13 @@ import {
   POLICY_AT_RISK_DAYS,
 } from '@/lib/collections/constants';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
+import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
 
 export default function DashboardPage() {
   const { profile, loading } = useAuth();
-  const [priorityLoading, setPriorityLoading] = useState(true);
+  const [priorityLoading, setPriorityLoading] = useQueryLoading(
+    profile?.role === 'promotory' ? profile.id : '',
+  );
   const [atRisk, setAtRisk] = useState<ContractAtRisk[]>([]);
   const [pendingPayments, setPendingPayments] = useState<ContractPendingPayment[]>([]);
 
@@ -25,7 +28,6 @@ export default function DashboardPage() {
       return;
     }
     try {
-      setPriorityLoading(true);
       const [riskRows, pendingRows] = await Promise.all([
         db.dashboard.listContractsAtRisk({
           officeId: profile.id,
@@ -43,13 +45,9 @@ export default function DashboardPage() {
     } finally {
       setPriorityLoading(false);
     }
-  }, [profile?.id, profile?.role]);
+  }, [profile?.id, profile?.role, setPriorityLoading]);
 
-  useEffect(() => {
-    if (!loading && profile?.role === 'promotory') {
-      void loadPriorityLists();
-    }
-  }, [profile, loading, loadPriorityLists]);
+  useQueryEffect(!loading && profile?.role === 'promotory', loadPriorityLists);
 
   if (loading) {
     return (
@@ -77,7 +75,7 @@ export default function DashboardPage() {
 
       <div className="mb-10 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-[var(--lifeops-fg)]">
+          <h2 className="text-lg font-semibold text-(--lifeops-fg)">
             Prioridad de cobranza
           </h2>
           <Link

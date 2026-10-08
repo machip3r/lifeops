@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Calendar } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -41,6 +41,12 @@ function digitsFromMasked(masked: string): string {
   return masked.replace(/\D/g, '').slice(0, 8);
 }
 
+/** Typed day/month without a full year, e.g. "12/21". */
+function isPartialDate(masked: string): boolean {
+  const digits = digitsFromMasked(masked);
+  return digits.length > 0 && digits.length < 8;
+}
+
 /**
  * Keyboard-first date field (DD/MM/AAAA): digits only, auto "/", calendar picker.
  * Tab/Enter advance via onAdvance when provided.
@@ -60,46 +66,52 @@ export function DateInput({
 }: DateInputProps) {
   const autoId = useId();
   const inputId = id ?? autoId;
-  const [text, setText] = useState(() => (value ? isoToDdMmYyyy(value) : ''));
+  const externalText = value ? isoToDdMmYyyy(value) : '';
   const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(externalText);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  // A partial entry is not in `value` yet. Keep showing it after blur so a tab
+  // or window switch (which blurs the field) does not wipe "12/21".
+  const text = focused || isPartialDate(draft) ? draft : externalText;
 
-  useEffect(() => {
-    if (focused) return;
-    setText(value ? isoToDdMmYyyy(value) : '');
-  }, [value, focused]);
+  const updateDraft = (next: string) => {
+    draftRef.current = next;
+    setDraft(next);
+  };
 
   const commitMasked = (masked: string) => {
     const digits = digitsFromMasked(masked);
     if (digits.length === 0) {
       onChange('');
-      setText('');
+      updateDraft('');
       return;
     }
     if (digits.length < 8) {
       if (value) onChange('');
-      setText(maskDateDigits(digits));
+      updateDraft(maskDateDigits(digits));
       return;
     }
     const iso = parseFlexibleDateToIso(maskDateDigits(digits));
     if (!iso) {
-      setText(value ? isoToDdMmYyyy(value) : '');
+      updateDraft(value ? isoToDdMmYyyy(value) : '');
       if (value) onChange(value);
       return;
     }
     const next = clampIso(iso, min, max);
     onChange(next);
-    setText(isoToDdMmYyyy(next));
+    updateDraft(isoToDdMmYyyy(next));
   };
 
   const applyDigits = (digits: string) => {
     const masked = maskDateDigits(digits);
-    setText(masked);
+    updateDraft(masked);
     if (digits.length === 8) {
       const iso = parseFlexibleDateToIso(masked);
       if (iso) {
         const next = clampIso(iso, min, max);
         onChange(next);
-        setText(isoToDdMmYyyy(next));
+        updateDraft(isoToDdMmYyyy(next));
       }
     } else if (value) {
       onChange('');
@@ -121,13 +133,31 @@ export function DateInput({
         aria-invalid={ariaInvalid}
         maxLength={10}
         className="h-10 pr-10 font-mono text-sm tabular-nums"
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true);
+          // Refocus after a tab switch must not replace "12/21" with the empty committed value.
+          if (isPartialDate(draftRef.current)) return;
+          updateDraft(externalText);
+        }}
         onChange={(e) => {
-          applyDigits(digitsFromMasked(e.target.value));
+          const nextDigits = digitsFromMasked(e.target.value);
+          const current = draftRef.current;
+          // A tab or window switch can emit an empty input while the field is not focused.
+          // Ignore that shrink so "12/21" stays; real deletes happen while the page is focused.
+          const leftView = document.visibilityState === 'hidden' || !document.hasFocus();
+          if (leftView && isPartialDate(current) && nextDigits.length < digitsFromMasked(current).length) {
+            return;
+          }
+          applyDigits(nextDigits);
         }}
         onBlur={() => {
+          const current = draftRef.current;
           setFocused(false);
-          commitMasked(text);
+          if (isPartialDate(current)) {
+            updateDraft(maskDateDigits(digitsFromMasked(current)));
+            return;
+          }
+          commitMasked(current);
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -172,7 +202,7 @@ export function DateInput({
         }}
       />
       <span
-        className="pointer-events-none absolute right-2.5 text-[var(--lifeops-muted)]"
+        className="pointer-events-none absolute right-2.5 text-(--lifeops-muted)"
         aria-hidden
       >
         <Calendar className="h-4 w-4" strokeWidth={1.75} />
@@ -187,8 +217,11 @@ export function DateInput({
         min={min}
         onChange={(e) => {
           const iso = e.target.value;
+          // The calendar control can emit an empty value when the window blurs.
+          // That must not erase a half-typed date.
+          if (!iso && isPartialDate(draftRef.current)) return;
           onChange(iso);
-          setText(iso ? isoToDdMmYyyy(iso) : '');
+          updateDraft(iso ? isoToDdMmYyyy(iso) : '');
         }}
       />
     </div>

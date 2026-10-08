@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Client, Contract, Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -12,6 +12,7 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 
 type SortKey = 'contract_number' | 'consultant' | 'project_name' | 'payment_method' | 'created_at';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
@@ -23,9 +24,7 @@ function ClientDetailsPageContent() {
   const [client, setClient] = useState<Client | null>(null);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsTotal, setContractsTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [contractsLoading, setContractsLoading] = useState(false);
   const [consultantsMap, setConsultantsMap] = useState<Map<string, Consultant>>(
     new Map(),
   );
@@ -34,6 +33,10 @@ function ClientDetailsPageContent() {
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useResetPage(`${pageSize}\0${search}`);
+  const [contractsLoading, setContractsLoading] = useQueryLoading(
+    `${clientId}\0${page}\0${pageSize}\0${search}`,
+  );
 
   const sortedContracts = useMemo(
     () =>
@@ -61,7 +64,6 @@ function ClientDetailsPageContent() {
 
   const loadClientData = useCallback(async () => {
     try {
-      setContractsLoading(true);
       const [clientData, contractsPage] = await Promise.all([
         db.client.getClientById(clientId),
         db.contract.getContractsWithClientsPage({
@@ -108,15 +110,9 @@ function ClientDetailsPageContent() {
       setLoading(false);
       setContractsLoading(false);
     }
-  }, [clientId, page, pageSize, search]);
+  }, [clientId, page, pageSize, search, setContractsLoading]);
 
-  useEffect(() => {
-    if (clientId) void loadClientData();
-  }, [clientId, loadClientData]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [pageSize, search]);
+  useQueryEffect(Boolean(clientId), loadClientData);
 
   const calculateAge = (birthDate: string | null | undefined) => {
     if (!birthDate) return null;

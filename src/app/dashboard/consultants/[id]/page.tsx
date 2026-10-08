@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { Consultant, Contract } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -14,6 +14,7 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 
 type ContractRow = Contract & { client_name?: string };
 type SortKey = 'client_name' | 'contract_number' | 'project_name' | 'payment_method' | 'created_at';
@@ -28,10 +29,8 @@ function ConsultantDetailsPageContent() {
   const [consultant, setConsultant] = useState<Consultant | null>(null);
   const [contracts, setContracts] = useState<ContractRow[]>([]);
   const [contractsTotal, setContractsTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [contractsLoading, setContractsLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useQueryLoading(consultantId);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -41,6 +40,10 @@ function ConsultantDetailsPageContent() {
   const [success, setSuccess] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useResetPage(`${pageSize}\0${search}`);
+  const [contractsLoading, setContractsLoading] = useQueryLoading(
+    `${consultantId}\0${page}\0${pageSize}\0${search}`,
+  );
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -70,7 +73,6 @@ function ConsultantDetailsPageContent() {
 
   const loadContractsPage = useCallback(async () => {
     try {
-      setContractsLoading(true);
       const result = await db.contract.getContractsWithClientsPage({
         consultantId,
         search: search || undefined,
@@ -89,11 +91,10 @@ function ConsultantDetailsPageContent() {
     } finally {
       setContractsLoading(false);
     }
-  }, [consultantId, page, pageSize, search]);
+  }, [consultantId, page, pageSize, search, setContractsLoading]);
 
   const loadConsultantData = useCallback(async () => {
     try {
-      setLoading(true);
       const consultantData = await db.consultant.getConsultantById(consultantId);
       if (!consultantData) {
         throw new Error('Asesor no encontrado');
@@ -111,19 +112,10 @@ function ConsultantDetailsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [consultantId]);
+  }, [consultantId, setLoading]);
 
-  useEffect(() => {
-    if (consultantId) void loadConsultantData();
-  }, [consultantId, loadConsultantData]);
-
-  useEffect(() => {
-    if (consultantId) void loadContractsPage();
-  }, [consultantId, loadContractsPage]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [pageSize, search]);
+  useQueryEffect(Boolean(consultantId), loadConsultantData);
+  useQueryEffect(Boolean(consultantId), loadContractsPage);
 
   const handleSave = async () => {
     if (!consultant) return;

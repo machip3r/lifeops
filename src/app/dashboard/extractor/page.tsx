@@ -35,6 +35,7 @@ import {
   type MissingConsultantDraft,
 } from '@/components/extractor/missing-consultants-dialog';
 import { cn } from '@/lib/utils';
+import { useNavigationBlock } from '@/contexts/navigation-guard';
 
 interface ContractorMetadata {
   policyholder?: string;
@@ -205,6 +206,20 @@ function ExtractorPageContent() {
     fileIssueDate: string;
     priorPaymentByContract: Record<string, string>;
   } | null>(null);
+
+  const importInProgress =
+    step > 1 ||
+    uploadedFiles.length > 0 ||
+    isExtracting ||
+    isCheckingDuplicates ||
+    isImporting;
+
+  useNavigationBlock(importInProgress, {
+    title: 'Importación en curso',
+    description: isImporting
+      ? 'Hay una importación en proceso. Si cambias de página, cierras sesión o haces otra acción, no vas a ver el resultado.'
+      : 'Estás importando datos. Si cambias de página, se pierde el avance, incluidas las fechas que llevas.',
+  });
 
 
   const readFileAsText = (file: File): Promise<string> => {
@@ -1667,7 +1682,7 @@ function ExtractorPageContent() {
   const showPrimaryAction = !(step === 3 && nothingToImport);
 
   const stepSurface =
-    'mb-24 space-y-6 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] p-5 sm:p-6';
+    'mb-24 space-y-6 rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) p-5 sm:p-6';
 
   const bottomNavBtnClass = 'min-w-[10.5rem] justify-center';
 
@@ -1770,16 +1785,16 @@ function ExtractorPageContent() {
               className={cn(
                 'flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-3 text-center transition-colors sm:px-3',
                 active
-                  ? 'border-[#FBDBAC] bg-[#FBDBAC]/15 text-[var(--lifeops-fg)]'
+                  ? 'border-[#FBDBAC] bg-[#FBDBAC]/15 text-(--lifeops-fg)'
                   : done
-                    ? 'cursor-pointer border-[var(--lifeops-border)] bg-[var(--lifeops-hover)] text-[var(--lifeops-fg)]'
-                    : 'cursor-default border-[var(--lifeops-border)] text-[var(--lifeops-muted)] opacity-70',
+                    ? 'cursor-pointer border-(--lifeops-border) bg-(--lifeops-hover) text-(--lifeops-fg)'
+                    : 'cursor-default border-(--lifeops-border) text-(--lifeops-muted) opacity-70',
               )}
             >
               <Icon
                 className={cn(
                   'h-5 w-5',
-                  active || done ? 'text-[var(--lifeops-accent)]' : 'text-[var(--lifeops-muted)]',
+                  active || done ? 'text-(--lifeops-accent)' : 'text-(--lifeops-muted)',
                 )}
                 strokeWidth={1.75}
                 aria-hidden
@@ -1794,14 +1809,14 @@ function ExtractorPageContent() {
         <div className={stepSurface}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-(--lifeops-hover) text-(--lifeops-accent)">
                 <Upload className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               </span>
               <div>
-                <h2 className="text-lg font-semibold text-[var(--lifeops-fg)]">
+                <h2 className="text-lg font-semibold text-(--lifeops-fg)">
                   Sube el reporte HTML
                 </h2>
-                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                <p className="mt-1 text-sm text-(--lifeops-muted)">
                   Arrastra o selecciona uno o más archivos del portal de comisiones.
                 </p>
               </div>
@@ -1809,7 +1824,7 @@ function ExtractorPageContent() {
             <button
               type="button"
               onClick={() => setShowInfoDialog(true)}
-              className="inline-flex cursor-pointer items-center gap-1.5 self-start text-sm font-medium text-[var(--lifeops-accent)] hover:underline"
+              className="inline-flex cursor-pointer items-center gap-1.5 self-start text-sm font-medium text-(--lifeops-accent) hover:underline"
             >
               <HelpCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
               ¿Cómo obtener el HTML?
@@ -1823,7 +1838,7 @@ function ExtractorPageContent() {
               'cursor-pointer rounded-lg border-2 border-dashed px-6 py-12 text-center transition-colors',
               isDragging
                 ? 'border-[#FBDBAC] bg-[#FBDBAC]/10'
-                : 'border-[var(--lifeops-border)] bg-[var(--lifeops-page)] hover:border-[#FBDBAC]/60',
+                : 'border-(--lifeops-border) bg-(--lifeops-page) hover:border-[#FBDBAC]/60',
             )}
             onDrop={handleDrop}
             onDragOver={(e) => {
@@ -1845,28 +1860,28 @@ function ExtractorPageContent() {
               className="hidden"
             />
             <FileUp
-              className="mx-auto h-12 w-12 text-[var(--lifeops-muted)]"
+              className="mx-auto h-12 w-12 text-(--lifeops-muted)"
               strokeWidth={1.5}
               aria-hidden
             />
-            <p className="mt-4 text-base font-medium text-[var(--lifeops-fg)] sm:text-lg">
+            <p className="mt-4 text-base font-medium text-(--lifeops-fg) sm:text-lg">
               Arrastra archivos HTML aquí, o haz clic para elegirlos
             </p>
-            <p className="mt-2 text-sm text-[var(--lifeops-muted)]">
+            <p className="mt-2 text-sm text-(--lifeops-muted)">
               .html, .htm, .mhtml y .mht — puedes subir varios a la vez
             </p>
           </div>
 
           {uploadedFiles.length > 0 && (
-            <div className="rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+            <div className="rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                <p className="text-sm font-medium text-(--lifeops-fg)">
                   Archivos listos ({uploadedFiles.length})
                 </p>
                 <button
                   type="button"
                   onClick={clearUploadedFiles}
-                  className="cursor-pointer text-sm text-[var(--lifeops-muted)] hover:text-red-500"
+                  className="cursor-pointer text-sm text-(--lifeops-muted) hover:text-red-500"
                 >
                   Limpiar todo
                 </button>
@@ -1875,9 +1890,9 @@ function ExtractorPageContent() {
                 {uploadedFiles.map((f, i) => (
                   <li
                     key={`file-${i}-${f.name}`}
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-2.5 py-1.5 text-sm text-[var(--lifeops-fg)]"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-(--lifeops-border) bg-(--lifeops-chrome) px-2.5 py-1.5 text-sm text-(--lifeops-fg)"
                   >
-                    <FileText className="h-4 w-4 shrink-0 text-[var(--lifeops-accent)]" aria-hidden />
+                    <FileText className="h-4 w-4 shrink-0 text-(--lifeops-accent)" aria-hidden />
                     <span className="truncate">{f.name}</span>
                     <button
                       type="button"
@@ -1885,7 +1900,7 @@ function ExtractorPageContent() {
                         e.stopPropagation();
                         removeUploadedFile(i);
                       }}
-                      className="rounded p-0.5 text-[var(--lifeops-muted)] hover:bg-[var(--lifeops-hover)] hover:text-red-500"
+                      className="rounded p-0.5 text-(--lifeops-muted) hover:bg-(--lifeops-hover) hover:text-red-500"
                       aria-label={`Quitar ${f.name}`}
                     >
                       <X className="h-4 w-4" aria-hidden />
@@ -1902,14 +1917,14 @@ function ExtractorPageContent() {
         <div className={stepSurface}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-(--lifeops-hover) text-(--lifeops-accent)">
                 <CalendarDays className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               </span>
               <div>
-                <h2 className="text-lg font-semibold text-[var(--lifeops-fg)]">
+                <h2 className="text-lg font-semibold text-(--lifeops-fg)">
                   Confirma las fechas
                 </h2>
-                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                <p className="mt-1 text-sm text-(--lifeops-muted)">
                   Completa los datos faltantes.
                 </p>
               </div>
@@ -1927,19 +1942,19 @@ function ExtractorPageContent() {
             </Button>
           </div>
 
-          <section className="flex flex-col gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <section className="flex flex-col gap-3 rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-(--lifeops-hover) text-(--lifeops-accent)">
                 <FileText className="h-4 w-4" strokeWidth={1.75} aria-hidden />
               </span>
               <div className="min-w-0">
-                <p className="flex items-center gap-2 text-base font-semibold text-[var(--lifeops-fg)]">
+                <p className="flex items-center gap-2 text-base font-semibold text-(--lifeops-fg)">
                   Fecha del archivo
                   {isIsoDate(dialogFileIssueDate) ? (
                     <CheckCircle2 className="h-4 w-4 text-emerald-500" aria-label="Lista" />
                   ) : null}
                 </p>
-                <p className="mt-0.5 text-sm text-[var(--lifeops-muted)]">
+                <p className="mt-0.5 text-sm text-(--lifeops-muted)">
                   Emisión del reporte (sugerida desde FECHA PAGO)
                 </p>
               </div>
@@ -1973,32 +1988,32 @@ function ExtractorPageContent() {
           </section>
 
           {importDateRows.length === 0 ? (
-            <div className="flex gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+            <div className="flex gap-3 rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
               <CheckCircle2
                 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500"
                 strokeWidth={1.75}
                 aria-hidden
               />
               <div>
-                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                <p className="text-sm font-medium text-(--lifeops-fg)">
                   No hace falta nada más por póliza
                 </p>
-                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                <p className="mt-1 text-sm text-(--lifeops-muted)">
                   Todas ya tienen fecha de emisión y ninguna es nueva. Continúa cuando la
                   fecha del archivo esté bien.
                 </p>
               </div>
             </div>
           ) : (
-            <section className="overflow-hidden rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)]">
+            <section className="overflow-hidden rounded-lg border border-(--lifeops-border) bg-(--lifeops-page)">
               <div className="flex items-start gap-3 px-4 py-3">
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-(--lifeops-hover) text-(--lifeops-accent)">
                   <CalendarDays className="h-4 w-4" strokeWidth={1.75} aria-hidden />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-base font-semibold text-[var(--lifeops-fg)]">
+                  <p className="text-base font-semibold text-(--lifeops-fg)">
                     Fechas por póliza
-                    <span className="ml-2 text-sm font-normal text-[var(--lifeops-muted)]">
+                    <span className="ml-2 text-sm font-normal text-(--lifeops-muted)">
                       ({importDateRows.filter((r) => isIsoDate(r.issueDate)).length +
                         importDateRows.filter(
                           (r) => r.needsPriorPayment && isIsoDate(r.priorPaymentDate),
@@ -2007,26 +2022,26 @@ function ExtractorPageContent() {
                       {importDateRows.length + priorNeeded})
                     </span>
                   </p>
-                  <p className="mt-0.5 text-sm text-[var(--lifeops-muted)]">
+                  <p className="mt-0.5 text-sm text-(--lifeops-muted)">
                     Emisión faltante se captura aquí. Si ya viene en el archivo, clic para
                     corregirla. Último pago solo en pólizas nuevas.
                   </p>
                 </div>
               </div>
-              <div className="overflow-x-auto border-t border-[var(--lifeops-border)]">
-                <table className="min-w-full divide-y divide-[var(--lifeops-border)]">
-                  <thead className="bg-[var(--lifeops-hover)]">
+              <div className="overflow-x-auto border-t border-(--lifeops-border)">
+                <table className="min-w-full divide-y divide-(--lifeops-border)">
+                  <thead className="bg-(--lifeops-hover)">
                     <tr>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Póliza
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Cliente
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Fecha de emisión
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Último pago
                       </th>
                       <th className="w-10 px-3 py-2.5">
@@ -2034,7 +2049,7 @@ function ExtractorPageContent() {
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[var(--lifeops-border)]">
+                  <tbody className="divide-y divide-(--lifeops-border)">
                     {importDateRows.map((row, index) => {
                       const todayIso = todayIsoDate();
                       const dayBeforeFile = dayBeforeIso(dialogFileIssueDate.trim());
@@ -2055,17 +2070,17 @@ function ExtractorPageContent() {
                             'cursor-pointer transition-colors',
                             rowComplete
                               ? 'bg-emerald-500/10 hover:bg-emerald-500/15'
-                              : 'hover:bg-[var(--lifeops-hover)]/50',
+                              : 'hover:bg-(--lifeops-hover)/50',
                           )}
                           onClick={() => {
                             if (showIssueInput) focusDateInput(issueInputId);
                             else if (row.needsPriorPayment) focusDateInput(priorInputId);
                           }}
                         >
-                          <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-[var(--lifeops-fg)]">
+                          <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-(--lifeops-fg)">
                             {row.contractNumber}
                           </td>
-                          <td className="max-w-[12rem] truncate px-3 py-2 text-sm text-[var(--lifeops-muted)] sm:max-w-none">
+                          <td className="max-w-[12rem] truncate px-3 py-2 text-sm text-(--lifeops-muted) sm:max-w-none">
                             {row.clientName}
                           </td>
                           <td
@@ -2115,7 +2130,7 @@ function ExtractorPageContent() {
                             ) : (
                               <button
                                 type="button"
-                                className="rounded-md px-1 py-1 text-left font-mono text-sm text-[var(--lifeops-fg)] underline-offset-2 hover:bg-[var(--lifeops-hover)] hover:underline"
+                                className="rounded-md px-1 py-1 text-left font-mono text-sm text-(--lifeops-fg) underline-offset-2 hover:bg-(--lifeops-hover) hover:underline"
                                 title="Clic para editar"
                               >
                                 {isoToDdMmYyyy(row.issueDate)}
@@ -2160,7 +2175,7 @@ function ExtractorPageContent() {
                                 ) : null}
                               </>
                             ) : (
-                              <span className="text-sm text-[var(--lifeops-muted)]">—</span>
+                              <span className="text-sm text-(--lifeops-muted)">—</span>
                             )}
                           </td>
                           <td className="px-3 py-2 text-right">
@@ -2185,7 +2200,7 @@ function ExtractorPageContent() {
 
       {step === 3 && tables.length === 0 && (
         <div className={stepSurface}>
-          <p className="text-[var(--lifeops-muted)]">
+          <p className="text-(--lifeops-muted)">
             No hay datos para resumir. Vuelve al paso 1 y sube un archivo válido.
           </p>
         </div>
@@ -2194,14 +2209,14 @@ function ExtractorPageContent() {
         <div className={stepSurface}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-(--lifeops-hover) text-(--lifeops-accent)">
                 <ClipboardList className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               </span>
               <div>
-                <h2 className="text-lg font-semibold text-[var(--lifeops-fg)]">
+                <h2 className="text-lg font-semibold text-(--lifeops-fg)">
                   Revisa e importa
                 </h2>
-                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                <p className="mt-1 text-sm text-(--lifeops-muted)">
                   Mismo resumen que en fechas, más el código de asesor. Confirma y luego
                   importa a la base.
                 </p>
@@ -2220,11 +2235,11 @@ function ExtractorPageContent() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
-              <p className="text-xs uppercase tracking-wide text-[var(--lifeops-muted)]">
+            <div className="rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
+              <p className="text-xs uppercase tracking-wide text-(--lifeops-muted)">
                 Pólizas nuevas
               </p>
-              <p className="mt-1 text-2xl font-semibold text-[var(--lifeops-fg)]">
+              <p className="mt-1 text-2xl font-semibold text-(--lifeops-fg)">
                 {importDateRows.length}
               </p>
             </div>
@@ -2233,7 +2248,7 @@ function ExtractorPageContent() {
                 'group relative rounded-lg border p-4',
                 showMissingConsultantsAlert
                   ? 'cursor-help border-[#FBDBAC]/60 bg-[#FBDBAC]/15 ring-1 ring-[#FBDBAC]/35'
-                  : 'border-[var(--lifeops-border)] bg-[var(--lifeops-page)]',
+                  : 'border-(--lifeops-border) bg-(--lifeops-page)',
               )}
               title={showMissingConsultantsAlert ? missingConsultantsTip : undefined}
               tabIndex={showMissingConsultantsAlert ? 0 : undefined}
@@ -2247,8 +2262,8 @@ function ExtractorPageContent() {
                 className={cn(
                   'text-xs uppercase tracking-wide',
                   showMissingConsultantsAlert
-                    ? 'font-semibold text-[var(--lifeops-accent)]'
-                    : 'text-[var(--lifeops-muted)]',
+                    ? 'font-semibold text-(--lifeops-accent)'
+                    : 'text-(--lifeops-muted)',
                 )}
               >
                 Asesores por crear
@@ -2257,8 +2272,8 @@ function ExtractorPageContent() {
                 className={cn(
                   'mt-1 text-2xl font-semibold',
                   showMissingConsultantsAlert
-                    ? 'text-[var(--lifeops-accent)]'
-                    : 'text-[var(--lifeops-fg)]',
+                    ? 'text-(--lifeops-accent)'
+                    : 'text-(--lifeops-fg)',
                 )}
               >
                 {summaryMissingLoading ? '…' : summaryMissingCount}
@@ -2266,7 +2281,7 @@ function ExtractorPageContent() {
               {showMissingConsultantsAlert ? (
                 <span
                   role="tooltip"
-                  className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-[min(18rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-2.5 py-1.5 text-center text-xs font-medium text-[var(--lifeops-fg)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                  className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 w-[min(18rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border border-(--lifeops-border) bg-(--lifeops-chrome) px-2.5 py-1.5 text-center text-xs font-medium text-(--lifeops-fg) opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                 >
                   {missingConsultantsTip}
                 </span>
@@ -2277,14 +2292,14 @@ function ExtractorPageContent() {
           {importResult && (
             <>
               {importResult.warnings && importResult.warnings.length > 0 && (
-                <div className="rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
-                  <h3 className="mb-2 text-sm font-semibold text-[var(--lifeops-fg)]">
+                <div className="rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
+                  <h3 className="mb-2 text-sm font-semibold text-(--lifeops-fg)">
                     Advertencias ({importResult.warnings.length})
                   </h3>
-                  <p className="mb-2 text-xs text-[var(--lifeops-muted)]">
+                  <p className="mb-2 text-xs text-(--lifeops-muted)">
                     Se omitieron porque ya existen en la base:
                   </p>
-                  <div className="max-h-60 overflow-y-auto text-sm text-[var(--lifeops-muted)]">
+                  <div className="max-h-60 overflow-y-auto text-sm text-(--lifeops-muted)">
                     <ul className="list-inside list-disc space-y-1">
                       {importResult.warnings.slice(0, 50).map((warning, idx) => (
                         <li key={`warn-${idx}-${warning.row}`}>
@@ -2310,13 +2325,13 @@ function ExtractorPageContent() {
                     : 'border-amber-500/40 bg-amber-500/10',
                 )}
               >
-                <h3 className="mb-2 text-sm font-semibold text-[var(--lifeops-fg)]">
+                <h3 className="mb-2 text-sm font-semibold text-(--lifeops-fg)">
                   {importResult.errors.length === 0
                     ? `Se importaron ${importResult.success} póliza(s)`
                     : `Importación: ${importResult.success} ok, ${importResult.errors.length} error(es)`}
                 </h3>
                 {importResult.errors.length > 0 && (
-                  <div className="max-h-60 overflow-y-auto text-sm text-[var(--lifeops-muted)]">
+                  <div className="max-h-60 overflow-y-auto text-sm text-(--lifeops-muted)">
                     <ul className="list-inside list-disc space-y-1">
                       {importResult.errors.slice(0, 50).map((error, idx) => (
                         <li key={`err-${idx}-${error.row}`}>
@@ -2337,17 +2352,17 @@ function ExtractorPageContent() {
           )}
 
           {nothingToImport ? (
-            <div className="flex gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+            <div className="flex gap-3 rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
               <CheckCircle2
                 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500"
                 strokeWidth={1.75}
                 aria-hidden
               />
               <div>
-                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                <p className="text-sm font-medium text-(--lifeops-fg)">
                   No hay nada nuevo que importar
                 </p>
-                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                <p className="mt-1 text-sm text-(--lifeops-muted)">
                   No hay pólizas ni asesores nuevos en este archivo
                   {isIsoDate(dialogFileIssueDate)
                     ? ` (fecha del archivo: ${isoToDdMmYyyy(dialogFileIssueDate)})`
@@ -2357,17 +2372,17 @@ function ExtractorPageContent() {
               </div>
             </div>
           ) : importDateRows.length === 0 ? (
-            <div className="flex gap-3 rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)] p-4">
+            <div className="flex gap-3 rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
               <CheckCircle2
                 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500"
                 strokeWidth={1.75}
                 aria-hidden
               />
               <div>
-                <p className="text-sm font-medium text-[var(--lifeops-fg)]">
+                <p className="text-sm font-medium text-(--lifeops-fg)">
                   Sin pólizas nuevas; hay asesores por crear
                 </p>
-                <p className="mt-1 text-sm text-[var(--lifeops-muted)]">
+                <p className="mt-1 text-sm text-(--lifeops-muted)">
                   No hay pólizas nuevas, pero al importar se registrarán los asesores
                   faltantes
                   {isIsoDate(dialogFileIssueDate)
@@ -2378,43 +2393,43 @@ function ExtractorPageContent() {
               </div>
             </div>
           ) : (
-            <section className="overflow-hidden rounded-lg border border-[var(--lifeops-border)] bg-[var(--lifeops-page)]">
+            <section className="overflow-hidden rounded-lg border border-(--lifeops-border) bg-(--lifeops-page)">
               <div className="flex items-start gap-3 px-4 py-3">
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--lifeops-hover)] text-[var(--lifeops-accent)]">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-(--lifeops-hover) text-(--lifeops-accent)">
                   <CalendarDays className="h-4 w-4" strokeWidth={1.75} aria-hidden />
                 </span>
                 <div className="min-w-0">
-                  <p className="text-base font-semibold text-[var(--lifeops-fg)]">
+                  <p className="text-base font-semibold text-(--lifeops-fg)">
                     Pólizas a registrar
                   </p>
-                  <p className="mt-0.5 text-sm text-[var(--lifeops-muted)]">
+                  <p className="mt-0.5 text-sm text-(--lifeops-muted)">
                     Fechas confirmadas y código de asesor. Si el asesor aparece arriba como
                     nuevo, se creará de forma manual al importar.
                   </p>
                 </div>
               </div>
-              <div className="overflow-x-auto border-t border-[var(--lifeops-border)]">
-                <table className="min-w-full divide-y divide-[var(--lifeops-border)]">
-                  <thead className="bg-[var(--lifeops-hover)]">
+              <div className="overflow-x-auto border-t border-(--lifeops-border)">
+                <table className="min-w-full divide-y divide-(--lifeops-border)">
+                  <thead className="bg-(--lifeops-hover)">
                     <tr>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Póliza
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Cliente
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Asesor
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Fecha de emisión
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-[var(--lifeops-muted)]">
+                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Último pago
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[var(--lifeops-border)]">
+                  <tbody className="divide-y divide-(--lifeops-border)">
                     {importDateRows.map((row) => {
                       const codeKey = row.consultantCode.trim().toLowerCase();
                       const isMissingAsesor =
@@ -2425,12 +2440,12 @@ function ExtractorPageContent() {
                       return (
                         <tr
                           key={row.key}
-                          className="hover:bg-[var(--lifeops-hover)]/50"
+                          className="hover:bg-(--lifeops-hover)/50"
                         >
-                          <td className="whitespace-nowrap px-3 py-2.5 text-sm font-medium text-[var(--lifeops-fg)]">
+                          <td className="whitespace-nowrap px-3 py-2.5 text-sm font-medium text-(--lifeops-fg)">
                             {row.contractNumber}
                           </td>
-                          <td className="max-w-[12rem] truncate px-3 py-2.5 text-sm text-[var(--lifeops-muted)] sm:max-w-none">
+                          <td className="max-w-[12rem] truncate px-3 py-2.5 text-sm text-(--lifeops-muted) sm:max-w-none">
                             {row.clientName}
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 text-sm">
@@ -2438,7 +2453,7 @@ function ExtractorPageContent() {
                               isMissingAsesor ? (
                                 <span className="group relative inline-flex">
                                   <span
-                                    className="cursor-help rounded-md bg-[#FBDBAC]/20 px-1.5 py-0.5 font-mono font-medium text-[var(--lifeops-accent)] ring-1 ring-[#FBDBAC]/50"
+                                    className="cursor-help rounded-md bg-[#FBDBAC]/20 px-1.5 py-0.5 font-mono font-medium text-(--lifeops-accent) ring-1 ring-[#FBDBAC]/50"
                                     title="Asesor no registrado"
                                     tabIndex={0}
                                     aria-label={`${row.consultantCode}: asesor no registrado`}
@@ -2447,26 +2462,26 @@ function ExtractorPageContent() {
                                   </span>
                                   <span
                                     role="tooltip"
-                                    className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-2 py-1 text-xs font-medium text-[var(--lifeops-fg)] opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                                    className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-(--lifeops-border) bg-(--lifeops-chrome) px-2 py-1 text-xs font-medium text-(--lifeops-fg) opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                                   >
                                     Asesor no registrado
                                   </span>
                                 </span>
                               ) : (
-                                <span className="font-mono text-[var(--lifeops-fg)]">
+                                <span className="font-mono text-(--lifeops-fg)">
                                   {row.consultantCode}
                                 </span>
                               )
                             ) : (
-                              <span className="text-[var(--lifeops-muted)]">—</span>
+                              <span className="text-(--lifeops-muted)">—</span>
                             )}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-[var(--lifeops-fg)]">
+                          <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-(--lifeops-fg)">
                             {isIsoDate(row.issueDate)
                               ? isoToDdMmYyyy(row.issueDate)
                               : '—'}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-[var(--lifeops-fg)]">
+                          <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-(--lifeops-fg)">
                             {row.needsPriorPayment && isIsoDate(row.priorPaymentDate)
                               ? isoToDdMmYyyy(row.priorPaymentDate)
                               : '—'}
@@ -2482,20 +2497,20 @@ function ExtractorPageContent() {
         </div>
       )}
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)]/95 backdrop-blur-sm lg:left-[260px]">
+      <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-(--lifeops-border) bg-(--lifeops-chrome)/95 backdrop-blur-sm lg:left-[260px]">
         {step === 2 ? (
           <div className="mx-auto max-w-7xl px-4 pt-2.5 sm:px-6 lg:px-8">
-            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs text-[var(--lifeops-muted)]">
+            <div className="mb-1.5 flex items-center justify-between gap-3 text-xs text-(--lifeops-muted)">
               <span>Fechas listas</span>
-              <span className="tabular-nums text-[var(--lifeops-fg)]">
+              <span className="tabular-nums text-(--lifeops-fg)">
                 {dateTasksReady}/{dateTasksTotal}
-                <span className="ml-1.5 text-[var(--lifeops-muted)]">
+                <span className="ml-1.5 text-(--lifeops-muted)">
                   ({dateProgressPct}%)
                 </span>
               </span>
             </div>
             <div
-              className="h-1.5 overflow-hidden rounded-full bg-[var(--lifeops-hover)]"
+              className="h-1.5 overflow-hidden rounded-full bg-(--lifeops-hover)"
               role="progressbar"
               aria-valuemin={0}
               aria-valuemax={dateTasksTotal}
@@ -2524,7 +2539,7 @@ function ExtractorPageContent() {
           ) : (
             <span className={bottomNavBtnClass} aria-hidden />
           )}
-          <p className="hidden text-sm text-[var(--lifeops-muted)] sm:block">
+          <p className="hidden text-sm text-(--lifeops-muted) sm:block">
             Paso {step} de 3
           </p>
           {showPrimaryAction ? (
@@ -2554,7 +2569,14 @@ function ExtractorPageContent() {
 
       {/* Loading Overlay */}
       {(isExtracting || isCheckingDuplicates || isImporting) && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div
+          className={cn(
+            'fixed flex items-center justify-center bg-black/50',
+            isImporting
+              ? 'bottom-0 left-0 right-0 top-20 z-40 sm:top-24 lg:top-0'
+              : 'inset-0 z-50',
+          )}
+        >
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -2688,7 +2710,7 @@ function ExtractorPageContent() {
         onClose={goToContractsAfterImport}
         size="md"
       >
-        <p className="whitespace-pre-line text-sm text-[var(--lifeops-muted)]">
+        <p className="whitespace-pre-line text-sm text-(--lifeops-muted)">
           {importOutcomeDescription}
         </p>
         <div className="flex justify-end pt-1">

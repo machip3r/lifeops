@@ -22,7 +22,7 @@ type Props = {
 };
 
 const selectClass =
-  'h-9 w-full rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-3 text-sm text-[var(--lifeops-fg)] shadow-xs outline-none focus-visible:border-[var(--lifeops-accent)] focus-visible:ring-3 focus-visible:ring-[#FBDBAC]/30';
+  'h-9 w-full rounded-lg border-2 border-(--lifeops-border) bg-(--lifeops-chrome) px-3 text-sm text-(--lifeops-fg) shadow-xs outline-none focus-visible:border-(--lifeops-accent) focus-visible:ring-3 focus-visible:ring-[#FBDBAC]/30';
 
 function todayIsoDate(): string {
   const d = new Date();
@@ -298,16 +298,16 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
             />
           </FormField>
 
-          <section className="space-y-4 rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-hover)] p-4">
+          <section className="space-y-4 rounded-lg border-2 border-(--lifeops-border) bg-(--lifeops-hover) p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-[var(--lifeops-fg)]">Cliente</h3>
-              <div className="inline-flex rounded-lg border-2 border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] p-0.5">
+              <h3 className="text-sm font-semibold text-(--lifeops-fg)">Cliente</h3>
+              <div className="inline-flex rounded-lg border-2 border-(--lifeops-border) bg-(--lifeops-chrome) p-0.5">
                 <button
                   type="button"
                   onClick={() => switchClientMode('existing')}
                   className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${clientMode === 'existing'
                       ? 'bg-[#FBDBAC] text-[#1a1d24]'
-                      : 'text-(--lifeops-muted) hover:text-[var(--lifeops-fg)]'
+                      : 'text-(--lifeops-muted) hover:text-(--lifeops-fg)'
                     }`}
                 >
                   Existente
@@ -317,7 +317,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                   onClick={() => switchClientMode('new')}
                   className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${clientMode === 'new'
                       ? 'bg-[#FBDBAC] text-[#1a1d24]'
-                      : 'text-(--lifeops-muted) hover:text-[var(--lifeops-fg)]'
+                      : 'text-(--lifeops-muted) hover:text-(--lifeops-fg)'
                     }`}
                 >
                   Nuevo

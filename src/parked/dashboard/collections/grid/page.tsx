@@ -21,6 +21,7 @@ import type {
   CollectionsGridRow,
 } from '@/lib/collections/service';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
+import { useQueryLoading } from '@/hooks/use-query-effect';
 import type { CollectionStatus } from '@/lib/supabase';
 import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
 import {
@@ -95,13 +96,14 @@ export default function CollectionsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const accessToken = session?.access_token ?? '';
+  const [loading, setLoading] = useQueryLoading(
+    `${accessToken}|${year}|${page}|${pageSize}`,
+  );
   const [savingRowId, setSavingRowId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<PaymentDialogState | null>(null);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-  const accessToken = session?.access_token ?? '';
 
   const reloadGrid = useCallback(async () => {
     if (!accessToken) return;
@@ -132,7 +134,6 @@ export default function CollectionsPage() {
   useEffect(() => {
     if (!profile || !accessToken) return;
     let cancelled = false;
-    setLoading(true);
     void getCollectionsGridAction(accessToken, { year, page, pageSize })
       .then((result) => {
         if (cancelled) return;

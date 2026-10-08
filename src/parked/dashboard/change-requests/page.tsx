@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { ContractChangeRequest } from '@/lib/supabase';
 import { db } from '@/lib/db';
@@ -10,6 +10,7 @@ import { SortableTh } from '@/components/sortable-th';
 import { TablePagination } from '@/components/table-pagination';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
+import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type ChangeRequestRow = ContractChangeRequest & {
     contract_number?: string | null;
@@ -25,8 +26,8 @@ function ChangeRequestsPageContent() {
     const [loading, setLoading] = useState(true);
     const [sortKey, setSortKey] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<SortDir>('asc');
-    const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+    const [page, setPage] = useResetPage(`${pageSize}\0${sortKey ?? ''}\0${sortDir}`);
     const [total, setTotal] = useState(0);
 
     const loadChangeRequests = useCallback(async () => {
@@ -55,15 +56,7 @@ function ChangeRequestsPageContent() {
         }
     }, [profile, page, pageSize, sortKey, sortDir]);
 
-    useEffect(() => {
-        if (profile) {
-            loadChangeRequests();
-        }
-    }, [profile, loadChangeRequests]);
-
-    useEffect(() => {
-        setPage(1);
-    }, [pageSize, sortKey, sortDir]);
+    useQueryEffect(Boolean(profile), loadChangeRequests);
 
     const getStatusColor = (status: string) => {
         switch (status) {

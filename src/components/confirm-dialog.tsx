@@ -13,6 +13,8 @@ type ConfirmDialogProps = {
   loadingLabel?: string;
   confirmVariant?: "destructive" | "default" | "brand";
   loading?: boolean;
+  /** Stack above the sidebar and other z-50 layers. */
+  elevated?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -29,6 +31,7 @@ export function ConfirmDialog({
   loadingLabel = "Procesando…",
   confirmVariant = "destructive",
   loading = false,
+  elevated = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -52,6 +55,7 @@ export function ConfirmDialog({
       title={title}
       onClose={onCancel}
       busy={loading}
+      elevated={elevated}
       size="md"
     >
       <p

@@ -5,12 +5,14 @@ import { useAuth } from '@/contexts/auth-context';
 import { useEffect, useState } from 'react';
 import { Menu } from 'lucide-react';
 import { ToastProvider } from '@/components/toast';
+import { NavigationGuardProvider } from '@/contexts/navigation-guard';
 import {
   DashboardSidebar,
   consultantNavItems,
   promotoryNavItems,
 } from '@/components/dashboard/sidebar';
 import { assets } from '@/app/theme/assets';
+import { Button } from '@/components/ui/button';
 
 export default function DashboardLayout({
   children,
@@ -18,25 +20,33 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { profile, loading, session, signOut } = useAuth();
+  const { profile, loading, session, signOut, profilePhase, reloadProfile } = useAuth();
   const router = useRouter();
+  const [sidebarPath, setSidebarPath] = useState(pathname);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  if (sidebarPath !== pathname) {
+    setSidebarPath(pathname);
+    setSidebarOpen(false);
+  }
 
   useEffect(() => {
     if (!loading && !session) {
-      router.push('/login');
+      router.replace('/login');
     }
   }, [loading, session, router]);
 
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [pathname]);
-
-  if (loading) {
+  if (loading || (session && !profile && profilePhase === 'loading')) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--lifeops-page)]">
+      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page)">
         <div className="text-center">
-          <p className="text-lg text-[var(--lifeops-fg)]">Cargando...</p>
+          {session ? (
+            <>
+              <p className="mb-4 text-lg text-(--lifeops-fg)">Cargando tu perfil...</p>
+              <p className="text-sm text-(--lifeops-accent)">Esto puede tomar un momento</p>
+            </>
+          ) : (
+            <p className="text-lg text-(--lifeops-fg)">Cargando...</p>
+          )}
         </div>
       </div>
     );
@@ -44,9 +54,9 @@ export default function DashboardLayout({
 
   if (!session) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--lifeops-page)]">
+      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page)">
         <div className="text-center">
-          <p className="text-lg text-[var(--lifeops-fg)]">
+          <p className="text-lg text-(--lifeops-fg)">
             Redirigiendo al inicio de sesión...
           </p>
         </div>
@@ -56,10 +66,20 @@ export default function DashboardLayout({
 
   if (!profile) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--lifeops-page)]">
-        <div className="text-center">
-          <p className="mb-4 text-lg text-[var(--lifeops-fg)]">Cargando tu perfil...</p>
-          <p className="text-sm text-[var(--lifeops-accent)]">Esto puede tomar un momento</p>
+      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page)">
+        <div className="mx-auto max-w-md px-6 text-center">
+          <p className="mb-2 text-lg text-(--lifeops-fg)">No pudimos cargar tu perfil</p>
+          <p className="mb-6 text-sm text-(--lifeops-muted)">
+            No encontramos tu promotoría ni tu perfil de asesor. Puedes reintentar o volver a entrar.
+          </p>
+          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <Button type="button" variant="brand" onClick={() => void reloadProfile()}>
+              Reintentar
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void signOut()}>
+              Volver a iniciar sesión
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -70,6 +90,7 @@ export default function DashboardLayout({
 
   return (
     <ToastProvider>
+      <NavigationGuardProvider>
       <div className="flex min-h-screen dashboard-gradient-bg">
         <DashboardSidebar
           open={sidebarOpen}
@@ -82,9 +103,9 @@ export default function DashboardLayout({
         <div className="hidden w-[260px] shrink-0 lg:block" aria-hidden />
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-20 items-center justify-between gap-3 border-b border-[var(--lifeops-border)] bg-[var(--lifeops-chrome)] px-3 sm:h-24 lg:hidden">
+          <header className="sticky top-0 z-30 flex h-20 items-center justify-between gap-3 border-b border-(--lifeops-border) bg-(--lifeops-chrome) px-3 sm:h-24 lg:hidden">
             <span
-              className="min-w-0 truncate text-3xl font-semibold tracking-tight text-[var(--lifeops-fg)] sm:text-4xl"
+              className="min-w-0 truncate text-3xl font-semibold tracking-tight text-(--lifeops-fg) sm:text-4xl"
               style={{ fontFamily: 'var(--font-lexend), Arial, Helvetica, sans-serif' }}
             >
               {brandParts[0]}
@@ -93,7 +114,7 @@ export default function DashboardLayout({
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="shrink-0 p-2 text-[var(--lifeops-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
+              className="shrink-0 p-2 text-(--lifeops-fg) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
               aria-label="Abrir menú"
             >
               <Menu className="h-8 w-8" strokeWidth={1.75} />
@@ -105,6 +126,7 @@ export default function DashboardLayout({
           </main>
         </div>
       </div>
+      </NavigationGuardProvider>
     </ToastProvider>
   );
 }
