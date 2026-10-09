@@ -75,7 +75,7 @@ lifeops/
   - `email` (TEXT, nullable)
   - `consultant_code` (TEXT, nullable, unique per office when not null) - **This is the "asesor" from HTML/Excel imports**
   - `auth_user_id` (UUID, nullable, FK → `auth.users.id`)
-  - `status` (TEXT: 'ACTIVE', 'INACTIVE', 'PENDING')
+  - `status` (TEXT: `NOT_INVITED`, `PENDING`, `ACTIVE`, `INACTIVE`) — `NOT_INVITED` means the office has not sent an invite yet
 - **Relationships**:
   - Belongs to one office
   - Has many contracts
@@ -97,7 +97,7 @@ lifeops/
   - `client_id` (UUID, nullable, FK → `client.id`)
   - `contract_number` (TEXT, nullable) - **This stores the "poliza" number from HTML**
   - `folio_number` (TEXT, nullable)
-  - `currency` (TEXT, nullable) - **Stores "moneda" from HTML**
+  - `currency` (TEXT, nullable) - moneda from HTML, stored as `UDI`, `PESO`, or `DOLAR`
   - `status` (TEXT, default 'PENDING')
   - Additional fields: `capture_date`, `project_name`, `insured_amount`, `annual_premium`, etc.
 - **Relationships**:
@@ -214,7 +214,7 @@ contract (1) ──< (many) file
    - Same `consultant_code` may belong to different offices (unique per `office_id` only)
 4. **Data Grouping**: Groups rows by contract (unique combination of `Cliente` + `Poliza` + `Asesor`)
 5. **Contract Creation**: For each unique contract:
-   - Finds or creates client by name
+   - Finds or creates client by name. Names are normalized (trim, uppercase, no accents, Ñ → N). If the name is at least 0.86 similar to an existing office client, that client is reused. The extractor lets you click the name and change it before import.
    - Finds consultant by `consultant_code` (asesor)
    - Checks if contract with same `contract_number` (poliza) exists
    - Creates new contract if it doesn't exist
@@ -300,9 +300,9 @@ Defines interfaces for all database tables:
 
 When importing HTML data:
 1. Client checks missing codes via `POST /api/extractor/missing-consultants` (Bearer auth)
-2. Auto-creates missing consultants via `POST /api/extractor/create-consultants` (`mode: auto`, service role) with office-scoped email `<asesorCode>.<officeTag>@lifeops.com` (same code allowed in other offices)
+2. Auto-creates missing consultants via `POST /api/extractor/create-consultants` (`mode: auto`, service role) with office-scoped email `<asesorCode>.<officeTag>@lifeops.com` (same code allowed in other offices). If `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`, the import pauses on **Asesores por registrar**: each code starts with a generated correo, one button invites the checked rows (**Invitar e importar**) or registers everyone without inviting (**Importar**). Invite and import reject a correo that is repeated, already registered, or the same as the promotoría.
 3. Auth user ID is used for both `id` and `auth_user_id` on the consultant row
-4. Status starts as `PENDING` until the adviser completes setup
+4. Status starts as `NOT_INVITED` when the row is only registered. Sending the invite sets `PENDING` until the adviser accepts and becomes `ACTIVE`.
 
 ## Environment Variables
 
@@ -316,7 +316,7 @@ RESEND_API_KEY=your_resend_key
 
 Optional:
 ```
-# When true, import forces manual email/password for new asesores (no auto @lifeops.com).
+# When true, import opens a dialog for new asesores (generated correo, optional invite) instead of auto-create.
 NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true
 ```
 

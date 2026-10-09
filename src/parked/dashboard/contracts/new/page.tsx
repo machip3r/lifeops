@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Contract, Consultant, Client } from '@/lib/supabase';
+import { CURRENCY_OPTIONS } from '@/lib/contracts/currencies';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
@@ -466,9 +467,11 @@ function NewContractPageContent() {
                             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                             <option value="">Selecciona una moneda</option>
-                            <option value="Udis">Udis</option>
-                            <option value="Dollars">Dólares</option>
-                            <option value="Pesos">Pesos</option>
+                            {CURRENCY_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                    {option}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     <div>

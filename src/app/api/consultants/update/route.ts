@@ -21,7 +21,7 @@ const bodySchema = z.object({
     name: entityNameSchema.optional(),
     email: emailSchema.nullable().optional(),
     consultant_code: consultantCodeSchema.nullable().optional(),
-    status: z.enum(["ACTIVE", "INACTIVE", "PENDING"]).optional(),
+    status: z.enum(["ACTIVE", "INACTIVE", "PENDING", "NOT_INVITED"]).optional(),
   }),
 });
 

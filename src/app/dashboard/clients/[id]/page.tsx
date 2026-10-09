@@ -12,16 +12,26 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import {
+  DetailCard,
+  DetailField,
+  DetailGrid,
+} from '@/components/dashboard/detail-card';
+import { ClientFormDialog } from '@/components/clients/client-form-dialog';
+import { useToast } from '@/components/toast';
+import { Button } from '@/components/ui/button';
 import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 
-type SortKey = 'contract_number' | 'consultant' | 'project_name' | 'payment_method' | 'created_at';
+type SortKey = 'contract_number' | 'consultant' | 'payment_method';
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
 
 function ClientDetailsPageContent() {
   const router = useRouter();
   const params = useParams();
   const clientId = params.id as string;
+  const { toast } = useToast();
   const [client, setClient] = useState<Client | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [contractsTotal, setContractsTotal] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -47,11 +57,8 @@ function ClientDetailsPageContent() {
         {
           contract_number: (c) => c.contract_number,
           consultant: (c) => consultantsMap.get(c.consultant_id)?.name,
-          project_name: (c) => c.project_name,
           payment_method: (c) => c.payment_method,
-          created_at: (c) => c.created_at,
         },
-        { created_at: 'date' },
       ),
     [contracts, sortKey, sortDir, consultantsMap],
   );
@@ -179,62 +186,41 @@ function ClientDetailsPageContent() {
         description="Detalles del cliente"
       />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-          Información del Cliente
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <div>
-            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Nombre completo
-            </span>
-            <p id="client-name" className="text-sm text-gray-900 dark:text-white">
-              {client.name}
-            </p>
-          </div>
-          <div>
-            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Fecha de nacimiento
-            </span>
-            <p
-              id="client-birth-date"
-              className="text-sm text-gray-900 dark:text-white"
-            >
-              {formatDateShortEsLocal(client.birth_date)}
-            </p>
-          </div>
-          <div>
-            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Edad
-            </span>
-            <p id="client-age" className="text-sm text-gray-900 dark:text-white">
-              {age !== null ? `${age} años` : '—'}
-            </p>
-          </div>
-          <div>
-            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Total de pólizas
-            </span>
-            <p
-              id="client-total-policies"
-              className="text-sm text-gray-900 dark:text-white"
-            >
-              {contractsTotal}
-            </p>
-          </div>
-          <div>
-            <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Fecha de registro
-            </span>
-            <p
-              id="client-registration-date"
-              className="text-sm text-gray-900 dark:text-white"
-            >
-              {formatDateShortEsLocal(client.created_at)}
-            </p>
-          </div>
-        </div>
-      </div>
+      <DetailCard
+        title="Información"
+        actions={
+          <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+            Editar
+          </Button>
+        }
+      >
+        <DetailGrid>
+          <DetailField label="Nombre">{client.name}</DetailField>
+          <DetailField label="Nacimiento">
+            {client.birth_date
+              ? `${formatDateShortEsLocal(client.birth_date)}${age !== null ? ` · ${age} años` : ''}`
+              : '—'}
+          </DetailField>
+          <DetailField label="Pólizas">{contractsTotal}</DetailField>
+        </DetailGrid>
+      </DetailCard>
+
+      <ClientFormDialog
+        open={editOpen}
+        editingClient={client}
+        onClose={() => setEditOpen(false)}
+        onSubmit={async (data) => {
+          const updated = await db.client.updateClient(client.id, {
+            name: data.name,
+            birth_date: data.date_of_birth || null,
+            curp: data.curp,
+            rfc: data.rfc,
+          });
+          setClient(updated);
+          setEditOpen(false);
+          toast.success('Cliente actualizado.');
+        }}
+      />
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
@@ -248,7 +234,7 @@ function ClientDetailsPageContent() {
               setSearch(searchDraft);
               setPage(1);
             }}
-            placeholder="Número de póliza o proyecto…"
+            placeholder="Número de póliza…"
             id="client-contracts-search"
             className="flex flex-wrap gap-3 items-end p-0 border-0"
           />
@@ -274,24 +260,10 @@ function ClientDetailsPageContent() {
                       className={TH}
                     />
                     <SortableTh
-                      label="Proyecto"
-                      active={sortKey === 'project_name'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('project_name')}
-                      className={TH}
-                    />
-                    <SortableTh
                       label="Forma de pago"
                       active={sortKey === 'payment_method'}
                       dir={sortDir}
                       onSort={() => toggleSort('payment_method')}
-                      className={TH}
-                    />
-                    <SortableTh
-                      label="Fecha"
-                      active={sortKey === 'created_at'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('created_at')}
                       className={TH}
                     />
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -316,9 +288,9 @@ function ClientDetailsPageContent() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-600 dark:text-gray-400">
                           {contract.consultant_id &&
-                          consultantsMap.has(contract.consultant_id)
+                            consultantsMap.has(contract.consultant_id)
                             ? consultantsMap.get(contract.consultant_id)?.name ||
-                              '—'
+                            '—'
                             : contract.consultant_id
                               ? 'Cargando...'
                               : '—'}
@@ -326,19 +298,7 @@ function ClientDetailsPageContent() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-600 dark:text-gray-400">
-                          {contract.project_name || '—'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-600 dark:text-gray-400">
                           {contract.payment_method || '—'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-600 dark:text-gray-400">
-                          {formatDateShortEsLocal(
-                            contract.capture_date || contract.created_at,
-                          )}
                         </div>
                       </td>
                       <td

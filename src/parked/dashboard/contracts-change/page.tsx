@@ -12,6 +12,7 @@ import {
   uploadSolicitudDocuments,
 } from '@/parked/lib/documents/solicitud-upload';
 import { useToast } from '@/components/toast';
+import { CURRENCY_OPTIONS, normalizeCurrency } from '@/lib/contracts/currencies';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -257,7 +258,22 @@ function ContractChangeRequestPageContent() {
             />
           </FormField>
           <FormField label="Moneda" htmlFor="change-currency">
-            <Input id="change-currency" value={contract.currency || 'N/A'} disabled />
+            <select
+              id="change-currency"
+              value={normalizeCurrency(contract.currency) || contract.currency?.trim() || ''}
+              disabled
+              className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+            >
+              <option value="">—</option>
+              {CURRENCY_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+              {contract.currency?.trim() && !normalizeCurrency(contract.currency) ? (
+                <option value={contract.currency.trim()}>{contract.currency.trim()}</option>
+              ) : null}
+            </select>
           </FormField>
         </div>
 

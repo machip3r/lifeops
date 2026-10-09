@@ -53,8 +53,8 @@ function initialsFromName(name: string): string {
 export const promotoryNavItems: DashboardNavItem[] = [
   { href: '/dashboard', label: 'Vista general', icon: LayoutDashboard },
   { href: '/dashboard/extractor', label: 'Importar datos', icon: FileUp },
-  { href: '/dashboard/contracts', label: 'Pólizas', icon: FileText },
   { href: '/dashboard/collections', label: 'Cobranza', icon: Wallet },
+  { href: '/dashboard/contracts', label: 'Pólizas', icon: FileText },
   { href: '/dashboard/clients', label: 'Clientes', icon: Users },
   { href: '/dashboard/consultants', label: 'Asesores', icon: UserRoundCog },
 ];
@@ -62,8 +62,8 @@ export const promotoryNavItems: DashboardNavItem[] = [
 export const consultantNavItems: DashboardNavItem[] = [
   { href: '/dashboard', label: 'Vista general', icon: LayoutDashboard },
   { href: '/dashboard/extractor', label: 'Importar datos', icon: FileUp },
-  { href: '/dashboard/contracts', label: 'Pólizas', icon: FileText },
   { href: '/dashboard/collections', label: 'Cobranza', icon: Wallet },
+  { href: '/dashboard/contracts', label: 'Pólizas', icon: FileText },
   { href: '/dashboard/clients', label: 'Clientes', icon: Users },
 ];
 

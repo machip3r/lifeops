@@ -91,7 +91,7 @@ contract_collection_payment (1) ──< (many) file (payment evidence via collec
 | `email` | Nullable; unique when set |
 | `consultant_code` | Asesor code from HTML/Excel import; unique per office when set |
 | `auth_user_id` | Nullable FK → `auth.users` when invited |
-| `status` | `ACTIVE` \| `INACTIVE` \| `PENDING` |
+| `status` | `NOT_INVITED` (created, no invite yet) \| `PENDING` (invite sent) \| `ACTIVE` \| `INACTIVE` |
 
 ### `client`
 
@@ -128,7 +128,7 @@ Invitation and similar one-time tokens.
 | `contract_number` | Poliza number from HTML |
 | `source` | `import` \| `manual` \| `mixed` |
 | `issue_date` | Policy emission date when known |
-| `currency`, `exchange_rate` | FX; null rate ≈ MXN |
+| `currency`, `exchange_rate` | FX. App catalog for `currency` is `UDI`, `PESO`, `DOLAR`; null rate ≈ MXN |
 | `status` | Default `PENDING` (ACTIVE / INACTIVE / PENDING) — lifecycle, not cobranza |
 | `collection_status` | Cobranza estatus: `AMPARADO`, `CORRIENTE`, `FLEXIBLE`, `FLEXIBLE_REVISAR`, `MES`, `PERIODO_GRACIA`, `ATRASADO` (nullable) |
 | `collection_day` | Day of month (1–31) for DIA DE COBRO (agreed cobro day); nullable |

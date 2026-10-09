@@ -35,7 +35,7 @@ office (promotory) ── owns ──► consultants (asesores)
 - Prefer server session checks for new privileged mutations (Server Actions / API).
 - Promotory **Zona de peligro** (Perfil): full office wipe also clears cobranza payments and audit log.
 - List tables (asesores, clientes, pólizas, solicitudes, cobranza, detail sub-tables) paginate from Supabase (`.range` + `count`, default 25 rows / page).
-- Promotory **Desactivar** asesores sets `status = INACTIVE` (soft); hard-delete only when zero contracts (`forceDelete`).
+- Asesor `status`: `NOT_INVITED` (row only), `PENDING` (invite sent), `ACTIVE`, `INACTIVE`.
 - Activity is written to `audit_log` (invite, deactivate, cobranza, reassign, manual contract create).
 - Consultants land on `/dashboard` (**Mi resumen**): pólizas en peligro (>30 días) + pagos por registrar + shortcuts to cobranza / alta.
 - Promotory `/dashboard` is office-wide **prioridad de cobranza** only; prima filters/counters parked in `src/parked/dashboard/promotory-premium-overview.tsx`.
@@ -54,19 +54,19 @@ office (promotory) ── owns ──► consultants (asesores)
 
 ### Invite consultant (promotory)
 
-1. Promotory requests invite (API + Resend).
+1. Promotory requests invite (API + Resend). The correo cannot be the promotoría's, nor one already registered. A clave already used in the office is rejected; if that asesor is deactivated, the message says to activate them from Asesores or pick another clave.
 2. Token stored in `token`.
 3. Consultant opens `/invite/[token]`, completes account.
 4. Consultant linked (`auth_user_id` / status → `ACTIVE`).
-5. Promotory can **Desactivar** an asesor from `/dashboard/consultants` (sets `INACTIVE`; pólizas se conservan). Hard-delete only if the asesor has no contracts.
+5. Until an invite is sent, the asesor stays `NOT_INVITED`. After the correo goes out, status is `PENDING`, then `ACTIVE` once they accept.
 
 ### Upload commissions (`/dashboard/extractor`) — promotory and consultant
 
 1. Upload HTML/MHTML commission files (portal sync and Excel import are out of the live product).
-2. Preview combined rows; validate consultants by `consultant_code` (asesor).
+2. Preview combined rows; validate consultants by `consultant_code` (asesor). Client names are trimmed and uppercased (accents dropped, Ñ → N). A name close to an existing office client (similarity at least 0.86) is treated as that client. On the date and summary steps, click the name to edit it before import.
 3. **Asesor:** only rows matching their own `consultant_code` are kept; other codes are skipped (and rejected again in `importContractsFromTable`). They never auto-create other asesores.
 4. Before import, user must enter **fecha de emisión del archivo**. If the file includes **pólizas nuevas** (first time in LifeOps), also enter **fecha del último pago conocido** — may be after the file date when the commission file is old; future dates are rejected. Used to seed cobranza, predict next dues, and set initial collection status.
-5. **Promotoría only:** missing consultants on import — default auto-create (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API; if `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`, UI requires email/password per new code. Same asesor code may exist in another office.
+5. **Promotoría only:** missing consultants on import — default auto-create (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API; if `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`, a dialog lists the new codes with a generated correo. One action invites the checked rows (**Invitar e importar**) or, with none checked, only registers them (**Importar**). Clearing a correo and leaving it empty assigns another generated one. Submit rejects a correo that is repeated, already registered, or the same as the promotoría. Same asesor code may exist in another office.
 6. Import creates `commission_import` batch; upserts contracts + `contract_detail` rows; seeds prior payment for new policies; seeds cobranza marks from payment dates in the file.
 7. Once files are loaded, or while dates, the summary, or the save are in progress, leaving for another section, signing out, or closing/refreshing the tab asks for confirmation. A half-typed date (`12/21`) stays in the field if the user switches browser tab or window.
 

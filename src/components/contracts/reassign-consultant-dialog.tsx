@@ -107,10 +107,10 @@ export function ReassignConsultantDialog({
       <Button
         type="button"
         variant="outline"
-        className="border-[#FBDBAC]/50 text-[#FBDBAC]"
+        size="sm"
         onClick={() => setOpen(true)}
       >
-        Reasignar asesor
+        Reasignar
       </Button>
 
       <AppDialog

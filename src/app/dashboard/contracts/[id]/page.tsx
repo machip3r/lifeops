@@ -8,16 +8,27 @@ import ProtectedRoute from '@/components/protected-route';
 import { TablePagination } from '@/components/table-pagination';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { useAuth } from '@/contexts/auth-context';
+import { EditContractDialog } from '@/components/contracts/edit-contract-dialog';
 import { ReassignConsultantDialog } from '@/components/contracts/reassign-consultant-dialog';
+import { useToast } from '@/components/toast';
+import { Button } from '@/components/ui/button';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { normalizeCurrency } from '@/lib/contracts/currencies';
 import { PageHeader } from '@/components/dashboard/page-header';
+import {
+    DetailCard,
+    DetailField,
+    DetailGrid,
+} from '@/components/dashboard/detail-card';
 import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 
 function ContractDetailsPageContent() {
     const router = useRouter();
     const params = useParams();
     const { profile } = useAuth();
+    const { toast } = useToast();
     const contractId = params.id as string;
+    const [editOpen, setEditOpen] = useState(false);
     const [contract, setContract] = useState<Contract | null>(null);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
     const [detailsTotal, setDetailsTotal] = useState(0);
@@ -30,10 +41,6 @@ function ContractDetailsPageContent() {
     const [detailsLoading, setDetailsLoading] = useQueryLoading(
         `${contractId}\0${page}\0${pageSize}`,
     );
-
-    // UDI actual value - This should ideally be fetched from an API or stored in config
-    // For now, using a placeholder. In production, this should be fetched from Banco de México API
-    const UDI_ACTUAL_VALUE = 8.5; // Placeholder - should be updated with actual UDI value
 
     const loadContractMeta = useCallback(async () => {
         try {
@@ -79,25 +86,6 @@ function ContractDetailsPageContent() {
         if (!dateString) return 'N/A';
         return formatDateShortEsLocal(dateString);
     };
-
-    // Calculate contract value: prima cobro * UDI actual value * tipo cambio
-    // If exchange_rate is null/undefined, it means MXN (no conversion needed, so use 1)
-    const calculateContractValue = (): number => {
-        if (!contract || statsDetails.length === 0) return 0;
-
-        const exchangeRate = contract.exchange_rate ?? 1; // If null, it's MXN, so no conversion (1)
-
-        const totalValue = statsDetails.reduce((sum, detail) => {
-            const primaCobro = detail.collection_premium || 0;
-            // Formula: prima cobro * UDI actual value * tipo cambio
-            const detailValue = primaCobro * UDI_ACTUAL_VALUE * exchangeRate;
-            return sum + detailValue;
-        }, 0);
-
-        return totalValue;
-    };
-
-    const contractValue = calculateContractValue();
 
     // Determine contract type: "inicial" or "renovacion" based on last contract_detail's seniority
     // The last detail is the one with the most recent payment_date
@@ -153,7 +141,7 @@ function ContractDetailsPageContent() {
     return (
         <div>
             <PageHeader
-                title="Detalles de la póliza"
+                title={contract.contract_number || '—'}
                 watermark="Póliza"
                 eyebrow={
                     <button
@@ -164,124 +152,97 @@ function ContractDetailsPageContent() {
                         ← Volver a pólizas
                     </button>
                 }
-                description={
-                    <>
-                        {contract.contract_number ? (
-                            <p className="text-lg font-medium text-gray-300">
-                                {contract.contract_number.startsWith('GM')
-                                    ? 'Seguro de gastos mayores'
-                                    : contract.contract_number.startsWith('VI')
-                                        ? 'Seguro de vida'
-                                        : null}
-                            </p>
-                        ) : null}
-                        {contractType ? (
-                            <p className="text-lg font-medium text-gray-300">
-                                {contractType === 'inicial' ? 'Contrato inicial' : 'Contrato renovación'}
-                            </p>
-                        ) : null}
-                        <p>Número de contrato: {contract.contract_number || 'N/A'}</p>
-                    </>
-                }
-                actions={
-                    profile?.role === 'promotory' && contract.consultant_id ? (
-                        <ReassignConsultantDialog
-                            officeId={profile.id}
-                            contractId={contract.id}
-                            currentConsultantId={contract.consultant_id}
-                            onReassigned={() => {
-                                setLoading(true);
-                                void loadContractMeta();
-                            }}
-                        />
-                    ) : null
-                }
+                description="Detalles de la póliza"
             />
 
-            {/* Contract Information */}
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-                <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Información del Contrato</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Cliente</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{client?.name || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Asesor</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{consultant?.name || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Número de Contrato</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{contract.contract_number || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo de Contrato</span>
-                        <p className="text-sm text-gray-900 dark:text-white">
-                            {contractType
-                                ? (contractType === 'inicial' ? 'Inicial' : 'Renovación')
-                                : 'N/A'}
-                        </p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Nombre del Proyecto</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{contract.project_name || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Suma Asegurada</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{contract.insured_amount || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Prima Anual</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{contract.annual_premium || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Método de Pago</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{contract.payment_method || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Moneda</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{contract.currency || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo de Cambio</span>
-                        <p className="text-sm text-gray-900 dark:text-white">
-                            {contract.exchange_rate != null
-                                ? contract.exchange_rate.toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
-                                : 'MXN (Sin conversión)'}
-                        </p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Valor del Contrato</span>
-                        <p className="text-sm font-bold text-gray-900 dark:text-white">
-                            ${contractValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            (Prima Cobro × UDI {UDI_ACTUAL_VALUE} × Tipo Cambio {contract.exchange_rate ?? 1})
-                        </p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Canal de Pago</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{contract.payment_channel || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Captura</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{formatDate(contract.capture_date)}</p>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Estado</span>
-                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${contract.status === 'ACTIVE'
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                            }`}>
-                            {contract.status === 'ACTIVE' ? 'Activa' : 'Inactiva'}
-                        </span>
-                    </div>
-                    <div>
-                        <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Fecha de Creación</span>
-                        <p className="text-sm text-gray-900 dark:text-white">{formatDate(contract.created_at)}</p>
-                    </div>
-                </div>
-            </div>
+            <DetailCard
+                title="Información"
+                actions={
+                    <>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditOpen(true)}
+                        >
+                            Editar
+                        </Button>
+                        {profile?.role === 'promotory' && contract.consultant_id ? (
+                            <ReassignConsultantDialog
+                                officeId={profile.id}
+                                contractId={contract.id}
+                                currentConsultantId={contract.consultant_id}
+                                onReassigned={() => {
+                                    setLoading(true);
+                                    void loadContractMeta();
+                                }}
+                            />
+                        ) : null}
+                    </>
+                }
+            >
+                <DetailGrid>
+                    <DetailField label="Número">
+                        <span className="font-mono">{contract.contract_number || '—'}</span>
+                    </DetailField>
+                    <DetailField label="Cliente">
+                        {client?.id ? (
+                            <button
+                                type="button"
+                                onClick={() => router.push(`/dashboard/clients/${client.id}`)}
+                                className="text-left text-(--lifeops-accent) hover:underline"
+                            >
+                                {client.name}
+                            </button>
+                        ) : (
+                            client?.name || '—'
+                        )}
+                    </DetailField>
+                    <DetailField label="Asesor">
+                        {consultant?.id && profile?.role === 'promotory' ? (
+                            <button
+                                type="button"
+                                onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
+                                className="text-left text-(--lifeops-accent) hover:underline"
+                            >
+                                {consultant.name}
+                                {consultant.consultant_code
+                                    ? ` · ${consultant.consultant_code}`
+                                    : ''}
+                            </button>
+                        ) : (
+                            consultant?.name || '—'
+                        )}
+                    </DetailField>
+                    <DetailField label="Forma de pago">
+                        {contract.payment_method || '—'}
+                    </DetailField>
+                    <DetailField label="Prima anual">
+                        {contract.annual_premium || '—'}
+                    </DetailField>
+                    <DetailField label="Suma asegurada">
+                        {contract.insured_amount || '—'}
+                    </DetailField>
+                    <DetailField label="Moneda">
+                        {normalizeCurrency(contract.currency) || contract.currency || '—'}
+                    </DetailField>
+                    {contractType ? (
+                        <DetailField label="Tipo">
+                            {contractType === 'inicial' ? 'Inicial' : 'Renovación'}
+                        </DetailField>
+                    ) : null}
+                </DetailGrid>
+            </DetailCard>
+
+            <EditContractDialog
+                open={editOpen}
+                contract={contract}
+                onClose={() => setEditOpen(false)}
+                onSaved={(next) => {
+                    setContract(next);
+                    toast.success('Póliza actualizada.');
+                }}
+            />
 
             {/* Contract Details Table */}
             {detailsTotal > 0 || contractDetails.length > 0 ? (

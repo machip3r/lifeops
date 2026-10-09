@@ -12,12 +12,22 @@ import { TablePagination } from '@/components/table-pagination';
 import { ListSearchFilters } from '@/components/list-search-filters';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
-import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import {
+  DetailCard,
+  DetailField,
+  DetailGrid,
+} from '@/components/dashboard/detail-card';
+import { EditConsultantDialog } from '@/components/consultants/edit-consultant-dialog';
+import { Button } from '@/components/ui/button';
+import {
+  CONSULTANT_STATUS_LABEL,
+  consultantStatusClass,
+} from '@/lib/consultants/status';
 import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 
 type ContractRow = Contract & { client_name?: string };
-type SortKey = 'client_name' | 'contract_number' | 'project_name' | 'payment_method' | 'created_at';
+type SortKey = 'contract_number' | 'client_name' | 'payment_method';
 
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-300';
 
@@ -31,10 +41,7 @@ function ConsultantDetailsPageContent() {
   const [contractsTotal, setContractsTotal] = useState(0);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [loading, setLoading] = useQueryLoading(consultantId);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -54,13 +61,10 @@ function ConsultantDetailsPageContent() {
         sortKey,
         sortDir,
         {
-          client_name: (c) => c.client_name,
           contract_number: (c) => c.contract_number,
-          project_name: (c) => c.project_name,
+          client_name: (c) => c.client_name,
           payment_method: (c) => c.payment_method,
-          created_at: (c) => c.created_at,
         },
-        { created_at: 'date' },
       ),
     [contracts, sortKey, sortDir],
   );
@@ -100,8 +104,6 @@ function ConsultantDetailsPageContent() {
         throw new Error('Asesor no encontrado');
       }
       setConsultant(consultantData);
-      setEditName(consultantData.name);
-      setEditEmail(consultantData.email || '');
     } catch (err: unknown) {
       console.error('Error loading consultant data:', err);
       setError(
@@ -117,52 +119,9 @@ function ConsultantDetailsPageContent() {
   useQueryEffect(Boolean(consultantId), loadConsultantData);
   useQueryEffect(Boolean(consultantId), loadContractsPage);
 
-  const handleSave = async () => {
-    if (!consultant) return;
-    setIsSaving(true);
-    setError('');
-    setSuccess('');
-    try {
-      await authFetch('/api/consultants/update', {
-        method: 'POST',
-        body: JSON.stringify({
-          consultantId: consultant.id,
-          officeId: profile?.id,
-          updates: {
-            name: editName,
-            email: editEmail || null,
-          },
-        }),
-      }).then(async (response) => {
-        const data = await response.json();
-        if (!response.ok) {
-          const fieldMsg =
-            data.fieldErrors?.name ||
-            data.fieldErrors?.email ||
-            data.fieldErrors?.consultantId ||
-            data.fieldErrors?.officeId;
-          throw new Error(
-            fieldMsg || data.error || 'Error al actualizar la información',
-          );
-        }
-      });
-      setConsultant({ ...consultant, name: editName, email: editEmail || null });
-      setSuccess('Información actualizada');
-      setIsEditing(false);
-      setTimeout(() => setSuccess(''), 3000);
-    } catch (err: unknown) {
-      console.error('Error updating consultant:', err);
-      setError(
-        err instanceof Error ? err.message : 'Error al actualizar la información',
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const handleSendInvitation = async () => {
     if (!consultant || !profile?.id) return;
-    if (!editEmail) {
+    if (!consultant.email?.trim()) {
       setError('El correo es requerido para enviar la invitación');
       return;
     }
@@ -175,8 +134,8 @@ function ConsultantDetailsPageContent() {
         body: JSON.stringify({
           officeId: profile.id,
           consultantId: consultant.id,
-          consultantEmail: editEmail.trim().toLowerCase(),
-          consultantName: (editName || consultant.name || consultant.consultant_code || '').trim(),
+          consultantEmail: consultant.email.trim().toLowerCase(),
+          consultantName: (consultant.name || consultant.consultant_code || '').trim(),
           consultantCode: (consultant.consultant_code || '').trim(),
         }),
       });
@@ -191,13 +150,13 @@ function ConsultantDetailsPageContent() {
       }
       setConsultant({
         ...consultant,
-        email: editEmail.trim().toLowerCase(),
-        name: editName,
+        email: consultant.email.trim().toLowerCase(),
+        name: consultant.name,
         status: 'PENDING',
         auth_user_id: null,
       });
       setSuccess(
-        `Invitación enviada a ${editEmail}. El registro se reinició para que pueda aceptar el enlace.`,
+        `Invitación enviada a ${consultant.email}. El registro se reinició para que pueda aceptar el enlace.`,
       );
       setTimeout(() => setSuccess(''), 4000);
     } catch (err: unknown) {
@@ -240,7 +199,7 @@ function ConsultantDetailsPageContent() {
   return (
     <div>
       <PageHeader
-        title="Detalles del asesor"
+        title={consultant.name}
         watermark="Asesor"
         eyebrow={
           <button
@@ -251,6 +210,7 @@ function ConsultantDetailsPageContent() {
             ← Volver a asesores
           </button>
         }
+        description="Detalles del asesor"
       />
 
       {error && (
@@ -265,146 +225,69 @@ function ConsultantDetailsPageContent() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-        <div className="flex justify-between items-start mb-4">
-          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-            Información del Asesor
-          </h2>
-          {!isEditing && (
-            <button
+      <DetailCard
+        title="Información"
+        actions={
+          <>
+            <Button
               type="button"
-              onClick={() => setIsEditing(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditOpen(true)}
             >
               Editar
-            </button>
-          )}
-        </div>
-
-        {isEditing ? (
-          <div className="space-y-4">
-            <div>
-              <label
-                htmlFor="consultant-edit-name"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-              >
-                Nombre
-              </label>
-              <input
-                id="consultant-edit-name"
-                type="text"
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="consultant-edit-email"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-              >
-                Correo electrónico
-              </label>
-              <input
-                id="consultant-edit-email"
-                type="email"
-                value={editEmail}
-                onChange={(e) => setEditEmail(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
-            </div>
-            <div className="flex space-x-4">
-              <button
+            </Button>
+            {consultant.status !== 'ACTIVE' ? (
+              <Button
                 type="button"
-                onClick={() => void handleSave()}
-                disabled={isSaving}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isSaving ? 'Guardando...' : 'Guardar'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsEditing(false);
-                  setEditName(consultant.name);
-                  setEditEmail(consultant.email || '');
-                  setError('');
-                }}
-                className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div>
-              <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Nombre
-              </span>
-              <p className="text-sm text-gray-900 dark:text-white">
-                {consultant.name}
-              </p>
-            </div>
-            <div>
-              <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Correo electrónico
-              </span>
-              <p className="text-sm text-gray-900 dark:text-white">
-                {consultant.email || 'No establecido'}
-              </p>
-            </div>
-            <div>
-              <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Código
-              </span>
-              <p className="text-sm text-gray-900 dark:text-white">
-                {consultant.consultant_code || 'No establecido'}
-              </p>
-            </div>
-            <div>
-              <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Estado
-              </span>
-              <span
-                className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                  consultant.status === 'ACTIVE'
-                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                    : consultant.status === 'PENDING'
-                      ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                      : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                }`}
-              >
-                {consultant.status === 'ACTIVE'
-                  ? 'Activo'
-                  : consultant.status === 'PENDING'
-                    ? 'Pendiente'
-                    : 'Inactivo'}
-              </span>
-            </div>
-            <div>
-              <span className="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Fecha de registro
-              </span>
-              <p className="text-sm text-gray-900 dark:text-white">
-                {formatDateShortEsLocal(consultant.created_at)}
-              </p>
-            </div>
-            <div>
-              <button
-                type="button"
+                variant="brand"
+                size="sm"
                 onClick={() => void handleSendInvitation()}
-                disabled={isSendingInvite || !editEmail}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm"
+                disabled={isSendingInvite || !consultant.email?.trim()}
               >
                 {isSendingInvite
-                  ? 'Enviando...'
-                  : 'Enviar invitación por correo'}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+                  ? 'Enviando…'
+                  : consultant.status === 'PENDING'
+                    ? 'Reenviar invitación'
+                    : 'Invitar'}
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        <DetailGrid>
+          <DetailField label="Código">
+            <span className="font-mono">
+              {consultant.consultant_code || '—'}
+            </span>
+          </DetailField>
+          <DetailField label="Correo">
+            {consultant.email || 'Sin correo'}
+          </DetailField>
+          <DetailField label="Estado">
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${consultantStatusClass(consultant.status)}`}
+            >
+              {CONSULTANT_STATUS_LABEL[consultant.status] ?? consultant.status}
+            </span>
+          </DetailField>
+          <DetailField label="Pólizas">{contractsTotal}</DetailField>
+        </DetailGrid>
+      </DetailCard>
+
+      {profile?.id ? (
+        <EditConsultantDialog
+          open={editOpen}
+          consultant={consultant}
+          officeId={profile.id}
+          onClose={() => setEditOpen(false)}
+          onSaved={(next) => {
+            setConsultant({ ...consultant, ...next });
+            setSuccess('Información actualizada');
+            setTimeout(() => setSuccess(''), 3000);
+          }}
+        />
+      ) : null}
 
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
@@ -418,7 +301,7 @@ function ConsultantDetailsPageContent() {
               setSearch(searchDraft);
               setPage(1);
             }}
-            placeholder="Número de póliza, cliente o proyecto…"
+            placeholder="Número de póliza o cliente…"
             id="consultant-contracts-search"
             className="flex flex-wrap gap-3 items-end p-0 border-0"
           />
@@ -430,13 +313,6 @@ function ConsultantDetailsPageContent() {
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
                     <SortableTh
-                      label="Cliente"
-                      active={sortKey === 'client_name'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('client_name')}
-                      className={TH}
-                    />
-                    <SortableTh
                       label="Número de póliza"
                       active={sortKey === 'contract_number'}
                       dir={sortDir}
@@ -444,10 +320,10 @@ function ConsultantDetailsPageContent() {
                       className={TH}
                     />
                     <SortableTh
-                      label="Proyecto"
-                      active={sortKey === 'project_name'}
+                      label="Cliente"
+                      active={sortKey === 'client_name'}
                       dir={sortDir}
-                      onSort={() => toggleSort('project_name')}
+                      onSort={() => toggleSort('client_name')}
                       className={TH}
                     />
                     <SortableTh
@@ -455,13 +331,6 @@ function ConsultantDetailsPageContent() {
                       active={sortKey === 'payment_method'}
                       dir={sortDir}
                       onSort={() => toggleSort('payment_method')}
-                      className={TH}
-                    />
-                    <SortableTh
-                      label="Fecha"
-                      active={sortKey === 'created_at'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('created_at')}
                       className={TH}
                     />
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
@@ -479,21 +348,13 @@ function ConsultantDetailsPageContent() {
                       className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
                     >
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                        {contract.client_name || '—'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                         {contract.contract_number || '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {contract.project_name || '—'}
+                        {contract.client_name || '—'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {contract.payment_method || '—'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {formatDateShortEsLocal(
-                          contract.capture_date || contract.created_at,
-                        )}
                       </td>
                       <td
                         className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"

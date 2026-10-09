@@ -29,7 +29,7 @@ export interface Consultant {
     consultant_code: string | null; // Can be null initially
     auth_user_id: string | null; // Links to auth user when consultant is invited
     office_id: string;
-    status: 'ACTIVE' | 'INACTIVE' | 'PENDING';
+    status: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'NOT_INVITED';
     created_at?: string;
     updated_at?: string;
 }

@@ -7,21 +7,19 @@ import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ManualContractDialog } from '@/components/contracts/manual-contract-dialog';
-import { useToast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
 import { SortableTh } from '@/components/sortable-th';
 import { TablePagination } from '@/components/table-pagination';
 import { ListSearchFilters } from '@/components/list-search-filters';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
-import { formatDateShortEsLocal } from '@/lib/format/date';
 import { AtRiskBadge } from '@/components/collections/at-risk-badge';
 import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type ContractRow = Contract & { client_name?: string };
-type SortKey = 'client_name' | 'contract_number' | 'project_name' | 'payment_method' | 'capture_date';
+type SortKey = 'client_name' | 'contract_number' | 'payment_method';
 
 const SORT_GETTERS: Record<
   SortKey,
@@ -29,9 +27,7 @@ const SORT_GETTERS: Record<
 > = {
   client_name: (r) => r.client_name,
   contract_number: (r) => r.contract_number,
-  project_name: (r) => r.project_name,
   payment_method: (r) => r.payment_method,
-  capture_date: (r) => r.capture_date || r.created_at,
 };
 
 const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
@@ -43,7 +39,6 @@ const ACTIONS_TD =
 function ContractsPageContent() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { toast } = useToast();
   const [contracts, setContracts] = useState<ContractRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
@@ -99,17 +94,6 @@ function ContractsPageContent() {
 
   useQueryEffect(Boolean(profile), loadContracts);
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar esta póliza?')) return;
-    try {
-      await db.contract.deleteContract(id);
-      void loadContracts();
-    } catch (error) {
-      console.error('Error deleting contract:', error);
-      toast.error('No se pudo eliminar la póliza');
-    }
-  };
-
   const displayedContracts = useMemo(() => {
     if (sortKey === 'client_name') {
       return sortRows(contracts, sortKey, sortDir, SORT_GETTERS);
@@ -160,7 +144,7 @@ function ContractsPageContent() {
             setSearch(searchDraft);
             setPage(1);
           }}
-          placeholder="Número de póliza, cliente o proyecto…"
+          placeholder="Número de póliza o cliente…"
           id="contracts-search"
           actions={
             <Button
@@ -187,13 +171,6 @@ function ContractsPageContent() {
               <thead className="bg-gray-50 dark:bg-gray-900">
                 <tr>
                   <SortableTh
-                    label="Cliente"
-                    active={sortKey === 'client_name'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('client_name')}
-                    className={TH}
-                  />
-                  <SortableTh
                     label="Número de póliza"
                     active={sortKey === 'contract_number'}
                     dir={sortDir}
@@ -201,10 +178,10 @@ function ContractsPageContent() {
                     className={TH}
                   />
                   <SortableTh
-                    label="Proyecto"
-                    active={sortKey === 'project_name'}
+                    label="Cliente"
+                    active={sortKey === 'client_name'}
                     dir={sortDir}
-                    onSort={() => toggleSort('project_name')}
+                    onSort={() => toggleSort('client_name')}
                     className={TH}
                   />
                   <SortableTh
@@ -212,13 +189,6 @@ function ContractsPageContent() {
                     active={sortKey === 'payment_method'}
                     dir={sortDir}
                     onSort={() => toggleSort('payment_method')}
-                    className={TH}
-                  />
-                  <SortableTh
-                    label="Fecha"
-                    active={sortKey === 'capture_date'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('capture_date')}
                     className={TH}
                   />
                   <th className={ACTIONS_TH}>Acciones</th>
@@ -232,9 +202,6 @@ function ContractsPageContent() {
                     className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group"
                   >
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                      {contract.client_name || '—'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       <div className="flex flex-wrap items-center gap-2">
                         <span>{contract.contract_number || '—'}</span>
                         {atRiskById[contract.id] != null ? (
@@ -243,38 +210,24 @@ function ContractsPageContent() {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {contract.project_name || '—'}
+                      {contract.client_name || '—'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {contract.payment_method || '—'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {formatDateShortEsLocal(
-                        contract.capture_date || contract.created_at,
-                      )}
                     </td>
                     <td
                       className={`${ACTIONS_TD} group-hover:bg-gray-50 dark:group-hover:bg-gray-700`}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="flex justify-end items-center gap-3 flex-nowrap">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            router.push(`/dashboard/contracts/${contract.id}`)
-                          }
-                          className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
-                        >
-                          Ver
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(contract.id)}
-                          className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.push(`/dashboard/contracts/${contract.id}`)
+                        }
+                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
+                      >
+                        Ver
+                      </button>
                     </td>
                   </tr>
                 ))}

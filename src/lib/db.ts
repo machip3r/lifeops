@@ -28,7 +28,9 @@ import {
     maxIsoDate,
     nextDueFromLastPayment,
 } from '@/lib/collections/next-due';
+import { currencyToStore } from '@/lib/contracts/currencies';
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/lib/extractor/batch';
+import { normalizeClientName } from '@/lib/clients/name-match';
 import {
     importProgressPercent,
     type ImportProgress,
@@ -186,7 +188,7 @@ export const db = {
             officeId: string,
             params: Partial<PageParams> & {
                 search?: string;
-                status?: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'ALL';
+                status?: 'ACTIVE' | 'INACTIVE' | 'PENDING' | 'NOT_INVITED' | 'ALL';
                 sort?: SortOrder;
             } = {},
         ): Promise<PageResult<Consultant>> => {
@@ -362,7 +364,7 @@ export const db = {
                     email: null, // Will be filled when consultant is invited
                     consultant_code: tempCode, // Temporary code, can be updated
                     auth_user_id: null, // Will be set when consultant is invited
-                    status: 'PENDING',
+                    status: 'NOT_INVITED',
                 })
                 .select()
                 .single();
@@ -885,9 +887,9 @@ export const db = {
             for (let i = 0; i < rows.length; i++) {
                 const row = rows[i];
                 try {
-                    const clientName = getCell(row, clientNameIndex);
+                    const clientName = normalizeClientName(getCell(row, clientNameIndex));
                     const contractNumber = getCell(row, contractNumberIndex);
-                    const currency = getCell(row, currencyIndex);
+                    const currency = currencyToStore(getCell(row, currencyIndex)) ?? '';
                     const exchangeRate = getCell(row, exchangeRateIndex);
                     const consultantCode = getCell(row, consultantCodeIndex);
 
@@ -1128,7 +1130,9 @@ export const db = {
                     }
 
                     // Get client from cache
-                    const client = clientCache.get(group.clientName.toLowerCase());
+                    const client = clientCache.get(
+                        normalizeClientName(group.clientName).toLowerCase(),
+                    );
                     if (!client) {
                         errors.push({ row: group.rows[0]?.rowIndex || 0, error: `Cliente "${group.clientName}" no encontrado` });
                         continue;
@@ -1938,12 +1942,33 @@ export const db = {
             return !!data;
         },
 
+        listClientNames: async (officeId: string): Promise<string[]> => {
+            const pageSize = 1000;
+            const names: string[] = [];
+            let from = 0;
+            for (;;) {
+                const { data, error } = await supabase
+                    .from('client')
+                    .select('name')
+                    .eq('office_id', officeId)
+                    .range(from, from + pageSize - 1);
+                if (error) throw error;
+                const rows = data || [];
+                for (const row of rows) {
+                    if (row.name) names.push(row.name);
+                }
+                if (rows.length < pageSize) break;
+                from += pageSize;
+            }
+            return names;
+        },
+
         findOrCreateClientsByName: async (names: string[], officeId?: string | null): Promise<Map<string, Client>> => {
             const clientMap = new Map<string, Client>();
             const uniqueNames = [
                 ...new Set(
                     names
-                        .map((n) => n.trim())
+                        .map((n) => normalizeClientName(n))
                         .filter((n) => n.length > 0),
                 ),
             ];
@@ -1953,17 +1978,24 @@ export const db = {
             const wantedKeys = new Set(uniqueNames.map((n) => n.toLowerCase()));
 
             // Avoid PostgREST `.or(name.ilike.First Last)` which breaks on spaces.
-            // Load office clients (or match by exact name chunks) and join in memory.
+            // Load office clients and match on the normalized name.
             let existing: Client[] = [];
             if (officeId) {
-                const { data, error: searchError } = await supabase
-                    .from('client')
-                    .select('*')
-                    .eq('office_id', officeId);
-                if (searchError) throw searchError;
-                existing = (data as Client[]) || [];
+                const pageSize = 1000;
+                let from = 0;
+                for (;;) {
+                    const { data, error: searchError } = await supabase
+                        .from('client')
+                        .select('*')
+                        .eq('office_id', officeId)
+                        .range(from, from + pageSize - 1);
+                    if (searchError) throw searchError;
+                    const rows = (data as Client[]) || [];
+                    existing.push(...rows);
+                    if (rows.length < pageSize) break;
+                    from += pageSize;
+                }
             } else {
-                // Chunk exact-name lookups when no office scope
                 for (const chunk of chunkArray(uniqueNames, IMPORT_BATCH_SIZE)) {
                     const { data, error: searchError } = await supabase
                         .from('client')
@@ -1975,10 +2007,19 @@ export const db = {
             }
 
             for (const client of existing) {
-                const key = (client.name || '').trim().toLowerCase();
-                if (key && wantedKeys.has(key) && !clientMap.has(key)) {
-                    clientMap.set(key, client);
+                const normalized = normalizeClientName(client.name || '');
+                const key = normalized.toLowerCase();
+                if (!key || !wantedKeys.has(key) || clientMap.has(key)) continue;
+                if (normalized !== (client.name || '').trim()) {
+                    try {
+                        const updated = await db.client.updateClient(client.id, { name: normalized });
+                        clientMap.set(key, updated);
+                        continue;
+                    } catch (error) {
+                        console.error('normalize client name:', error);
+                    }
                 }
+                clientMap.set(key, client);
             }
 
             const namesToCreate = uniqueNames.filter(
@@ -2000,7 +2041,7 @@ export const db = {
                 if (createError) throw createError;
 
                 for (const client of (newClients as Client[]) || []) {
-                    const key = (client.name || '').trim().toLowerCase();
+                    const key = normalizeClientName(client.name || '').toLowerCase();
                     if (key) clientMap.set(key, client);
                 }
             }

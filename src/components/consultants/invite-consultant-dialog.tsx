@@ -42,6 +42,8 @@ export function InviteConsultantDialog({
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [codeError, setCodeError] = useState('');
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -50,6 +52,8 @@ export function InviteConsultantDialog({
     setEmail('');
     setCode('');
     setError('');
+    setEmailError('');
+    setCodeError('');
     setSuccess('');
   };
 
@@ -61,6 +65,8 @@ export function InviteConsultantDialog({
 
   const handleSubmit = async () => {
     setError('');
+    setEmailError('');
+    setCodeError('');
     setSuccess('');
     if (!name.trim() || !email.trim() || !code.trim()) {
       setError('Completa nombre, correo y código del asesor.');
@@ -87,7 +93,16 @@ export function InviteConsultantDialog({
       });
       const createData = await createRes.json().catch(() => ({}));
       if (!createRes.ok) {
-        throw new Error(createData.error || 'No se pudo registrar al asesor.');
+        const message = createData.error || 'No se pudo registrar al asesor.';
+        if (/correo/i.test(message)) {
+          setEmailError(message);
+          return;
+        }
+        if (/clave/i.test(message)) {
+          setCodeError(message);
+          return;
+        }
+        throw new Error(message);
       }
 
       const inviteRes = await authFetch('/api/invite-consultant', {
@@ -101,12 +116,15 @@ export function InviteConsultantDialog({
       });
       const inviteData = await inviteRes.json().catch(() => ({}));
       if (!inviteRes.ok) {
-        // Account exists; still allow selection even if correo failed.
-        console.warn('invite-consultant:', inviteData);
-        toast.error(
+        const message =
           inviteData.error ||
-            'El asesor quedó registrado, pero no se pudo enviar el correo.',
-        );
+          'El asesor quedó registrado, pero no se pudo enviar el correo.';
+        if (/correo/i.test(message) && !/no se pudo enviar/i.test(message)) {
+          setEmailError(message);
+          return;
+        }
+        console.warn('invite-consultant:', inviteData);
+        toast.error(message);
       } else {
         setSuccess(
           `Invitación enviada a ${email.trim().toLowerCase()}. Ya puedes seleccionarlo.`,
@@ -160,25 +178,39 @@ export function InviteConsultantDialog({
             autoComplete="name"
           />
         </FormField>
-        <FormField label="Correo" htmlFor="invite-consultant-email" variant="auth">
+        <FormField
+          label="Correo"
+          htmlFor="invite-consultant-email"
+          variant="auth"
+          error={emailError}
+        >
           <Input
             id="invite-consultant-email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (emailError) setEmailError('');
+            }}
             maxLength={LIMITS.email}
-           
             placeholder="correo@ejemplo.com"
             autoComplete="email"
           />
         </FormField>
-        <FormField label="Código del asesor" htmlFor="invite-consultant-code" variant="auth">
+        <FormField
+          label="Código del asesor"
+          htmlFor="invite-consultant-code"
+          variant="auth"
+          error={codeError}
+        >
           <Input
             id="invite-consultant-code"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => {
+              setCode(e.target.value);
+              if (codeError) setCodeError('');
+            }}
             maxLength={LIMITS.consultantCode}
-           
             placeholder="Clave única del asesor"
           />
         </FormField>

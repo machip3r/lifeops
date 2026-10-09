@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Contract } from '@/lib/supabase';
+import { CURRENCY_OPTIONS, normalizeCurrency } from '@/lib/contracts/currencies';
 import { Button } from '@/components/ui/button';
 import {
   TABLE_FILTER_DEBOUNCE_MS,
@@ -19,7 +20,6 @@ export interface ContractsFilterState {
 interface ContractsFiltersProps {
   filters: ContractsFilterState;
   onChange: (next: ContractsFilterState) => void;
-  availableCurrencies: string[];
   availablePaymentMethods: string[];
   /** Primary create action (e.g. Registrar póliza). */
   actions?: ReactNode;
@@ -45,8 +45,9 @@ export function filterContracts<T extends Contract & { client_name?: string }>(
       if (!matchesSearch) return false;
     }
 
-    if (filters.currency && contract.currency !== filters.currency) {
-      return false;
+    if (filters.currency) {
+      const rowCurrency = normalizeCurrency(contract.currency) || contract.currency || '';
+      if (rowCurrency !== filters.currency) return false;
     }
 
     if (filters.paymentMethod && contract.payment_method !== filters.paymentMethod) {
@@ -77,7 +78,6 @@ export function filterContracts<T extends Contract & { client_name?: string }>(
 export function ContractsFilters({
   filters,
   onChange,
-  availableCurrencies,
   availablePaymentMethods,
   actions,
 }: ContractsFiltersProps) {
@@ -88,11 +88,6 @@ export function ContractsFilters({
     setSearchInput(filters.search);
   }
   const debouncedSearch = useDebouncedValue(searchInput, TABLE_FILTER_DEBOUNCE_MS);
-
-  const sortedCurrencies = useMemo(
-    () => Array.from(new Set(availableCurrencies.filter(Boolean))).sort(),
-    [availableCurrencies]
-  );
 
   const sortedPaymentMethods = useMemo(
     () => Array.from(new Set(availablePaymentMethods.filter(Boolean))).sort(),
@@ -134,7 +129,7 @@ export function ContractsFilters({
           className="w-full h-9 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-[#FBDBAC] focus:border-transparent"
         >
           <option value="">Todas</option>
-          {sortedCurrencies.map((currency) => (
+          {CURRENCY_OPTIONS.map((currency) => (
             <option key={currency} value={currency}>
               {currency}
             </option>

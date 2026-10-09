@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { normalizeCurrency } from '@/lib/contracts/currencies';
 
 export async function POST(request: NextRequest) {
   try {
@@ -111,7 +112,7 @@ Tu tarea es analizar el documento completo, incluyendo todas las tablas HTML, te
   "insuredAmount": suma asegurada como número sin comas ni símbolos (busca en tablas de proyección o resumen),
   "basicPremium": prima básica o aportación anual como número sin comas ni símbolos (busca en tablas de proyección),
   "paymentTerm": plazo de pagos en años (debe ser 5, 10, 15 o 20, busca en tablas o texto que mencione años de pago),
-  "currency": "UDIS" or "Dollars" (use "UDIS" if the doc mentions UDI/UDIS; use "Dollars" if it mentions dólares/dollars),
+  "currency": "UDI", "PESO", or "DOLAR" (use "UDI" if the doc mentions UDI/UDIS; use "DOLAR" if it mentions dólares/dollars; use "PESO" if it mentions pesos/MXN),
   "currentUDIValue": valor actual UDI o tipo de cambio dólar como número decimal (busca valores como 8.56, puede estar en tablas o texto),
   "projectedDevaluation": inflación o devaluación proyectada como número decimal sin % (busca tasas como 3.00%, 4.00% en notas o tablas),
   "effectiveValueYear14": valor efectivo año 14 como número sin comas (busca en tablas de valores garantizados, fila año 14),
@@ -138,7 +139,7 @@ INSTRUCCIONES CRÍTICAS:
    - Usa números puros: 145000 (no 145,000 o $145,000)
    - Para decimales: 8.56 (no 8,56)
 5. VALORES ESPECIALES:
-   - currency: If the document mentions "UDI" / "UDIS", use "UDIS". If it mentions dólares/dollars, use "Dollars"
+   - currency: If the document mentions "UDI" / "UDIS", use "UDI". If it mentions dólares/dollars, use "DOLAR". If it mentions pesos or MXN, use "PESO"
    - paymentTerm: Si encuentras "10-15" en el nombre del proyecto, significa 15 años. Cuenta los años con aportaciones en la tabla.
    - projectedDevaluation: Si dice "tasa de inversión supuesta del 3.00%", usa 3.0 (sin el %)
 6. Si un campo NO se encuentra después de analizar TODO el documento (texto, tablas, markdown), usa null para ese campo
@@ -181,6 +182,10 @@ INSTRUCCIONES CRÍTICAS:
       }
 
       extractedData = JSON.parse(cleanedText);
+      if (extractedData.currency) {
+        const stored = normalizeCurrency(String(extractedData.currency));
+        extractedData.currency = stored || undefined;
+      }
 
       // Validate and clean the extracted data
       // Handle case where projectedDevaluation might come as a string from JSON
@@ -341,10 +346,15 @@ function parseProjectionData(text: string): Partial<FormData> {
   }
 
   // Extract currency (Moneda)
-  if (searchText.match(/UDIS|UDI|Unidades\s+de\s+Inversión/i) && !searchText.match(/dolares?|dollar/i)) {
-    data.currency = 'UDIS';
-  } else if (searchText.match(/dolares?|dollar/i)) {
-    data.currency = 'Dollars';
+  const mentionsUdi = /UDIS|UDI|Unidades\s+de\s+Inversi[oó]n/i.test(searchText);
+  const mentionsDolar = /dolares?|d[oó]lar|dollar/i.test(searchText);
+  const mentionsPeso = /pesos?|\bMXN\b/i.test(searchText);
+  if (mentionsDolar && !mentionsUdi) {
+    data.currency = 'DOLAR';
+  } else if (mentionsPeso && !mentionsUdi) {
+    data.currency = 'PESO';
+  } else if (mentionsUdi) {
+    data.currency = 'UDI';
   }
 
   // Extract current UDI value
@@ -443,7 +453,7 @@ interface FormData {
   insuredAmount?: number;
   basicPremium?: number;
   paymentTerm?: number;
-  currency?: 'UDIS' | 'Dollars';
+  currency?: 'UDI' | 'PESO' | 'DOLAR';
   effectiveValueYear14?: number;
   effectiveValueYear19?: number;
   effectiveValueYear24?: number;

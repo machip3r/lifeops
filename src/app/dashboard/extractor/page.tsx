@@ -27,11 +27,15 @@ import {
   type ImportProgress,
 } from '@/lib/extractor/import-progress';
 import { DateInput } from '@/components/ui/date-input';
+import { currencyToStore } from '@/lib/contracts/currencies';
+import { EditableClientName } from '@/components/extractor/editable-client-name';
+import { bestClientNameMatch, normalizeClientName } from '@/lib/clients/name-match';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
 import { AppDialog } from '@/components/ui/app-dialog';
 import {
   MissingConsultantsDialog,
+  randomEmailForCode,
   type MissingConsultantDraft,
 } from '@/components/extractor/missing-consultants-dialog';
 import { cn } from '@/lib/utils';
@@ -419,7 +423,7 @@ function ExtractorPageContent() {
               if (upperText.includes('CONTRATANTE')) metadata.policyholder = value;
               else if (upperText.includes('POLIZA')) metadata.contractNumber = value;
               else if (upperText.includes('OFICINA')) metadata.officeName = value;
-              else if (upperText.includes('MONEDA')) metadata.currency = value;
+              else if (upperText.includes('MONEDA')) metadata.currency = currencyToStore(value) ?? '';
               else if (upperText.includes('TIPO DE CAMBIO')) metadata.exchangeRate = value;
               else if (upperText.includes('ASESOR')) metadata.consultantCode = value;
 
@@ -810,6 +814,37 @@ function ExtractorPageContent() {
     return map;
   };
 
+  const applyClientRename = (fromName: string, rawNext: string) => {
+    const from = normalizeClientName(fromName);
+    const next = normalizeClientName(rawNext);
+    if (!from || !next || from === next) return;
+
+    const renameTable = (table: TableData): TableData => {
+      const idx = headerIndexMap(table.headers).get('CLIENTE') ?? 0;
+      return {
+        ...table,
+        rows: table.rows.map((row) => {
+          if (normalizeClientName(row[idx] ?? '') !== from) return row;
+          const copy = [...row];
+          copy[idx] = next;
+          return copy;
+        }),
+      };
+    };
+
+    setImportDateRows((rows) =>
+      rows.map((row) =>
+        normalizeClientName(row.clientName) === from
+          ? { ...row, clientName: next }
+          : row,
+      ),
+    );
+    setTables((prev) =>
+      prev.map((table, index) => (index === 0 ? renameTable(table) : table)),
+    );
+    setPendingImportTable((prev) => (prev ? renameTable(prev) : prev));
+  };
+
   const indexFromHeaders = (
     map: Map<string, number>,
     candidates: string[],
@@ -1087,12 +1122,29 @@ function ExtractorPageContent() {
         duplicateData.contracts.map((c) => c.trim().replace(/,/g, '').replace(/\s+/g, '')),
       );
 
+      let existingClientNames: string[] = [];
+      try {
+        existingClientNames = await db.client.listClientNames(officeId);
+      } catch (error) {
+        console.error(error);
+      }
+      rowsForImport = rowsForImport.map((row) => {
+        const copy = [...row];
+        const normalized = normalizeClientName(copy[clienteIdx] ?? '');
+        if (!normalized) {
+          copy[clienteIdx] = '';
+          return copy;
+        }
+        copy[clienteIdx] = bestClientNameMatch(normalized, existingClientNames) ?? normalized;
+        return copy;
+      });
+
       const dateRowMap = new Map<string, ImportDateRow>();
 
       rowsForImport.forEach((row, rowIndex) => {
         const rawNumber = (row[polizaIdx] ?? '').trim();
         const contractNumber = rawNumber.replace(/,/g, '').replace(/\s+/g, '');
-        const clientName = (row[clienteIdx] ?? '').trim();
+        const clientName = normalizeClientName(row[clienteIdx] ?? '') || '—';
         const issueRaw = (row[issueIdx] ?? '').trim();
         const issueIso = parseFlexibleDateToIso(issueRaw);
         const consultantCode = (row[asesorIdx] ?? '').trim();
@@ -1361,7 +1413,7 @@ function ExtractorPageContent() {
           missingEntries.map((c) => ({
             consultantCode: c.code,
             name: c.name || c.code,
-            email: '',
+            email: randomEmailForCode(c.code),
             selected: true,
           })),
         );
@@ -1425,7 +1477,7 @@ function ExtractorPageContent() {
         const message =
           error instanceof Error
             ? error.message
-            : 'No se pudieron crear los asesores faltantes.';
+            : 'No se pudieron crear los asesores nuevos.';
         setImportResult({
           success: 0,
           errors: [{ row: 0, error: message }],
@@ -1654,7 +1706,7 @@ function ExtractorPageContent() {
     } else {
       parts.push(
         importResult.errors[0]?.error ||
-          'No se pudo completar la importación.',
+        'No se pudo completar la importación.',
       );
     }
     if (importResult.warnings.length > 0) {
@@ -1680,9 +1732,12 @@ function ExtractorPageContent() {
     (step === 2 && !canContinueImportDates);
 
   const showPrimaryAction = !(step === 3 && nothingToImport);
+  const showBottomBar = step !== 1 || uploadedFiles.length > 0;
 
-  const stepSurface =
-    'mb-24 space-y-6 rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) p-5 sm:p-6';
+  const stepSurface = cn(
+    'space-y-6 rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) p-5 sm:p-6',
+    showBottomBar && 'mb-24',
+  );
 
   const bottomNavBtnClass = 'min-w-[10.5rem] justify-center';
 
@@ -2024,7 +2079,9 @@ function ExtractorPageContent() {
                   </p>
                   <p className="mt-0.5 text-sm text-(--lifeops-muted)">
                     Emisión faltante se captura aquí. Si ya viene en el archivo, clic para
-                    corregirla. Último pago solo en pólizas nuevas.
+                    corregirla. Último pago solo en pólizas nuevas. El nombre del cliente
+                    va en mayúsculas; si se parece a uno que ya existe, usamos ese. Clic
+                    para cambiarlo.
                   </p>
                 </div>
               </div>
@@ -2080,8 +2137,14 @@ function ExtractorPageContent() {
                           <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-(--lifeops-fg)">
                             {row.contractNumber}
                           </td>
-                          <td className="max-w-[12rem] truncate px-3 py-2 text-sm text-(--lifeops-muted) sm:max-w-none">
-                            {row.clientName}
+                          <td
+                            className="max-w-[16rem] px-3 py-2 text-sm sm:max-w-none"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <EditableClientName
+                              value={row.clientName}
+                              onCommit={(next) => applyClientRename(row.clientName, next)}
+                            />
                           </td>
                           <td
                             className="px-3 py-2"
@@ -2403,8 +2466,9 @@ function ExtractorPageContent() {
                     Pólizas a registrar
                   </p>
                   <p className="mt-0.5 text-sm text-(--lifeops-muted)">
-                    Fechas confirmadas y código de asesor. Si el asesor aparece arriba como
-                    nuevo, se creará de forma manual al importar.
+                    Fechas confirmadas y código de asesor. Clic en el cliente si hay que
+                    corregir el nombre. Si el asesor aparece arriba como nuevo, se creará
+                    de forma manual al importar.
                   </p>
                 </div>
               </div>
@@ -2445,8 +2509,11 @@ function ExtractorPageContent() {
                           <td className="whitespace-nowrap px-3 py-2.5 text-sm font-medium text-(--lifeops-fg)">
                             {row.contractNumber}
                           </td>
-                          <td className="max-w-[12rem] truncate px-3 py-2.5 text-sm text-(--lifeops-muted) sm:max-w-none">
-                            {row.clientName}
+                          <td className="max-w-[16rem] px-3 py-2.5 text-sm sm:max-w-none">
+                            <EditableClientName
+                              value={row.clientName}
+                              onCommit={(next) => applyClientRename(row.clientName, next)}
+                            />
                           </td>
                           <td className="whitespace-nowrap px-3 py-2.5 text-sm">
                             {row.consultantCode ? (
@@ -2497,6 +2564,7 @@ function ExtractorPageContent() {
         </div>
       )}
 
+      {showBottomBar ? (
       <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-(--lifeops-border) bg-(--lifeops-chrome)/95 backdrop-blur-sm lg:left-[260px]">
         {step === 2 ? (
           <div className="mx-auto max-w-7xl px-4 pt-2.5 sm:px-6 lg:px-8">
@@ -2566,6 +2634,7 @@ function ExtractorPageContent() {
           )}
         </div>
       </div>
+      ) : null}
 
       {/* Loading Overlay */}
       {(isExtracting || isCheckingDuplicates || isImporting) && (

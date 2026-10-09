@@ -62,17 +62,197 @@ export type CreateConsultantInput = {
   name: string;
   email: string;
   password: string;
+  /** Defaults to PENDING (invite in progress). Auto-import uses NOT_INVITED. */
+  status?: 'PENDING' | 'NOT_INVITED';
 };
+
+export type ConsultantEmailClaim = {
+  email: string;
+  /** Same-office code that may already own this correo (retry of a create). */
+  consultantCode?: string;
+  /** Existing asesor that may keep or take this correo. */
+  consultantId?: string;
+};
+
+function consultantCodeTakenMessage(
+  code: string,
+  status: string | null | undefined,
+): string {
+  const clave = code.trim();
+  if (status === "INACTIVE") {
+    return `La clave ${clave} pertenece a un asesor desactivado. Actívalo desde Asesores o usa otra clave.`;
+  }
+  return `La clave ${clave} ya está registrada. Usa otra.`;
+}
+
+function isConsultantCodeUniqueViolation(error: {
+  message?: string;
+  code?: string;
+} | null): boolean {
+  const message = error?.message || "";
+  return (
+    message.includes("consultant_code_per_office_unique") ||
+    (error?.code === "23505" && message.includes("consultant_code"))
+  );
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function claimOwnsRow(
+  claim: ConsultantEmailClaim,
+  row: { id: string; office_id: string; consultant_code: string | null },
+  officeId: string,
+): boolean {
+  if (claim.consultantId && row.id === claim.consultantId) return true;
+  const code = claim.consultantCode?.trim().toLowerCase();
+  if (!code || row.office_id !== officeId) return false;
+  return (row.consultant_code || "").trim().toLowerCase() === code;
+}
+
+/**
+ * Reject correos that repeat in the request, match the promotoría, or already
+ * belong to another asesor or Auth user. Allowed claims may keep their own correo.
+ */
+export async function findConsultantEmailConflicts(
+  officeId: string,
+  claims: ConsultantEmailClaim[],
+): Promise<string[]> {
+  const normalized = claims
+    .map((claim) => ({ ...claim, email: normalizeEmail(claim.email) }))
+    .filter((claim) => claim.email.length > 0);
+  if (normalized.length === 0) return [];
+
+  const messages: string[] = [];
+  const seen = new Set<string>();
+  for (const claim of normalized) {
+    if (seen.has(claim.email)) {
+      messages.push(
+        `El correo ${claim.email} está repetido. Cada asesor necesita uno distinto.`,
+      );
+    }
+    seen.add(claim.email);
+  }
+
+  const uniqueEmails = [...seen];
+  const office = await getAdminOfficeById(officeId);
+  const officeEmail = office?.email ? normalizeEmail(office.email) : "";
+  if (officeEmail && uniqueEmails.includes(officeEmail)) {
+    messages.push("No uses el correo de la promotoría.");
+  }
+
+  const { data: rows, error } = await supabaseAdmin
+    .from("consultant")
+    .select("id, email, consultant_code, office_id, auth_user_id")
+    .in("email", uniqueEmails);
+  if (error) throw error;
+
+  const owners = (rows ?? []) as Array<{
+    id: string;
+    email: string | null;
+    consultant_code: string | null;
+    office_id: string;
+    auth_user_id: string | null;
+  }>;
+
+  for (const email of uniqueEmails) {
+    if (email === officeEmail) continue;
+    const matches = owners.filter(
+      (row) => normalizeEmail(row.email || "") === email,
+    );
+    const claimsForEmail = normalized.filter((claim) => claim.email === email);
+    const taken = matches.some(
+      (row) => !claimsForEmail.some((claim) => claimOwnsRow(claim, row, officeId)),
+    );
+    if (taken) {
+      messages.push(`El correo ${email} ya está registrado. Usa otro.`);
+    }
+  }
+
+  const authIds = await listAuthUserIdsByEmails(uniqueEmails);
+  for (const [email, authId] of authIds) {
+    if (authId === officeId || email === officeEmail) {
+      if (!messages.some((message) => message.includes("promotoría"))) {
+        messages.push("No uses el correo de la promotoría.");
+      }
+      continue;
+    }
+    const claimsForEmail = normalized.filter((claim) => claim.email === email);
+    const allowed = owners.some(
+      (row) =>
+        (row.id === authId || row.auth_user_id === authId) &&
+        claimsForEmail.some((claim) => claimOwnsRow(claim, row, officeId)),
+    );
+    if (!allowed && !messages.some((message) => message.includes(email))) {
+      messages.push(`El correo ${email} ya está registrado. Usa otro.`);
+    }
+  }
+
+  return [...new Set(messages)];
+}
 
 export async function createConsultantWithAuth(
   officeId: string,
   input: CreateConsultantInput,
+  opts?: { allowExistingAuth?: boolean },
 ): Promise<{ consultant: Consultant; created: boolean }> {
   const emailLower = input.email.trim().toLowerCase();
   let authUserId: string | null = null;
+  const consultantCode = input.consultantCode.trim();
+
+  const { data: existingByCode, error: codeLookupError } = await supabaseAdmin
+    .from("consultant")
+    .select("id, status, email")
+    .eq("office_id", officeId)
+    .eq("consultant_code", consultantCode)
+    .maybeSingle();
+  if (codeLookupError) throw codeLookupError;
+  if (
+    existingByCode &&
+    (existingByCode.email || "").trim().toLowerCase() !== emailLower
+  ) {
+    throw new Error(
+      consultantCodeTakenMessage(consultantCode, existingByCode.status),
+    );
+  }
+
+  const office = await getAdminOfficeById(officeId);
+  if (office?.email?.trim().toLowerCase() === emailLower) {
+    throw new Error("No uses el correo de la promotoría.");
+  }
+
+  const { data: emailOwners, error: emailOwnersError } = await supabaseAdmin
+    .from("consultant")
+    .select("id, consultant_code, office_id")
+    .eq("email", emailLower);
+  if (emailOwnersError) throw emailOwnersError;
+  const requestedCode = input.consultantCode.trim().toLowerCase();
+  for (const owner of emailOwners ?? []) {
+    const sameAsesor =
+      owner.office_id === officeId &&
+      (owner.consultant_code || "").trim().toLowerCase() === requestedCode;
+    if (!sameAsesor) {
+      throw new Error(`El correo ${emailLower} ya está registrado. Usa otro.`);
+    }
+  }
 
   const existingByEmail = await listAuthUserIdsByEmails([emailLower]);
   authUserId = existingByEmail.get(emailLower) ?? null;
+  if (authUserId === officeId) {
+    throw new Error("No uses el correo de la promotoría.");
+  }
+  if (authUserId && !opts?.allowExistingAuth) {
+    const sameOwner = (emailOwners ?? []).some(
+      (owner) =>
+        owner.id === authUserId &&
+        owner.office_id === officeId &&
+        (owner.consultant_code || "").trim().toLowerCase() === requestedCode,
+    );
+    if (!sameOwner) {
+      throw new Error(`El correo ${emailLower} ya está registrado. Usa otro.`);
+    }
+  }
 
   if (!authUserId) {
     const { data: authData, error: authError } = await createAuthUser({
@@ -83,8 +263,14 @@ export async function createConsultantWithAuth(
 
     if (authError) {
       authUserId = await findAuthUserIdByEmail(emailLower);
+      if (authUserId === officeId) {
+        throw new Error("No uses el correo de la promotoría.");
+      }
       if (!authUserId) {
-        throw new Error(authError.message || "No se pudo crear el usuario del asesor");
+        throw new Error("No se pudo crear el usuario del asesor.");
+      }
+      if (!opts?.allowExistingAuth) {
+        throw new Error(`El correo ${emailLower} ya está registrado. Usa otro.`);
       }
     } else {
       authUserId = authData?.user?.id ?? null;
@@ -102,12 +288,14 @@ export async function createConsultantWithAuth(
     .maybeSingle();
 
   if (existingById) {
-    if (existingById.office_id === officeId) {
+    const sameAsesor =
+      existingById.office_id === officeId &&
+      (existingById.consultant_code || "").trim().toLowerCase() ===
+        requestedCode;
+    if (sameAsesor) {
       return { consultant: existingById as Consultant, created: false };
     }
-    throw new Error(
-      `El correo ${input.email} ya está registrado como asesor. Use otro correo para ${input.consultantCode}.`,
-    );
+    throw new Error(`El correo ${emailLower} ya está registrado. Usa otro.`);
   }
 
   const { data: anyConsultant } = await supabaseAdmin
@@ -117,9 +305,7 @@ export async function createConsultantWithAuth(
     .maybeSingle();
 
   if (anyConsultant) {
-    throw new Error(
-      `El correo ${input.email} ya está registrado como asesor. Use otro correo para ${input.consultantCode}.`,
-    );
+    throw new Error(`El correo ${emailLower} ya está registrado. Usa otro.`);
   }
 
   const { data: inserted, error: insErr } = await supabaseAdmin
@@ -131,12 +317,26 @@ export async function createConsultantWithAuth(
       email: emailLower,
       consultant_code: input.consultantCode.trim(),
       auth_user_id: authUserId,
-      status: "PENDING",
+      status: input.status ?? "PENDING",
     })
     .select()
     .single();
 
-  if (insErr) throw new Error(insErr.message);
+  if (insErr) {
+    if (isConsultantCodeUniqueViolation(insErr)) {
+      const { data: raced } = await supabaseAdmin
+        .from("consultant")
+        .select("status")
+        .eq("office_id", officeId)
+        .eq("consultant_code", consultantCode)
+        .maybeSingle();
+      throw new Error(
+        consultantCodeTakenMessage(consultantCode, raced?.status),
+      );
+    }
+    console.error("createConsultantWithAuth insert:", insErr);
+    throw new Error("No se pudo registrar al asesor.");
+  }
   return { consultant: inserted as Consultant, created: true };
 }
 
@@ -209,7 +409,8 @@ export async function ensureConsultantForImport(
       name: displayName,
       email: defaultEmail,
       password: defaultPassword,
-    });
+      status: "NOT_INVITED",
+    }, { allowExistingAuth: true });
     return { consultant: result.consultant, created: result.created };
   } catch (e) {
     return {
@@ -379,6 +580,7 @@ export async function resetConsultantInviteRegistrationAdmin(input: {
   const wipeAuth =
     !consultant ||
     consultant.status === "PENDING" ||
+    consultant.status === "NOT_INVITED" ||
     consultant.status === "INACTIVE" ||
     !consultant.auth_user_id;
 
@@ -799,7 +1001,7 @@ export async function updateConsultantAdmin(input: {
     name?: string;
     email?: string | null;
     consultant_code?: string | null;
-    status?: "ACTIVE" | "INACTIVE" | "PENDING";
+    status?: "ACTIVE" | "INACTIVE" | "PENDING" | "NOT_INVITED";
   };
 }): Promise<AdminResult<{ success: true }>> {
   const consultant = await getConsultantInOffice(
@@ -815,6 +1017,34 @@ export async function updateConsultantAdmin(input: {
       ? undefined
       : input.updates.email?.trim().toLowerCase() || null;
   const oldEmail = consultant.email?.trim().toLowerCase() || null;
+
+  if (nextEmail && nextEmail !== oldEmail) {
+    const conflicts = await findConsultantEmailConflicts(input.officeId, [
+      { email: nextEmail, consultantId: input.consultantId },
+    ]);
+    if (conflicts.length > 0) {
+      return { ok: false, code: "conflict", error: conflicts[0] };
+    }
+  }
+
+  const nextCode = input.updates.consultant_code?.trim();
+  if (nextCode && nextCode !== (consultant.consultant_code || "").trim()) {
+    const { data: takenCode, error: takenCodeError } = await supabaseAdmin
+      .from("consultant")
+      .select("id, status")
+      .eq("office_id", input.officeId)
+      .eq("consultant_code", nextCode)
+      .neq("id", input.consultantId)
+      .maybeSingle();
+    if (takenCodeError) throw takenCodeError;
+    if (takenCode) {
+      return {
+        ok: false,
+        code: "conflict",
+        error: consultantCodeTakenMessage(nextCode, takenCode.status),
+      };
+    }
+  }
 
   const patch: Record<string, unknown> = {
     ...input.updates,
@@ -855,7 +1085,28 @@ export async function updateConsultantAdmin(input: {
     .update(patch)
     .eq("id", input.consultantId)
     .eq("office_id", input.officeId);
-  if (error) throw error;
+  if (error) {
+    if (isConsultantCodeUniqueViolation(error)) {
+      const clave = (
+        input.updates.consultant_code ||
+        consultant.consultant_code ||
+        ""
+      ).trim();
+      const { data: taken } = await supabaseAdmin
+        .from("consultant")
+        .select("status")
+        .eq("office_id", input.officeId)
+        .eq("consultant_code", clave)
+        .neq("id", input.consultantId)
+        .maybeSingle();
+      return {
+        ok: false,
+        code: "conflict",
+        error: consultantCodeTakenMessage(clave, taken?.status),
+      };
+    }
+    throw error;
+  }
 
   return { ok: true, data: { success: true } };
 }

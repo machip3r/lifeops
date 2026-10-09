@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Dev requests from 127.0.0.1 are a different origin than localhost.
+  allowedDevOrigins: ["127.0.0.1"],
   // Do NOT put SUPABASE_SERVICE_ROLE_KEY in `env` — that inlines it into the client bundle.
   async redirects() {
     return [

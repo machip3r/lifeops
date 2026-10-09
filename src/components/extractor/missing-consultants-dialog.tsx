@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Mail, Users } from 'lucide-react';
+import { X } from 'lucide-react';
 import { authFetch } from '@/lib/api-client';
 import { useToast } from '@/components/toast';
 import { AppDialog } from '@/components/ui/app-dialog';
@@ -36,7 +36,7 @@ function randomTempPassword(): string {
 }
 
 /** Valid-looking placeholder correo for bulk fill. */
-function randomEmailForCode(code: string): string {
+export function randomEmailForCode(code: string): string {
   const slug =
     code
       .toLowerCase()
@@ -68,18 +68,24 @@ export function MissingConsultantsDialog({
   const [submitMode, setSubmitMode] = useState<'create' | 'invite' | null>(
     null,
   );
-  const [autoEmail, setAutoEmail] = useState(false);
+  const [editingCode, setEditingCode] = useState<string | null>(null);
   const [error, setError] = useState('');
   const submitting = submitMode != null;
+
+  if (
+    editingCode &&
+    !consultants.some((c) => c.consultantCode === editingCode)
+  ) {
+    setEditingCode(null);
+  }
 
   const selected = useMemo(
     () => consultants.filter((c) => c.selected),
     [consultants],
   );
-  const selectedReady =
-    selected.length > 0 &&
-    selected.every((c) => looksLikeEmail(c.email));
-  const allSelected = consultants.length > 0 && selected.length === consultants.length;
+  const allSelected =
+    consultants.length > 0 && selected.length === consultants.length;
+  const someSelected = selected.length > 0 && !allSelected;
 
   const updateRow = (index: number, patch: Partial<MissingConsultantDraft>) => {
     onChange(
@@ -89,18 +95,6 @@ export function MissingConsultantsDialog({
 
   const setAllSelected = (value: boolean) => {
     onChange(consultants.map((c) => ({ ...c, selected: value })));
-  };
-
-  const applyAutoEmails = (enabled: boolean) => {
-    setAutoEmail(enabled);
-    if (!enabled) return;
-    onChange(
-      consultants.map((c) => ({
-        ...c,
-        selected: true,
-        email: randomEmailForCode(c.consultantCode),
-      })),
-    );
   };
 
   const createRowsOnly = async () => {
@@ -136,8 +130,9 @@ export function MissingConsultantsDialog({
     }
   };
 
-  const inviteSelected = async () => {
-    for (const batch of chunkArray(selected, IMPORT_BATCH_SIZE)) {
+  const inviteSelected = async (rows: MissingConsultantDraft[]) => {
+    const chosen = rows.filter((c) => c.selected);
+    for (const batch of chunkArray(chosen, IMPORT_BATCH_SIZE)) {
       const createRes = await authFetch('/api/extractor/create-consultants', {
         method: 'POST',
         body: JSON.stringify({
@@ -160,7 +155,7 @@ export function MissingConsultantsDialog({
     }
 
     const inviteErrors: string[] = [];
-    for (const c of selected) {
+    for (const c of chosen) {
       const email = c.email.trim().toLowerCase();
       const inviteRes = await authFetch('/api/invite-consultant', {
         method: 'POST',
@@ -174,8 +169,7 @@ export function MissingConsultantsDialog({
       const inviteData = await inviteRes.json().catch(() => ({}));
       if (!inviteRes.ok) {
         inviteErrors.push(
-          `${c.consultantCode}: ${
-            inviteData.error || 'no se pudo enviar la invitación'
+          `${c.consultantCode}: ${inviteData.error || 'no se pudo enviar la invitación'
           }`,
         );
       }
@@ -189,7 +183,7 @@ export function MissingConsultantsDialog({
       );
     }
 
-    const rest = consultants.filter((c) => !c.selected);
+    const rest = rows.filter((c) => !c.selected);
     if (rest.length > 0) {
       for (const batch of chunkArray(rest, IMPORT_BATCH_SIZE)) {
         const res = await authFetch('/api/extractor/create-consultants', {
@@ -216,16 +210,35 @@ export function MissingConsultantsDialog({
     setSubmitMode(mode);
     try {
       if (mode === 'invite') {
-        if (!selectedReady) {
+        const ready = consultants.map((c) => {
+          if (!c.selected || c.email.trim()) return c;
+          return { ...c, email: randomEmailForCode(c.consultantCode) };
+        });
+        const chosen = ready.filter((c) => c.selected);
+        const invalid = chosen.filter((c) => !looksLikeEmail(c.email));
+        if (invalid.length > 0) {
           throw new Error(
-            'Selecciona al menos un asesor y completa un correo válido en cada uno.',
+            'Revisa el correo de los asesores marcados. Si lo dejas vacío, usamos uno generado.',
           );
         }
-        await inviteSelected();
+        const seenEmails = new Set<string>();
+        for (const row of chosen) {
+          const email = row.email.trim().toLowerCase();
+          if (seenEmails.has(email)) {
+            throw new Error(
+              `El correo ${email} está repetido. Cada asesor necesita uno distinto.`,
+            );
+          }
+          seenEmails.add(email);
+        }
+        if (ready.some((c, index) => c.email !== consultants[index]?.email)) {
+          onChange(ready);
+        }
+        await inviteSelected(ready);
         toast.success(
-          selected.length === 1
+          chosen.length === 1
             ? 'Asesor listo. Continuamos con la importación.'
-            : `${selected.length} asesores listos. Continuamos con la importación.`,
+            : `${chosen.length} asesores listos. Continuamos con la importación.`,
         );
       } else {
         await createRowsOnly();
@@ -246,12 +259,26 @@ export function MissingConsultantsDialog({
   };
 
   const locked = busy || submitting;
+  const selectionLabel =
+    selected.length === 0
+      ? ''
+      : allSelected
+        ? `Todos (${consultants.length})`
+        : `${selected.length} de ${consultants.length}`;
+  const submitLabel =
+    submitMode === 'invite'
+      ? 'Invitando…'
+      : submitMode === 'create'
+        ? 'Importando…'
+        : selected.length > 0
+          ? 'Invitar e importar'
+          : 'Importar';
 
   return (
     <AppDialog
       open={open}
-      title="Asesores faltantes"
-      description="Regístralos para continuar la importación. La invitación por correo es opcional."
+      title="Asesores por registrar"
+      description="El correo ya viene listo. Marca a quién invitar; si no marcas a nadie, solo se registran y sigue la importación."
       onClose={() => {
         if (!locked) onClose();
       }}
@@ -259,32 +286,32 @@ export function MissingConsultantsDialog({
       size="xl"
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Button
-            type="button"
-            size="sm"
-            variant={allSelected ? 'brand' : 'outline'}
+        <label
+          className={cn(
+            'flex items-center gap-3 rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) px-3 py-2.5',
+            locked || consultants.length === 0
+              ? 'cursor-not-allowed opacity-60'
+              : 'cursor-pointer hover:bg-(--lifeops-hover)/60',
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={allSelected}
             disabled={locked || consultants.length === 0}
-            aria-pressed={allSelected}
-            onClick={() => setAllSelected(!allSelected)}
-            className="w-full justify-center gap-1.5"
-          >
-            <Users className="h-3.5 w-3.5" aria-hidden />
-            {allSelected ? 'Todos seleccionados' : 'Seleccionar todos para invitar'}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={autoEmail ? 'brand' : 'outline'}
-            disabled={locked || consultants.length === 0}
-            aria-pressed={autoEmail}
-            onClick={() => applyAutoEmails(!autoEmail)}
-            className="w-full justify-center gap-1.5"
-          >
-            <Mail className="h-3.5 w-3.5" aria-hidden />
-            {autoEmail ? 'Correos aleatorios asignados' : 'Asignar correos aleatorios'}
-          </Button>
-        </div>
+            aria-label="Seleccionar todos"
+            ref={(node) => {
+              if (node) node.indeterminate = someSelected;
+            }}
+            onChange={() => setAllSelected(!allSelected)}
+            className="h-4 w-4 rounded border-(--lifeops-border) text-[#FBDBAC] focus:ring-[#FBDBAC]"
+          />
+          <span className="text-sm font-medium text-(--lifeops-fg)">
+            Seleccionar todos
+          </span>
+          <span className="ml-auto text-sm tabular-nums text-(--lifeops-muted)">
+            {selectionLabel}
+          </span>
+        </label>
 
         <div className="overflow-hidden rounded-lg border border-(--lifeops-border)">
           <div className="max-h-[50vh] overflow-y-auto">
@@ -345,30 +372,79 @@ export function MissingConsultantsDialog({
                         disabled={locked}
                         maxLength={LIMITS.personName}
                         onChange={(e) => updateRow(index, { name: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter' && e.key !== 'Tab') return;
+                          const backward = e.key === 'Tab' && e.shiftKey;
+                          const target = backward ? index - 1 : index + 1;
+                          if (target < 0 || target >= consultants.length) {
+                            if (e.key === 'Enter') e.preventDefault();
+                            return;
+                          }
+                          e.preventDefault();
+                          document
+                            .getElementById(`missing-consultant-name-${target}`)
+                            ?.focus();
+                        }}
                         className="h-10"
                         aria-label={`Nombre de ${c.consultantCode}`}
                       />
                     </td>
                     <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <Input
-                        id={`missing-consultant-email-${index}`}
-                        type="email"
-                        value={c.email}
-                        disabled={locked}
-                        maxLength={LIMITS.email}
-                        placeholder="correo@ejemplo.com"
-                        onChange={(e) => {
-                          setAutoEmail(false);
-                          updateRow(index, { email: e.target.value });
-                        }}
-                        className={cn(
-                          'h-10',
-                          c.selected &&
-                            !looksLikeEmail(c.email) &&
-                            'border-amber-500/60',
-                        )}
-                        aria-label={`Correo de ${c.consultantCode}`}
-                      />
+                      {editingCode === c.consultantCode ? (
+                        <Input
+                          id={`missing-consultant-email-${index}`}
+                          type="email"
+                          value={c.email}
+                          disabled={locked}
+                          autoFocus
+                          maxLength={LIMITS.email}
+                          placeholder="correo@ejemplo.com"
+                          aria-invalid={
+                            c.selected &&
+                            c.email.trim().length > 0 &&
+                            !looksLikeEmail(c.email)
+                          }
+                          onChange={(e) =>
+                            updateRow(index, { email: e.target.value })
+                          }
+                          onFocus={(e) => e.currentTarget.select()}
+                          onBlur={(e) => {
+                            const trimmed = e.currentTarget.value.trim();
+                            if (!trimmed) {
+                              updateRow(index, {
+                                email: randomEmailForCode(c.consultantCode),
+                              });
+                            } else if (trimmed !== c.email) {
+                              updateRow(index, { email: trimmed });
+                            }
+                            setEditingCode(null);
+                          }}
+                          className="h-10"
+                          aria-label={`Correo de ${c.consultantCode}`}
+                        />
+                      ) : (
+                        <div className="flex min-w-0 items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={locked}
+                            className="min-w-0 flex-1 truncate text-left font-mono text-sm text-(--lifeops-fg) hover:underline disabled:cursor-not-allowed disabled:no-underline"
+                            aria-label={`Editar correo de ${c.consultantCode}`}
+                            onClick={() => setEditingCode(c.consultantCode)}
+                          >
+                            {c.email}
+                          </button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={locked}
+                            aria-label={`Cambiar correo de ${c.consultantCode}`}
+                            onClick={() => setEditingCode(c.consultantCode)}
+                          >
+                            <X aria-hidden />
+                          </Button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -378,8 +454,8 @@ export function MissingConsultantsDialog({
         </div>
 
         <p className="text-xs text-(--lifeops-muted)">
-          Sin invitar: solo se crea el asesor y puedes mandar el enlace después desde
-          Asesores. Con invitar: se envía el correo a los seleccionados que tengan correo.
+          Pulsa el correo para cambiarlo. En el nombre, Enter o Tab pasa al
+          siguiente asesor.
         </p>
 
         {error ? (
@@ -403,27 +479,12 @@ export function MissingConsultantsDialog({
           </Button>
           <Button
             type="button"
-            variant="outline"
-            size="lg"
-            disabled={locked || consultants.length === 0}
-            onClick={() => void run('create')}
-          >
-            {submitMode === 'create'
-              ? 'Registrando…'
-              : 'Solo registrar e importar'}
-          </Button>
-          <Button
-            type="button"
             variant="brand"
             size="lg"
-            disabled={locked || !selectedReady}
-            onClick={() => void run('invite')}
+            disabled={locked || consultants.length === 0}
+            onClick={() => void run(selected.length > 0 ? 'invite' : 'create')}
           >
-            {submitMode === 'invite'
-              ? 'Invitando…'
-              : selected.length > 0
-                ? `Invitar (${selected.length}) e importar`
-                : 'Invitar e importar'}
+            {submitLabel}
           </Button>
         </div>
       </div>

@@ -1,24 +1,3 @@
-[12:43, 9/25/2026] Brendiux: mira
-
-
-cuando registran una póliza puede ser que se tomen los datos
-
-CLAVE DE ASESOR
-NUMERO DE POLIZA
-NOMBRE DE CLIENTE
-FECHA DE EMISION
-PROYECTO
-CONDUCTO DE COBRO
-DÍA DE COBRO
-
-los que no se es
-FORMA DE PAGO
-
-Porque por ejemplo ya que se agregue el de comisiones , de ahi la idea es que se jale o se complete la info y pues de ahi se jalaria lo de
-
- (5,2, etc) que son las formas de pago y pues de hecho no dice escrito como tal si es mensual , entonces para esa relacion a lo mejor seria mejor que lo tome directo de esta parte (si es que ya vas a empezar con el de comisiones)
-
-Luego tambien ya pensando , luego pasa que los clientes meten AVE a su proyecto, y ahi tambien se ve en comisiones , entonces si ellos meten pero es una de AVE y no de un recibo real, si…
 [12:45, 9/25/2026] Brendiux: en cuanto a folios de CAMBIOS
 
 pues seria
@@ -42,19 +21,9 @@ pero en otra hoja que ponle que sea de pendientes de primera aportacion , ahi es
 
 
 
-al momento de subir comisiones, checar nombres de clientes ya creados, relacionarlos con un algoritmo de similitud de cadenas de texto, y si tiene un cierto umbral, pues seria el mismo
 
-normalizar nombres clientes (trim uppercase A-Z)
-agregar opcion de editarlos en el extractor
+when click in a cobranza row, open a dialog showing all payments and evidences
 
-validar que el correo del asesor (en la importacion e invitacion de asesor) no este repetido ni tampoco use el mismo de la promotora
+remove "reasignar" action
 
-duplicate key value violates unique constraint "consultant_code_per_office_unique" (registrar asesor con una clave ya existente)
-en caso de poner el mismo y uno este desactivado
-
-borrar todo no borra asesores?
-
-desactivate asesor correct flow
-
-editar entidades actions
-eliminar entidades
+test: first register contract, then import to check if the extractor detects this

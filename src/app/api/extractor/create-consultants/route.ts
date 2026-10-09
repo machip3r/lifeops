@@ -5,7 +5,7 @@ import {
   assertPromotory,
   requireOfficeContext,
 } from "@/lib/auth/api";
-import { createConsultantWithAuth, ensureConsultantForImport } from "@/lib/db-admin";
+import { createConsultantWithAuth, ensureConsultantForImport, findConsultantEmailConflicts } from "@/lib/db-admin";
 import { IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
 import {
   consultantCodeSchema,
@@ -93,6 +93,20 @@ export async function POST(request: NextRequest) {
 
   try {
     if (parsed.data.mode === "manual") {
+      const conflicts = await findConsultantEmailConflicts(
+        officeId,
+        parsed.data.consultants.map((c) => ({
+          email: c.email,
+          consultantCode: c.consultantCode,
+        })),
+      );
+      if (conflicts.length > 0) {
+        return NextResponse.json(
+          { error: conflicts.slice(0, 4).join(" · ") },
+          { status: 400 },
+        );
+      }
+
       const created: string[] = [];
       for (const c of parsed.data.consultants) {
         await createConsultantWithAuth(officeId, c);
@@ -170,9 +184,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, results });
   } catch (e) {
     console.error("create-consultants:", e);
+    const raw = e instanceof Error ? e.message : "";
+    const safe =
+      raw.startsWith("La clave ") ||
+      raw.startsWith("El correo ") ||
+      raw.startsWith("No uses el correo") ||
+      raw.startsWith("No se pudo");
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "No se pudieron crear los asesores." },
-      { status: 500 },
+      { error: safe ? raw : "No se pudieron crear los asesores." },
+      { status: safe ? 400 : 500 },
     );
   }
 }

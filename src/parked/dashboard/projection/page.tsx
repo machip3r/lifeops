@@ -4,6 +4,7 @@ import { useState, useMemo, useRef } from 'react';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
+import { CURRENCY_OPTIONS, normalizeCurrency, type CurrencyCode } from '@/lib/contracts/currencies';
 
 interface FormData {
   prospectName: string;
@@ -12,7 +13,7 @@ interface FormData {
   insuredAmount: number; // Suma Asegurada
   basicPremium: number; // Prima Básica
   paymentTerm: number; // Plazo de Pagos (5, 10, 15, 20)
-  currency: 'UDIS' | 'Dollars';
+  currency: CurrencyCode;
   effectiveValueYear14: number;
   effectiveValueYear19: number;
   effectiveValueYear24: number;
@@ -56,7 +57,7 @@ function CotizacionPageContent() {
     insuredAmount: 145000,
     basicPremium: 4021,
     paymentTerm: 15,
-    currency: 'UDIS',
+    currency: 'UDI',
     effectiveValueYear14: 54107,
     effectiveValueYear19: 57100,
     effectiveValueYear24: 60127,
@@ -72,11 +73,11 @@ function CotizacionPageContent() {
 
     // If currency changes, set default inflation/devaluation values
     if (name === 'currency') {
-      const newCurrency = value as 'UDIS' | 'Dollars';
+      const newCurrency = (normalizeCurrency(value) || 'UDI') as CurrencyCode;
       setFormData(prev => ({
         ...prev,
         currency: newCurrency,
-        projectedDevaluation: newCurrency === 'UDIS' ? 4.0 : 3.0,
+        projectedDevaluation: newCurrency === 'UDI' ? 4.0 : newCurrency === 'DOLAR' ? 3.0 : 0,
       }));
       return;
     }
@@ -285,7 +286,7 @@ function CotizacionPageContent() {
           insuredAmount: extracted.insuredAmount ?? prev.insuredAmount,
           basicPremium: extracted.basicPremium ?? prev.basicPremium,
           paymentTerm: extracted.paymentTerm ?? prev.paymentTerm,
-          currency: extracted.currency ?? prev.currency,
+          currency: normalizeCurrency(extracted.currency) || prev.currency,
           effectiveValueYear14: extracted.effectiveValueYear14 ?? prev.effectiveValueYear14,
           effectiveValueYear19: extracted.effectiveValueYear19 ?? prev.effectiveValueYear19,
           effectiveValueYear24: extracted.effectiveValueYear24 ?? prev.effectiveValueYear24,
@@ -539,14 +540,21 @@ function CotizacionPageContent() {
                   onChange={handleInputChange}
                   className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="UDIS">UDIS</option>
-                  <option value="Dollars">Dólares</option>
+                  {CURRENCY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div>
                 <label htmlFor="current-udi-value" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  {formData.currency === 'UDIS' ? 'Valor Actual UDI' : 'Valor Actual Dólar'}
+                  {formData.currency === 'UDI'
+                    ? 'Valor actual UDI'
+                    : formData.currency === 'DOLAR'
+                      ? 'Valor actual dólar'
+                      : 'Valor'}
                 </label>
                 <input
                   id="current-udi-value"
@@ -562,7 +570,7 @@ function CotizacionPageContent() {
 
               <div>
                 <label htmlFor="projected-devaluation" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  {formData.currency === 'UDIS' ? 'Inflación Proyectada (%)' : 'Devaluación Proyectada (%)'}
+                  {formData.currency === 'DOLAR' ? 'Devaluación proyectada (%)' : 'Inflación proyectada (%)'}
                 </label>
                 <input
                   id="projected-devaluation"
@@ -696,7 +704,11 @@ function CotizacionPageContent() {
                       Aportación Anual
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
-                      {formData.currency === 'UDIS' ? 'Valor UDI*' : 'Tipo Cambio*'}
+                      {formData.currency === 'UDI'
+                        ? 'Valor UDI*'
+                        : formData.currency === 'DOLAR'
+                          ? 'Tipo de cambio*'
+                          : 'Valor*'}
                     </th>
                     <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase" colSpan={2}>
                       Protección Vitalicia
@@ -739,7 +751,7 @@ function CotizacionPageContent() {
                 </tbody>
               </table>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-                * {formData.currency === 'UDIS' ? 'Inflación' : 'Devaluación'} proyectada: {formData.projectedDevaluation}%
+                * {formData.currency === 'DOLAR' ? 'Devaluación' : 'Inflación'} proyectada: {formData.projectedDevaluation}%
               </p>
             </div>
 
@@ -781,7 +793,12 @@ function CotizacionPageContent() {
                     </div>
                     <div>
                       <span className="text-sm text-gray-600 dark:text-gray-400">
-                        {formData.currency === 'UDIS' ? 'Valor UDI' : 'Tipo Cambio'}:
+                        {formData.currency === 'UDI'
+                          ? 'Valor UDI'
+                          : formData.currency === 'DOLAR'
+                            ? 'Tipo de cambio'
+                            : 'Valor'}
+                        :
                       </span>
                       <span className="font-semibold text-gray-900 dark:text-white">
                         {summary.udiValue.toFixed(2)}
