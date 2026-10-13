@@ -8,18 +8,19 @@ import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { ManualContractDialog } from '@/components/contracts/manual-contract-dialog';
 import { Button } from '@/components/ui/button';
-import { SortableTh } from '@/components/sortable-th';
+import { DataTable, dataTablePanelClass } from '@/components/data-table';
 import { TablePagination } from '@/components/table-pagination';
 import { ListSearchFilters } from '@/components/list-search-filters';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { AtRiskBadge } from '@/components/collections/at-risk-badge';
 import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
+import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type ContractRow = Contract & { client_name?: string };
-type SortKey = 'client_name' | 'contract_number' | 'payment_method';
+type SortKey = 'client_name' | 'contract_number' | 'issue_date' | 'payment_method';
 
 const SORT_GETTERS: Record<
   SortKey,
@@ -27,14 +28,9 @@ const SORT_GETTERS: Record<
 > = {
   client_name: (r) => r.client_name,
   contract_number: (r) => r.contract_number,
+  issue_date: (r) => r.issue_date,
   payment_method: (r) => r.payment_method,
 };
-
-const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
-const ACTIONS_TH =
-  'px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-900 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
-const ACTIONS_TD =
-  'px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white dark:bg-gray-800 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
 
 function ContractsPageContent() {
   const router = useRouter();
@@ -136,7 +132,7 @@ function ContractsPageContent() {
         }}
       />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+      <div className={dataTablePanelClass}>
         <ListSearchFilters
           value={searchDraft}
           onChange={setSearchDraft}
@@ -157,84 +153,87 @@ function ContractsPageContent() {
             </Button>
           }
         />
-        {displayedContracts.length === 0 ? (
-          <div className="flex w-full items-center justify-center px-6 py-12 text-center text-gray-500 dark:text-gray-400">
-            <p>
-              {total === 0 && !search.trim()
-                ? 'Aún no hay pólizas. Registra una o impórtala desde el extractor.'
-                : 'No hay pólizas que coincidan con la búsqueda.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                  <SortableTh
-                    label="Número de póliza"
-                    active={sortKey === 'contract_number'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('contract_number')}
-                    className={TH}
-                  />
-                  <SortableTh
-                    label="Cliente"
-                    active={sortKey === 'client_name'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('client_name')}
-                    className={TH}
-                  />
-                  <SortableTh
-                    label="Forma de pago"
-                    active={sortKey === 'payment_method'}
-                    dir={sortDir}
-                    onSort={() => toggleSort('payment_method')}
-                    className={TH}
-                  />
-                  <th className={ACTIONS_TH}>Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {displayedContracts.map((contract) => (
-                  <tr
-                    key={contract.id}
-                    onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
-                    className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span>{contract.contract_number || '—'}</span>
-                        {atRiskById[contract.id] != null ? (
-                          <AtRiskBadge daysOverdue={atRiskById[contract.id]} />
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {contract.client_name || '—'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {contract.payment_method || '—'}
-                    </td>
-                    <td
-                      className={`${ACTIONS_TD} group-hover:bg-gray-50 dark:group-hover:bg-gray-700`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          router.push(`/dashboard/contracts/${contract.id}`)
-                        }
-                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
-                      >
-                        Ver
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <DataTable
+          rows={displayedContracts}
+          getRowKey={(contract) => contract.id}
+          onRowClick={(contract) => router.push(`/dashboard/contracts/${contract.id}`)}
+          empty={
+            total === 0 && !search.trim()
+              ? 'Aún no hay pólizas. Registra una o impórtala desde el extractor.'
+              : 'No hay pólizas que coincidan con la búsqueda.'
+          }
+          columns={[
+            {
+              id: 'contract_number',
+              header: 'Número de póliza',
+              tone: 'accent',
+              sort: {
+                label: 'Número de póliza',
+                active: sortKey === 'contract_number',
+                dir: sortDir,
+                onSort: () => toggleSort('contract_number'),
+              },
+              cell: (contract) => (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span>{contract.contract_number || '—'}</span>
+                  {atRiskById[contract.id] != null ? (
+                    <AtRiskBadge daysOverdue={atRiskById[contract.id]} />
+                  ) : null}
+                </div>
+              ),
+            },
+            {
+              id: 'issue_date',
+              header: 'Fecha de emisión',
+              tone: 'muted',
+              sort: {
+                label: 'Fecha de emisión',
+                active: sortKey === 'issue_date',
+                dir: sortDir,
+                onSort: () => toggleSort('issue_date'),
+              },
+              cell: (contract) => formatDateShortEsLocal(contract.issue_date),
+            },
+            {
+              id: 'client_name',
+              header: 'Cliente',
+              sort: {
+                label: 'Cliente',
+                active: sortKey === 'client_name',
+                dir: sortDir,
+                onSort: () => toggleSort('client_name'),
+              },
+              cell: (contract) => contract.client_name || '—',
+            },
+            {
+              id: 'payment_method',
+              header: 'Forma de pago',
+              tone: 'muted',
+              sort: {
+                label: 'Forma de pago',
+                active: sortKey === 'payment_method',
+                dir: sortDir,
+                onSort: () => toggleSort('payment_method'),
+              },
+              cell: (contract) => contract.payment_method || '—',
+            },
+            {
+              id: 'actions',
+              header: 'Acciones',
+              align: 'right',
+              sticky: true,
+              cell: (contract) => (
+                <button
+                  type="button"
+                  onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
+                  className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  Ver
+                </button>
+              ),
+            },
+          ]}
+        />
         <TablePagination
           page={page}
           pageSize={pageSize}

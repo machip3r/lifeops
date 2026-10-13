@@ -127,7 +127,7 @@ Invitation and similar one-time tokens.
 | `client_id` | Optional FK → `client` |
 | `contract_number` | Poliza number from HTML |
 | `source` | `import` \| `manual` \| `mixed` |
-| `issue_date` | Policy emission date when known |
+| `issue_date` | Policy emission date. Import writes the earliest `FECHA EMISION` from the file here and on `contract_detail` |
 | `currency`, `exchange_rate` | FX. App catalog for `currency` is `UDI`, `PESO`, `DOLAR`; null rate ≈ MXN |
 | `status` | Default `PENDING` (ACTIVE / INACTIVE / PENDING) — lifecycle, not cobranza |
 | `collection_status` | Cobranza estatus: `AMPARADO`, `CORRIENTE`, `FLEXIBLE`, `FLEXIBLE_REVISAR`, `MES`, `PERIODO_GRACIA`, `ATRASADO` (nullable) |

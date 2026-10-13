@@ -217,7 +217,7 @@ contract (1) ──< (many) file
    - Finds or creates client by name. Names are normalized (trim, uppercase, no accents, Ñ → N). If the name is at least 0.86 similar to an existing office client, that client is reused. The extractor lets you click the name and change it before import.
    - Finds consultant by `consultant_code` (asesor)
    - Checks if contract with same `contract_number` (poliza) exists
-   - Creates new contract if it doesn't exist
+   - Creates new contract if it doesn't exist, and stores the earliest `FECHA EMISION` on `contract.issue_date` (also fills it when a later import finds the póliza without that date)
 6. **Contract Details Creation**: For each row in a contract group:
    - Creates a `contract_detail` record (deduped when all mapped columns match)
    - Maps columns by header name to database fields
@@ -233,7 +233,8 @@ While an import is in progress (files loaded, dates, summary, or the save itself
 - `Poliza` → `contract.contract_number`
 - `Cliente` → `client.name`
 - `Moneda` / `Tipo Cambio` → `contract.currency` / `exchange_rate`
-- Detail headers (FECHA EMISION, FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, …) → `contract_detail`
+- `FECHA EMISION` → `contract.issue_date` (earliest date in the póliza) and each `contract_detail.issue_date`
+- Other detail headers (FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, …) → `contract_detail`
 
 ### 2. Authentication & Authorization
 

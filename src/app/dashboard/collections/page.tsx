@@ -5,7 +5,7 @@ import Link from 'next/link';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
-import { SortableTh } from '@/components/sortable-th';
+import { DataTable, dataTablePanelClass } from '@/components/data-table';
 import { TablePagination } from '@/components/table-pagination';
 import { Button } from '@/components/ui/button';
 import {
@@ -31,12 +31,6 @@ type SortKey =
   | 'nextDue'
   | 'payment_method'
   | 'premium_payment';
-
-const TH = 'px-4 py-3 text-(--lifeops-muted)';
-const ACTIONS_TH =
-  'px-4 py-3 text-right text-xs font-medium text-(--lifeops-muted) uppercase tracking-wider sticky right-0 bg-(--lifeops-hover) z-10';
-const ACTIONS_TD =
-  'px-4 py-3 whitespace-nowrap text-right sticky right-0 bg-(--lifeops-chrome) z-10';
 
 type ScheduleRow = {
   contract_id: string;
@@ -170,7 +164,7 @@ function CollectionsPageContent() {
         description="Próximos cobros según el último pago conocido. Registra el pago con evidencia para avanzar la fecha."
       />
 
-      <div className="overflow-hidden rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) shadow-lg">
+      <div className={dataTablePanelClass}>
         <ListSearchFilters
           value={searchDraft}
           onChange={setSearchDraft}
@@ -202,123 +196,129 @@ function CollectionsPageContent() {
           <div className="flex items-center justify-center px-6 py-12">
             <p className="text-(--lifeops-muted)">Cargando cobranza…</p>
           </div>
-        ) : total === 0 ? (
-          <div className="flex items-center justify-center px-6 py-12 text-center">
-            <p className="text-(--lifeops-muted)">
-              {search.trim()
-                ? 'No hay cobros que coincidan con la búsqueda.'
-                : 'No hay cobros pendientes en el periodo seleccionado.'}
-            </p>
-          </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-(--lifeops-border)">
-                <thead className="bg-(--lifeops-hover)">
-                  <tr>
-                    <SortableTh
-                      label="Póliza"
-                      active={sortKey === 'contract_number'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('contract_number')}
-                      className={TH}
-                    />
-                    <SortableTh
-                      label="Cliente"
-                      active={sortKey === 'client_name'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('client_name')}
-                      className={TH}
-                    />
-                    <SortableTh
-                      label="Fecha de cobro"
-                      active={sortKey === 'nextDue'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('nextDue')}
-                      className={TH}
-                    />
-                    <SortableTh
-                      label="Forma de pago"
-                      active={sortKey === 'payment_method'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('payment_method')}
-                      className={`${TH} hidden sm:table-cell`}
-                    />
-                    <SortableTh
-                      label="Monto"
-                      active={sortKey === 'premium_payment'}
-                      dir={sortDir}
-                      onSort={() => toggleSort('premium_payment')}
-                      className={`${TH} text-right`}
-                    />
-                    <th className={ACTIONS_TH}>Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-(--lifeops-border)">
-                  {pageRows.map((row) => (
-                    <tr
-                      key={row.contract_id}
-                      className="hover:bg-(--lifeops-hover)/70"
-                    >
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Link
-                            href={`/dashboard/contracts/${row.contract_id}`}
-                            className="text-sm font-medium text-(--lifeops-accent) hover:underline"
-                          >
-                            {row.contract_number || '—'}
-                          </Link>
-                          {(() => {
-                            const past = daysPastDue(row.nextDue);
-                            if (past == null || past <= 0) return null;
-                            if (past > POLICY_AT_RISK_DAYS) {
-                              return <AtRiskBadge daysOverdue={past} />;
-                            }
-                            return <OverdueBadge />;
-                          })()}
-                        </div>
-                      </td>
-                      <td className="max-w-[10rem] truncate px-4 py-3 text-sm text-(--lifeops-fg) sm:max-w-none sm:whitespace-nowrap">
-                        {row.client_name || '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-sm text-(--lifeops-fg)">
-                        {row.nextDue ? formatDateShortEsLocal(row.nextDue) : '—'}
-                      </td>
-                      <td className="hidden whitespace-nowrap px-4 py-3 text-sm text-(--lifeops-muted) sm:table-cell">
-                        {row.payment_method || '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-(--lifeops-fg)">
-                        {`$${Number(row.premium_payment).toLocaleString('es-MX', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}`}
-                      </td>
-                      <td className={ACTIONS_TD}>
-                        <Button
-                          type="button"
-                          variant="brand"
-                          size="sm"
-                          className="w-full sm:w-auto"
-                          onClick={() =>
-                            setPaymentTarget({
-                              contractId: row.contract_id,
-                              contractNumber: row.contract_number,
-                              clientName: row.client_name,
-                              nextDue: row.nextDue,
-                              suggestedAmount: row.premium_payment,
-                              collectionDay: row.collection_day,
-                            })
-                          }
+            <DataTable
+              rows={pageRows}
+              getRowKey={(row) => row.contract_id}
+              empty={
+                search.trim()
+                  ? 'No hay cobros que coincidan con la búsqueda.'
+                  : 'No hay cobros pendientes en el periodo seleccionado.'
+              }
+              columns={[
+                {
+                  id: 'contract_number',
+                  header: 'Póliza',
+                  sort: {
+                    label: 'Póliza',
+                    active: sortKey === 'contract_number',
+                    dir: sortDir,
+                    onSort: () => toggleSort('contract_number'),
+                  },
+                  cell: (row) => {
+                    const past = daysPastDue(row.nextDue);
+                    return (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/dashboard/contracts/${row.contract_id}`}
+                          className="font-medium text-(--lifeops-accent) hover:underline"
                         >
-                          <span className="sm:hidden">Pago</span>
-                          <span className="hidden sm:inline">Registrar pago</span>
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                          {row.contract_number || '—'}
+                        </Link>
+                        {past == null || past <= 0 ? null : past > POLICY_AT_RISK_DAYS ? (
+                          <AtRiskBadge daysOverdue={past} />
+                        ) : (
+                          <OverdueBadge />
+                        )}
+                      </div>
+                    );
+                  },
+                },
+                {
+                  id: 'client_name',
+                  header: 'Cliente',
+                  className: 'max-w-[10rem] truncate sm:max-w-none',
+                  sort: {
+                    label: 'Cliente',
+                    active: sortKey === 'client_name',
+                    dir: sortDir,
+                    onSort: () => toggleSort('client_name'),
+                  },
+                  cell: (row) => row.client_name || '—',
+                },
+                {
+                  id: 'nextDue',
+                  header: 'Fecha de cobro',
+                  sort: {
+                    label: 'Fecha de cobro',
+                    active: sortKey === 'nextDue',
+                    dir: sortDir,
+                    onSort: () => toggleSort('nextDue'),
+                  },
+                  cell: (row) => (row.nextDue ? formatDateShortEsLocal(row.nextDue) : '—'),
+                },
+                {
+                  id: 'payment_method',
+                  header: 'Forma de pago',
+                  tone: 'muted',
+                  className: 'hidden sm:table-cell',
+                  headerClassName: 'hidden sm:table-cell',
+                  sort: {
+                    label: 'Forma de pago',
+                    active: sortKey === 'payment_method',
+                    dir: sortDir,
+                    onSort: () => toggleSort('payment_method'),
+                  },
+                  cell: (row) => row.payment_method || '—',
+                },
+                {
+                  id: 'premium_payment',
+                  header: 'Monto',
+                  align: 'right',
+                  className: 'font-medium',
+                  headerClassName: 'text-right',
+                  sort: {
+                    label: 'Monto',
+                    active: sortKey === 'premium_payment',
+                    dir: sortDir,
+                    onSort: () => toggleSort('premium_payment'),
+                  },
+                  cell: (row) =>
+                    `$${Number(row.premium_payment).toLocaleString('es-MX', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`,
+                },
+                {
+                  id: 'actions',
+                  header: 'Acciones',
+                  align: 'right',
+                  sticky: true,
+                  cell: (row) => (
+                    <Button
+                      type="button"
+                      variant="brand"
+                      size="sm"
+                      className="w-full sm:w-auto"
+                      onClick={() =>
+                        setPaymentTarget({
+                          contractId: row.contract_id,
+                          contractNumber: row.contract_number,
+                          clientName: row.client_name,
+                          nextDue: row.nextDue,
+                          suggestedAmount: row.premium_payment,
+                          collectionDay: row.collection_day,
+                        })
+                      }
+                    >
+                      <span className="sm:hidden">Pago</span>
+                      <span className="hidden sm:inline">Registrar pago</span>
+                    </Button>
+                  ),
+                },
+              ]}
+            />
             <TablePagination
               page={page}
               pageSize={pageSize}

@@ -6,7 +6,7 @@ import { Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
-import { SortableTh } from '@/components/sortable-th';
+import { DataTable, dataTablePanelClass } from '@/components/data-table';
 import { TablePagination } from '@/components/table-pagination';
 import { ListSearchFilters } from '@/components/list-search-filters';
 import { InviteConsultantDialog } from '@/components/consultants/invite-consultant-dialog';
@@ -18,11 +18,6 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type SortKey = 'name' | 'email' | 'consultant_code' | 'created_at';
-const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
-const ACTIONS_TH =
-  'px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-900 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
-const ACTIONS_TD =
-  'px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white dark:bg-gray-800 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
 
 function ConsultantsPageContent() {
   const router = useRouter();
@@ -80,6 +75,12 @@ function ConsultantsPageContent() {
 
   useQueryEffect(Boolean(profile?.role === 'promotory' && profile.id), loadConsultants);
 
+  const toggleSort = (key: SortKey) => {
+    const next = nextSortState(sortKey, sortDir, key);
+    setSortKey(next.key);
+    setSortDir(next.dir);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -103,7 +104,7 @@ function ConsultantsPageContent() {
       )}
 
       {/* Consultants List */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+      <div className={dataTablePanelClass}>
         <ListSearchFilters
           value={searchDraft}
           onChange={setSearchDraft}
@@ -124,81 +125,84 @@ function ConsultantsPageContent() {
             </Button>
           }
         />
-        <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-900">
-            <tr>
-              <SortableTh label="Nombre" active={sortKey === 'name'} dir={sortDir} onSort={() => {
-                const next = nextSortState(sortKey, sortDir, 'name');
-                setSortKey(next.key); setSortDir(next.dir);
-              }} className={TH} />
-              <SortableTh label="Correo Electrónico" active={sortKey === 'email'} dir={sortDir} onSort={() => {
-                const next = nextSortState(sortKey, sortDir, 'email');
-                setSortKey(next.key); setSortDir(next.dir);
-              }} className={TH} />
-              <SortableTh label="Código" active={sortKey === 'consultant_code'} dir={sortDir} onSort={() => {
-                const next = nextSortState(sortKey, sortDir, 'consultant_code');
-                setSortKey(next.key); setSortDir(next.dir);
-              }} className={TH} />
-              <SortableTh label="Fecha de Invitación" active={sortKey === 'created_at'} dir={sortDir} onSort={() => {
-                const next = nextSortState(sortKey, sortDir, 'created_at');
-                setSortKey(next.key); setSortDir(next.dir);
-              }} className={TH} />
-              <th className={ACTIONS_TH}>
-                Acciones
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {(() => {
-              if (consultants.length === 0) {
-                return (
-                  <tr>
-                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                      {total === 0
-                        ? 'No hay asesores registrados. Invita uno para comenzar.'
-                        : 'No hay asesores que coincidan con la búsqueda.'}
-                    </td>
-                  </tr>
-                );
-              }
-
-              return consultants.map((consultant) => (
-                <tr
-                  key={consultant.id || `temp-${consultant.name}`}
+        <DataTable
+          rows={consultants}
+          getRowKey={(consultant) => consultant.id || `temp-${consultant.name}`}
+          onRowClick={(consultant) => router.push(`/dashboard/consultants/${consultant.id}`)}
+          empty={
+            total === 0
+              ? 'No hay asesores registrados. Invita uno para comenzar.'
+              : 'No hay asesores que coincidan con la búsqueda.'
+          }
+          columns={[
+            {
+              id: 'consultant_code',
+              header: 'Código',
+              tone: 'accent',
+              sort: {
+                label: 'Código',
+                active: sortKey === 'consultant_code',
+                dir: sortDir,
+                onSort: () => toggleSort('consultant_code'),
+              },
+              cell: (consultant) =>
+                consultant.consultant_code || (
+                  <span className="font-normal italic text-gray-400">No establecido</span>
+                ),
+            },
+            {
+              id: 'name',
+              header: 'Nombre',
+              sort: {
+                label: 'Nombre',
+                active: sortKey === 'name',
+                dir: sortDir,
+                onSort: () => toggleSort('name'),
+              },
+              cell: (consultant) => consultant.name,
+            },
+            {
+              id: 'email',
+              header: 'Correo Electrónico',
+              tone: 'muted',
+              sort: {
+                label: 'Correo Electrónico',
+                active: sortKey === 'email',
+                dir: sortDir,
+                onSort: () => toggleSort('email'),
+              },
+              cell: (consultant) =>
+                consultant.email || <span className="italic text-gray-400">No establecido</span>,
+            },
+            {
+              id: 'created_at',
+              header: 'Fecha de Invitación',
+              tone: 'muted',
+              sort: {
+                label: 'Fecha de Invitación',
+                active: sortKey === 'created_at',
+                dir: sortDir,
+                onSort: () => toggleSort('created_at'),
+              },
+              cell: (consultant) => formatDateShortEsLocal(consultant.created_at),
+            },
+            {
+              id: 'actions',
+              header: 'Acciones',
+              align: 'right',
+              sticky: true,
+              cell: (consultant) => (
+                <button
+                  type="button"
                   onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
-                  className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group"
+                  className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
                 >
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                    {consultant.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {consultant.email || <span className="text-gray-400 italic">No establecido</span>}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {consultant.consultant_code || <span className="text-gray-400 italic">No establecido</span>}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {formatDateShortEsLocal(consultant.created_at)}
-                  </td>
-                  <td
-                    className={`${ACTIONS_TD} group-hover:bg-gray-50 dark:group-hover:bg-gray-700`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
-                      className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
-                    >
-                      Ver
-                    </button>
-                  </td>
-                </tr>
-              ));
-            })()}
-          </tbody>
-        </table>
-        </div>
+                  Ver
+                </button>
+              ),
+            },
+          ]}
+        />
         <TablePagination
           page={page}
           pageSize={pageSize}

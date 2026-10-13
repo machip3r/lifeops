@@ -81,6 +81,37 @@ export interface Token {
     };
 }
 
+/** Imports stored FECHA EMISION on contract_detail only. Fill the póliza row for display. */
+async function fillMissingContractIssueDates(
+    rows: Array<{ id: string; issue_date?: string | null }>,
+): Promise<void> {
+    const missingIds = rows.filter((row) => !row.issue_date).map((row) => row.id);
+    if (missingIds.length === 0) return;
+
+    const { data, error } = await supabase
+        .from('contract_detail')
+        .select('contract_id, issue_date')
+        .in('contract_id', missingIds)
+        .not('issue_date', 'is', null);
+    if (error) throw error;
+
+    const earliest = new Map<string, string>();
+    for (const detail of data || []) {
+        const contractId = detail.contract_id as string;
+        const issueDate = detail.issue_date as string | null;
+        if (!issueDate) continue;
+        const current = earliest.get(contractId);
+        if (!current || issueDate < current) earliest.set(contractId, issueDate);
+    }
+
+    for (const row of rows) {
+        if (!row.issue_date) {
+            const fromDetail = earliest.get(row.id);
+            if (fromDetail) row.issue_date = fromDetail;
+        }
+    }
+}
+
 // Database functions organized by table
 export const db = {
     // Office functions
@@ -555,6 +586,7 @@ export const db = {
                 'currency',
                 'payment_channel',
                 'capture_date',
+                'issue_date',
                 'status',
                 'created_at',
             ];
@@ -615,6 +647,8 @@ export const db = {
                     client_name: client?.name || null,
                 } as Contract & { client_name?: string };
             });
+
+            await fillMissingContractIssueDates(rows);
 
             return { rows, total: count ?? 0, page, pageSize };
         },
@@ -1138,6 +1172,29 @@ export const db = {
                         continue;
                     }
 
+                    const parseDate = (dateStr: string | null): string | null => {
+                        if (!dateStr || !dateStr.trim()) return null;
+                        const trimmed = dateStr.trim();
+                        const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+                        if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+                        const parts = trimmed.split('/');
+                        if (parts.length === 3) {
+                            const day = parts[0].padStart(2, '0');
+                            const month = parts[1].padStart(2, '0');
+                            const year = parts[2];
+                            return `${year}-${month}-${day}`;
+                        }
+                        return null;
+                    };
+
+                    let groupIssueDate: string | null = null;
+                    for (const rowInfo of group.rows) {
+                        const iso = parseDate(getCell(rowInfo.row, issueDateIndex));
+                        if (iso && (!groupIssueDate || iso < groupIssueDate)) {
+                            groupIssueDate = iso;
+                        }
+                    }
+
                     // Check if contract already exists (from pre-fetched map)
                     let contract: Contract;
                     let isNewContract = false;
@@ -1147,8 +1204,13 @@ export const db = {
                             // Contract exists, use it
                             warnings.push({ row: group.rows[0]?.rowIndex || 0, message: `Poliza con número "${group.contractNumber}" ya existe. Se omitirá la creación de la póliza, se agregarán solo los detalles.` });
                             contract = existing;
-                            if (existing.source === 'manual') {
-                                contract = await db.contract.updateContract(existing.id, { source: 'mixed' });
+                            const contractUpdates: Partial<Contract> = {};
+                            if (existing.source === 'manual') contractUpdates.source = 'mixed';
+                            if (!existing.issue_date && groupIssueDate) {
+                                contractUpdates.issue_date = groupIssueDate;
+                            }
+                            if (Object.keys(contractUpdates).length > 0) {
+                                contract = await db.contract.updateContract(existing.id, contractUpdates);
                                 existingContractsMap.set(group.contractNumber, contract);
                             }
                         } else {
@@ -1180,6 +1242,7 @@ export const db = {
                                 status: 'ACTIVE',
                                 source: 'import',
                                 office_id: officeId,
+                                issue_date: groupIssueDate,
                                 collection_day: Number.isFinite(priorDay) ? priorDay : null,
                             });
                             isNewContract = true;
@@ -1209,6 +1272,7 @@ export const db = {
                             status: 'ACTIVE',
                             source: 'import',
                             office_id: officeId,
+                            issue_date: groupIssueDate,
                             collection_day: Number.isFinite(priorDay) ? priorDay : null,
                         });
                         isNewContract = true;
@@ -1221,22 +1285,6 @@ export const db = {
                         if (index >= detailData.length) return null;
                         const value = detailData[index]?.trim();
                         return value || null;
-                    };
-
-                    // Parse dates helper - DD/MM/YYYY or YYYY-MM-DD → YYYY-MM-DD
-                    const parseDate = (dateStr: string | null): string | null => {
-                        if (!dateStr || !dateStr.trim()) return null;
-                        const trimmed = dateStr.trim();
-                        const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
-                        if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-                        const parts = trimmed.split('/');
-                        if (parts.length === 3) {
-                            const day = parts[0].padStart(2, '0');
-                            const month = parts[1].padStart(2, '0');
-                            const year = parts[2];
-                            return `${year}-${month}-${day}`;
-                        }
-                        return null;
                     };
 
                     // Parse numeric helper - removes commas and converts to number

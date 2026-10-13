@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { Contract, ContractDetail, Client, Consultant } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import ProtectedRoute from '@/components/protected-route';
+import { DataTable, dataTablePanelClass } from '@/components/data-table';
 import { TablePagination } from '@/components/table-pagination';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { useAuth } from '@/contexts/auth-context';
@@ -86,6 +87,11 @@ function ContractDetailsPageContent() {
         if (!dateString) return 'N/A';
         return formatDateShortEsLocal(dateString);
     };
+
+    const formatMoney = (value: number | null | undefined) =>
+        value != null
+            ? `$${value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : 'N/A';
 
     // Determine contract type: "inicial" or "renovacion" based on last contract_detail's seniority
     // The last detail is the one with the most recent payment_date
@@ -246,80 +252,34 @@ function ContractDetailsPageContent() {
 
             {/* Contract Details Table */}
             {detailsTotal > 0 || contractDetails.length > 0 ? (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+                <div className={dataTablePanelClass}>
                     <div className="p-6">
                         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Detalles de la póliza ({detailsTotal} filas)</h2>
                     </div>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-700">
-                                <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">FECHA EMISION</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">FECHA PAGO</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">PRIMA PAGO</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">FORMA DE PAGO</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">COMISION/HONORARIOS</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">% COMISION</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">PRIMA COBRO</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">ANTIGÜEDAD</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">PRIMA META</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">MOVIMIENTO</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">PRIMA COMISION</th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                {contractDetails.map((detail) => (
-                                    <tr key={detail.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {formatDate(detail.issue_date)}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {formatDate(detail.payment_date)}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.premium_payment != null
-                                                ? `$${detail.premium_payment.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                                : 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.payment_method || 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.commission_honoraries != null
-                                                ? `$${detail.commission_honoraries.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                                : 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.commission_percentage != null
-                                                ? `${detail.commission_percentage.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
-                                                : 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.collection_premium != null
-                                                ? `$${detail.collection_premium.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                                : 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.seniority || 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.target_premium != null
-                                                ? `$${detail.target_premium.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                                : 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.movement || 'N/A'}
-                                        </td>
-                                        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600 dark:text-gray-400">
-                                            {detail.commission_premium != null
-                                                ? `$${detail.commission_premium.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                                                : 'N/A'}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    <DataTable
+                        rows={contractDetails}
+                        getRowKey={(detail) => detail.id}
+                        columns={[
+                            { id: 'issue_date', header: 'Fecha emisión', cell: (detail) => formatDate(detail.issue_date) },
+                            { id: 'payment_date', header: 'Fecha pago', cell: (detail) => formatDate(detail.payment_date) },
+                            { id: 'premium_payment', header: 'Prima pago', cell: (detail) => formatMoney(detail.premium_payment) },
+                            { id: 'payment_method', header: 'Forma de pago', cell: (detail) => detail.payment_method || 'N/A' },
+                            { id: 'commission_honoraries', header: 'Comisión / honorarios', cell: (detail) => formatMoney(detail.commission_honoraries) },
+                            {
+                                id: 'commission_percentage',
+                                header: '% comisión',
+                                cell: (detail) =>
+                                    detail.commission_percentage != null
+                                        ? `${detail.commission_percentage.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+                                        : 'N/A',
+                            },
+                            { id: 'collection_premium', header: 'Prima cobro', cell: (detail) => formatMoney(detail.collection_premium) },
+                            { id: 'seniority', header: 'Antigüedad', cell: (detail) => detail.seniority || 'N/A' },
+                            { id: 'target_premium', header: 'Prima meta', cell: (detail) => formatMoney(detail.target_premium) },
+                            { id: 'movement', header: 'Movimiento', cell: (detail) => detail.movement || 'N/A' },
+                            { id: 'commission_premium', header: 'Prima comisión', cell: (detail) => formatMoney(detail.commission_premium) },
+                        ]}
+                    />
                     <TablePagination
                         page={page}
                         pageSize={pageSize}

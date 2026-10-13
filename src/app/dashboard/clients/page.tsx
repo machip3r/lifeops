@@ -7,7 +7,7 @@ import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
 import { useToast } from '@/components/toast';
-import { SortableTh } from '@/components/sortable-th';
+import { DataTable, dataTablePanelClass } from '@/components/data-table';
 import { TablePagination } from '@/components/table-pagination';
 import { ListSearchFilters } from '@/components/list-search-filters';
 import { ClientFormDialog } from '@/components/clients/client-form-dialog';
@@ -19,12 +19,7 @@ import { PageHeader } from '@/components/dashboard/page-header';
 import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
 
 type ClientRow = Client & { contract_count?: number };
-type SortKey = 'name' | 'birth_date' | 'age' | 'contracts' | 'created_at';
-const TH = 'px-6 py-3 text-gray-500 dark:text-gray-400';
-const ACTIONS_TH =
-  'px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider sticky right-0 bg-gray-50 dark:bg-gray-900 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
-const ACTIONS_TD =
-  'px-6 py-4 whitespace-nowrap text-right text-sm font-medium sticky right-0 bg-white dark:bg-gray-800 z-10 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.35)]';
+type SortKey = 'name' | 'curp_rfc' | 'birth_date' | 'age' | 'contracts' | 'created_at';
 
 function ClientsPageContent() {
   const router = useRouter();
@@ -48,7 +43,7 @@ function ClientsPageContent() {
     try {
       if (!profile?.id) return;
       const dbSort =
-        sortKey && sortKey !== 'age' && sortKey !== 'contracts'
+        sortKey && sortKey !== 'age' && sortKey !== 'contracts' && sortKey !== 'curp_rfc'
           ? { column: sortKey, ascending: sortDir === 'asc' }
           : undefined;
 
@@ -164,6 +159,7 @@ function ClientsPageContent() {
         sortDir,
         {
           name: (c) => c.name,
+          curp_rfc: (c) => c.curp || c.rfc,
           birth_date: (c) => c.birth_date,
           age: (c) => calculateAge(c.birth_date),
           contracts: (c) => getContractCount(c),
@@ -211,7 +207,7 @@ function ClientsPageContent() {
         onSubmit={handleSubmit}
       />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden">
+      <div className={dataTablePanelClass}>
         <ListSearchFilters
           value={draftSearch}
           onChange={setDraftSearch}
@@ -227,114 +223,118 @@ function ClientsPageContent() {
             </Button>
           }
         />
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead className="bg-gray-50 dark:bg-gray-900">
-              <tr>
-                <SortableTh
-                  label="Nombre"
-                  active={sortKey === 'name'}
-                  dir={sortDir}
-                  onSort={() => toggleSort('name')}
-                  className={TH}
-                />
-                <th className={TH}>CURP / RFC</th>
-                <SortableTh
-                  label="Fecha de Nacimiento"
-                  active={sortKey === 'birth_date'}
-                  dir={sortDir}
-                  onSort={() => toggleSort('birth_date')}
-                  className={TH}
-                />
-                <SortableTh
-                  label="Edad"
-                  active={sortKey === 'age'}
-                  dir={sortDir}
-                  onSort={() => toggleSort('age')}
-                  className={TH}
-                />
-                <SortableTh
-                  label="Pólizas"
-                  active={sortKey === 'contracts'}
-                  dir={sortDir}
-                  onSort={() => toggleSort('contracts')}
-                  className={TH}
-                />
-                <SortableTh
-                  label="Fecha de registro"
-                  active={sortKey === 'created_at'}
-                  dir={sortDir}
-                  onSort={() => toggleSort('created_at')}
-                  className={TH}
-                />
-                <th className={ACTIONS_TH}>Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              {sortedClients.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500 dark:text-gray-400">
-                    {total === 0 && !appliedSearch.trim()
-                      ? 'Aún no hay clientes registrados.'
-                      : 'No hay clientes que coincidan con la búsqueda.'}
-                  </td>
-                </tr>
-              ) : (
-                sortedClients.map((client) => {
-                  const age = calculateAge(client.birth_date);
-                  const identity = client.curp || client.rfc || '—';
-                  return (
-                    <tr
-                      key={client.id}
-                      onClick={() => router.push(`/dashboard/clients/${client.id}`)}
-                      className="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                        {client.name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono text-xs">
-                        {identity}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {formatDateShortEsLocal(client.birth_date)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {age !== null ? `${age} años` : 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {getContractCount(client)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {formatDateShortEsLocal(client.created_at)}
-                      </td>
-                      <td
-                        className={`${ACTIONS_TD} group-hover:bg-gray-50 dark:group-hover:bg-gray-700`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex justify-end items-center gap-3 flex-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => handleEdit(client)}
-                            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDelete(client.id)}
-                            className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
-                          >
-                            Eliminar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          rows={sortedClients}
+          getRowKey={(client) => client.id}
+          onRowClick={(client) => router.push(`/dashboard/clients/${client.id}`)}
+          empty={
+            total === 0 && !appliedSearch.trim()
+              ? 'Aún no hay clientes registrados.'
+              : 'No hay clientes que coincidan con la búsqueda.'
+          }
+          columns={[
+            {
+              id: 'name',
+              header: 'Nombre',
+              tone: 'accent',
+              sort: {
+                label: 'Nombre',
+                active: sortKey === 'name',
+                dir: sortDir,
+                onSort: () => toggleSort('name'),
+              },
+              cell: (client) => client.name,
+            },
+            {
+              id: 'curp_rfc',
+              header: 'CURP / RFC',
+              tone: 'muted',
+              className: 'font-mono text-xs',
+              sort: {
+                label: 'CURP / RFC',
+                active: sortKey === 'curp_rfc',
+                dir: sortDir,
+                onSort: () => toggleSort('curp_rfc'),
+              },
+              cell: (client) => client.curp || client.rfc || '—',
+            },
+            {
+              id: 'birth_date',
+              header: 'Fecha de Nacimiento',
+              tone: 'muted',
+              sort: {
+                label: 'Fecha de Nacimiento',
+                active: sortKey === 'birth_date',
+                dir: sortDir,
+                onSort: () => toggleSort('birth_date'),
+              },
+              cell: (client) => formatDateShortEsLocal(client.birth_date),
+            },
+            {
+              id: 'age',
+              header: 'Edad',
+              tone: 'muted',
+              sort: {
+                label: 'Edad',
+                active: sortKey === 'age',
+                dir: sortDir,
+                onSort: () => toggleSort('age'),
+              },
+              cell: (client) => {
+                const age = calculateAge(client.birth_date);
+                return age !== null ? `${age} años` : 'N/A';
+              },
+            },
+            {
+              id: 'contracts',
+              header: 'Pólizas',
+              tone: 'muted',
+              sort: {
+                label: 'Pólizas',
+                active: sortKey === 'contracts',
+                dir: sortDir,
+                onSort: () => toggleSort('contracts'),
+              },
+              cell: (client) => getContractCount(client),
+            },
+            {
+              id: 'created_at',
+              header: 'Fecha de registro',
+              tone: 'muted',
+              sort: {
+                label: 'Fecha de registro',
+                active: sortKey === 'created_at',
+                dir: sortDir,
+                onSort: () => toggleSort('created_at'),
+              },
+              cell: (client) => formatDateShortEsLocal(client.created_at),
+            },
+            {
+              id: 'actions',
+              header: 'Acciones',
+              align: 'right',
+              sticky: true,
+              cell: (client) => (
+                <div className="flex flex-nowrap items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => handleEdit(client)}
+                    className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDelete(client.id)}
+                    className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ),
+            },
+          ]}
+        />
         <TablePagination
           page={page}
           pageSize={pageSize}
