@@ -10,6 +10,7 @@ import {
   POLICY_AT_RISK_DAYS,
 } from '@/lib/collections/constants';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
+import { CollectionOverview } from '@/components/dashboard/overview/collection-overview';
 import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
 
 /** Asesor home: at-risk + pending payments + shortcuts. */
@@ -72,8 +73,12 @@ export function ConsultantHome() {
       <PageHeader
         title="Vista general"
         watermark="Vista general"
-        description="Revisa pólizas en peligro y pagos pendientes de registrar."
+        description="Tu cartera y cobranza de un vistazo."
       />
+
+      {profile?.role === 'consultant' ? (
+        <CollectionOverview scope={{ consultantId: profile.id }} />
+      ) : null}
 
       {error && (
         <p className="text-center text-red-400" role="alert">

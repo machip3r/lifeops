@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { writeAuditLog } from "@/lib/audit/write";
-import { upsertCollectionPayment } from "@/lib/collections/service";
+import { writeAuditLog } from "@/lib/db/audit-log";
+import { upsertCollectionPayment } from "@/lib/db/collections-service";
 import type { Contract } from "@/lib/supabase";
 
 export type ManualContractInput = {

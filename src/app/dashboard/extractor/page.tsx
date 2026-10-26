@@ -18,6 +18,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
 import { authFetch } from '@/lib/api-client';
 import { db } from '@/lib/db';
+import { runCommissionImport } from '@/lib/extractor/import/client';
 import {
   chunkArray,
   IMPORT_BATCH_SIZE,
@@ -28,6 +29,10 @@ import {
 } from '@/lib/extractor/import-progress';
 import { DateInput } from '@/components/ui/date-input';
 import { currencyToStore } from '@/lib/contracts/currencies';
+import {
+  normalizeReceiptNumber,
+  RECEIPT_HEADER,
+} from '@/lib/extractor/receipt';
 import { EditableClientName } from '@/components/extractor/editable-client-name';
 import { bestClientNameMatch, normalizeClientName } from '@/lib/clients/name-match';
 import { PageHeader } from '@/components/dashboard/page-header';
@@ -536,7 +541,10 @@ function ExtractorPageContent() {
       'ANTIGÜEDAD',
       'PRIMA PAGO 2',
       'PRIMA META',
+      'RECIBO',
     ];
+
+    const receiptIndex = mainHeaders.findIndex((h) => normalizeHeaderKey(h) === RECEIPT_HEADER);
 
     const combinedRows: string[][] = [];
     allSections.forEach((section) => {
@@ -623,6 +631,7 @@ function ExtractorPageContent() {
           seniority,
           premiumPayment2,
           targetPremium,
+          receiptIndex >= 0 ? (row[receiptIndex] ?? '').trim() : '',
         ]);
       });
     });
@@ -918,6 +927,7 @@ function ExtractorPageContent() {
       ['PRIMA PAGO', 'PRIMA PAGO 1'],
       14,
     );
+    const receiptNumberIndex = indexFromHeaders(map, [RECEIPT_HEADER], -1);
 
     const parseDate = (dateStr: string | null): string | null => {
       if (!dateStr || !dateStr.trim()) return null;
@@ -951,6 +961,7 @@ function ExtractorPageContent() {
 
     const details: Array<{
       contractNumber: string;
+      receiptNumber: string | null;
       paymentDate: string | null;
       premiumPayment: number | null;
       row: number;
@@ -966,6 +977,7 @@ function ExtractorPageContent() {
       const premium = parseNumeric(row[premiumPaymentIndex]?.trim() || null);
       details.push({
         contractNumber,
+        receiptNumber: normalizeReceiptNumber(row[receiptNumberIndex]),
         paymentDate: parseDate(row[paymentDateIndex]?.trim() || null),
         premiumPayment:
           premium != null && Number.isFinite(premium) ? premium : null,
@@ -1594,35 +1606,17 @@ function ExtractorPageContent() {
     });
 
     try {
-      let result;
-      const onProgress = (progress: ImportProgress) => {
-        setImportProgress(progress);
-      };
-      const importMeta = {
-        fileIssueDate: meta.fileIssueDate.trim(),
-        priorPaymentByContract: meta.priorPaymentByContract,
-        fileName: fileName || uploadedFiles[0]?.name || null,
-        requirePriorForNew: true,
-      };
-      if (profile?.role === 'consultant') {
-        result = await db.contract.importContractsFromTable(
-          table.rows,
-          officeId,
-          profile.id,
-          table.headers,
-          onProgress,
-          importMeta,
-        );
-      } else {
-        result = await db.contract.importContractsFromTable(
-          table.rows,
-          officeId,
-          undefined,
-          table.headers,
-          onProgress,
-          importMeta,
-        );
-      }
+      const result = await runCommissionImport({
+        rows: table.rows,
+        headers: table.headers,
+        importMeta: {
+          fileIssueDate: meta.fileIssueDate.trim(),
+          priorPaymentByContract: meta.priorPaymentByContract,
+          fileName: fileName || uploadedFiles[0]?.name || null,
+          requirePriorForNew: true,
+        },
+        onProgress: setImportProgress,
+      });
       setImportResult(result);
     } catch (error: unknown) {
       console.error('Import error:', error);
@@ -2706,22 +2700,22 @@ function ExtractorPageContent() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-                ⚠️ Duplicados Encontrados
+                Recibos ya registrados
               </h2>
               <p className="text-gray-600 dark:text-gray-400 mb-6">
-                Los siguientes números de ticket ya existen en la base de datos. Los registros duplicados se omitirán durante la importación.
+                Estos recibos ya están guardados. Al importar se actualizarán con los datos del archivo, sin crear copias.
               </p>
 
               {duplicates.details.length > 0 && (
                 <div className="mb-6">
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">
-                    Números de Ticket Duplicados ({duplicates.details.length})
+                    Recibos que se actualizarán ({duplicates.details.length})
                   </h3>
                   <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 max-h-40 overflow-y-auto">
                     <ul className="list-disc list-inside space-y-1 text-sm text-yellow-800 dark:text-yellow-200">
                       {duplicates.details.map((detail, idx) => (
                         <li key={`dup-${idx}-${detail.row}-${detail.ticket}`}>
-                          Fila {detail.row}: Contrato &quot;{detail.contract}&quot; - Ticket &quot;{detail.ticket}&quot;
+                          Fila {detail.row}: póliza &quot;{detail.contract}&quot;, recibo &quot;{detail.ticket}&quot;
                         </li>
                       ))}
                     </ul>

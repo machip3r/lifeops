@@ -17,9 +17,34 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export interface Office {
     id: string;
     email: string;
-    name: string;
+    /** Null until onboarding step 1 (signup only asks correo + contraseña). */
+    name: string | null;
+    agency_code?: string | null;
+    state_code?: string | null;
+    consultant_count_range?: string | null;
+    active_policy_range?: string | null;
+    primary_goal?: string | null;
+    /** Last onboarding step saved (0–3). */
+    onboarding_step?: number;
+    onboarding_version?: number | null;
+    /** Null = must finish onboarding before using the dashboard. */
+    onboarding_completed_at?: string | null;
     created_at?: string;
     updated_at?: string;
+}
+
+export interface OfficeContact {
+    office_id: string;
+    kind: 'REGISTRANT' | 'OWNER';
+    full_name: string;
+    job_role: string | null;
+    phone: string;
+}
+
+/** Catalog row (aseguradora, ramo or estado). */
+export interface CatalogOption {
+    code: string;
+    name: string;
 }
 
 export interface Consultant {
@@ -167,19 +192,41 @@ export type AuditSource = 'ui' | 'import' | 'api' | 'system';
 /** Stored in audit_log; UI copy uses "promotoría" / "promotora", never this slug. */
 export type AuditActorRole = 'office' | 'consultant' | 'system';
 
-/** Append-only office activity (replaces collection_audit_log + contract_reassignment_log). */
-export interface AuditLog {
-    id: string;
-    office_id: string;
-    actor_user_id?: string | null;
-    actor_role?: AuditActorRole | null;
-    action: string;
-    entity_type: string;
-    entity_id?: string | null;
-    source: AuditSource;
-    old_values?: Record<string, unknown> | null;
-    new_values?: Record<string, unknown> | null;
-    created_at?: string;
+/** Cartera status by next due (same rule as Cobranza). */
+export type CarteraStatusCounts = {
+    current: number;
+    due_soon: number;
+    overdue: number;
+    at_risk: number;
+    /** No known payment: next due can't be computed */
+    no_payment: number;
+};
+
+/** `get_collection_overview` (Vista general). Counts only — amounts aren't reliable yet. */
+export interface CollectionOverview {
+    today: string;
+    risk_days: number;
+    due_soon_days: number;
+    active_contracts: number;
+    status: CarteraStatusCounts;
+    due_today: number;
+    due_next_7_days: number;
+    missing_payment_method: number;
+    aging: {
+        d1_10: number;
+        d11_20: number;
+        d21_30: number;
+        d31_60: number;
+        d61_90: number;
+        d90_plus: number;
+    };
+    payments_month_to_date: number;
+    payments_prev_month_to_date: number;
+    monthly_payments: Array<{ year: number; month: number; count: number }>;
+    by_consultant: Array<CarteraStatusCounts & { consultant_id: string; name: string; total: number }>;
+    /** Office view only (null for an asesor) */
+    consultants_not_invited: number | null;
+    consultants_pending_invite: number | null;
 }
 
 export interface ContractChangeRequest {
@@ -200,6 +247,7 @@ export interface ContractDetail {
     id: string;
     contract_id: string;
     commission_import_id?: string | null;
+    receipt_number?: string | null; // RECIBO — unique per contract when set
     issue_date?: string | null; // FECHA EMISION
     payment_date?: string | null; // FECHA PAGO
     premium_payment?: number | null; // PRIMA PAGO

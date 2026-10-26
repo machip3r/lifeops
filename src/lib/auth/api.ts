@@ -7,6 +7,8 @@ import {
 
 export type OfficeContext = {
   user: { id: string; email?: string };
+  /** Caller JWT — build an RLS-scoped client with `createUserClient` when RLS is enough. */
+  accessToken: string;
   role: "promotory" | "consultant";
   officeId: string;
   consultantId?: string;
@@ -19,12 +21,26 @@ function getBearerToken(request: NextRequest): string | null {
   return match?.[1]?.trim() || null;
 }
 
+type OfficeContextResult =
+  | { ok: true; ctx: OfficeContext }
+  | { ok: false; status: number; error: string };
+
 /** Validate JWT from Authorization: Bearer … then load office tenancy. */
 export async function requireOfficeContext(
   request: NextRequest,
-): Promise<{ ok: true; ctx: OfficeContext } | { ok: false; status: number; error: string }> {
+): Promise<OfficeContextResult> {
   const token = getBearerToken(request);
   if (!token) {
+    return { ok: false, status: 401, error: "No autenticado." };
+  }
+  return resolveOfficeContext(token);
+}
+
+/** Same as `requireOfficeContext` for Server Actions, which receive the access token as an argument. */
+export async function resolveOfficeContext(
+  token: string | null | undefined,
+): Promise<OfficeContextResult> {
+  if (!token || typeof token !== "string" || token.length < 20) {
     return { ok: false, status: 401, error: "No autenticado." };
   }
 
@@ -43,6 +59,7 @@ export async function requireOfficeContext(
       ok: true,
       ctx: {
         user: { id: user.id, email: user.email },
+        accessToken: token,
         role: "promotory",
         officeId: office.id,
       },
@@ -55,6 +72,7 @@ export async function requireOfficeContext(
       ok: true,
       ctx: {
         user: { id: user.id, email: user.email },
+        accessToken: token,
         role: "consultant",
         officeId: consultant.office_id,
         consultantId: consultant.id,

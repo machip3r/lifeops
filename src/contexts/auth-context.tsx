@@ -27,6 +27,8 @@ interface UserProfile {
     name: string;
     consultant_code?: string;
     office_id?: string; // For consultants
+    /** Promotoría only: false until the onboarding stepper is finished. */
+    onboarding_completed?: boolean;
 }
 
 interface SignUpResult {
@@ -46,7 +48,8 @@ interface AuthContextType {
     /** Load the office or consultant row again. Sends the user to login when the session is gone. */
     reloadProfile: () => Promise<void>;
     signIn: (email: string, password: string) => Promise<void>;
-    signUp: (email: string, password: string, role: UserRole, name?: string, consultantCode?: string) => Promise<SignUpResult>;
+    /** Promotoría signup (correo + contraseña); onboarding collects the rest. */
+    signUp: (email: string, password: string) => Promise<SignUpResult>;
     verifyEmailCode: (email: string, token: string) => Promise<void>;
     resendVerificationEmail: (email: string) => Promise<void>;
     signOut: () => Promise<void>;
@@ -139,20 +142,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!authUser.email) {
             throw new Error('No se pudo crear la oficina: falta el correo.');
         }
+        // Older signups sent the name in metadata; new ones fill it in onboarding.
         const metaName = authUser.user_metadata?.office_name;
         const officeName =
-            typeof metaName === 'string' && metaName.trim().length > 0
-                ? metaName.trim()
-                : authUser.email;
+            typeof metaName === 'string' && metaName.trim().length > 0 ? metaName.trim() : null;
         await db.office.createOffice(authUser.id, authUser.email, officeName);
     }, []);
 
     const fetchUserProfile = useCallback(async (userId: string, authUser?: User | null): Promise<UserProfile | null> => {
         // Load both office and consultant in parallel for faster response
-        let [officeData, consultantData] = await Promise.all([
+        const [initialOffice, consultantData] = await Promise.all([
             db.office.getOfficeById(userId),
             db.consultant.getConsultantById(userId),
         ]);
+        let officeData = initialOffice;
 
         // Invited asesores win over a phantom office row (same auth.uid() as office.id).
         // profile.id must be consultant.id (PK used by contract.consultant_id).
@@ -175,10 +178,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const meta = authUser.user_metadata ?? {};
             const metaRole =
                 typeof meta.role === 'string' ? meta.role.toLowerCase() : '';
+            const intendedRole =
+                typeof meta.intended_role === 'string' ? meta.intended_role.toLowerCase() : '';
             const hasOfficeName =
                 typeof meta.office_name === 'string' &&
                 meta.office_name.trim().length > 0;
             const looksLikePromotory =
+                intendedRole === 'promotory' ||
                 metaRole === 'promotory' ||
                 metaRole === 'office' ||
                 hasOfficeName;
@@ -200,7 +206,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 id: officeData.id,
                 email: officeData.email,
                 role: 'promotory', // Role is inferred: office table = promotory role
-                name: officeData.name,
+                name: officeData.name ?? '',
+                onboarding_completed: Boolean(officeData.onboarding_completed_at),
             };
         }
 
@@ -468,21 +475,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // No need to do it here - just let the session be set
     };
 
-    const signUp = async (email: string, password: string, role: UserRole, name?: string, consultantCode?: string, officeId?: string): Promise<SignUpResult> => {
-        // Consultants cannot sign up - they must be invited
-        if (role === 'consultant') {
-            throw new Error('Consultants must be invited by an office. Please use the invitation link sent to your email.');
-        }
-
-        const officeName = (name || email).trim();
-
+    const signUp = async (email: string, password: string): Promise<SignUpResult> => {
         const { data, error } = await authSignUp({
             email,
             password,
             emailRedirectTo: `${window.location.origin}/login`,
             data: {
                 intended_role: 'promotory',
-                office_name: officeName,
             },
         });
 
@@ -493,7 +492,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // create_office is only executable by `authenticated`. With email confirm on,
         // signUp often returns a user without a session (still anon) — defer office create.
-        if (data.user && role === 'promotory' && data.session) {
+        if (data.user && data.session) {
             try {
                 await ensurePromotoryOffice(data.user);
                 await resolveProfile(data.user);

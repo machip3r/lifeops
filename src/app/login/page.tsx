@@ -16,12 +16,12 @@ import {
   signupSchema,
 } from '@/lib/validation/schemas';
 import { VALIDATION_MESSAGES, zodFieldErrors } from '@/lib/validation/field-errors';
+import { homePathFor } from '@/lib/onboarding/routes';
 
 export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -33,15 +33,11 @@ export default function LoginPage() {
   const { signIn, signUp, verifyEmailCode, resendVerificationEmail, profile, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  const canSubmit = useMemo(() => {
-    if (!email.trim() || !password) return false;
-    if (isSignUp && !name.trim()) return false;
-    return true;
-  }, [email, password, name, isSignUp]);
+  const canSubmit = useMemo(() => Boolean(email.trim() && password), [email, password]);
 
   useEffect(() => {
     if (!authLoading && profile) {
-      router.push('/dashboard');
+      router.push(homePathFor(profile));
     }
   }, [authLoading, profile, router]);
 
@@ -53,7 +49,7 @@ export default function LoginPage() {
     setNeedsVerification(false);
 
     const parsed = isSignUp
-      ? signupSchema.safeParse({ name, email, password })
+      ? signupSchema.safeParse({ email, password })
       : loginSchema.safeParse({ email, password });
 
     if (!parsed.success) {
@@ -65,22 +61,20 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        const data = parsed.data as { name: string; email: string; password: string };
-        const result = await signUp(data.email, data.password, 'promotory', data.name);
+        const result = await signUp(parsed.data.email, parsed.data.password);
 
         if (result.needsEmailVerification) {
           setNeedsVerification(true);
           setLoading(false);
           return;
         }
-
-        router.push('/dashboard');
+        // The profile effect sends the new promotoría to onboarding.
       } else {
         const data = parsed.data as { email: string; password: string };
         try {
           await signIn(data.email, data.password);
           setLoading(false);
-          router.push('/dashboard');
+          // The profile effect routes to onboarding or the dashboard.
         } catch (signInError: unknown) {
           const err = signInError as { needsVerification?: boolean; message?: string };
           const isVerificationNeeded =
@@ -119,7 +113,7 @@ export default function LoginPage() {
 
     try {
       await verifyEmailCode(parsed.data.email, parsed.data.otp);
-      router.push('/dashboard');
+      // The profile effect sends the new promotoría to onboarding.
     } catch (err) {
       const errorMessage =
         err instanceof Error
@@ -266,33 +260,8 @@ export default function LoginPage() {
             </form>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
-              {isSignUp && (
-                <>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Los asesores deben ser invitados por una promotoría. Solo se pueden crear cuentas
-                    de promotoría aquí.
-                  </p>
-                  <FormField
-                    label="Nombre Completo"
-                    htmlFor="name"
-                    variant="auth"
-                    error={fieldErrors.name}
-                  >
-                    <Input
-                      id="name"
-                      type="text"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      maxLength={LIMITS.personName}
-                      autoCapitalize="words"
-                      placeholder="Tu nombre"
-                    />
-                  </FormField>
-                </>
-              )}
-
               <FormField
-                label="Correo Electrónico"
+                label="Correo electrónico"
                 htmlFor="email"
                 variant="auth"
                 error={fieldErrors.email}
@@ -333,13 +302,14 @@ export default function LoginPage() {
                 </div>
               )}
 
-              <button
+              <Button
                 type="submit"
+                variant="brand"
                 disabled={loading || !canSubmit}
-                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full h-11"
               >
-                {loading ? 'Por favor espera...' : isSignUp ? 'Registrarse' : 'Iniciar Sesión'}
-              </button>
+                {loading ? 'Por favor espera…' : isSignUp ? 'Crear cuenta' : 'Iniciar sesión'}
+              </Button>
 
               <div className="text-center">
                 <button
@@ -358,11 +328,6 @@ export default function LoginPage() {
                     ? '¿Ya tienes una cuenta? Inicia sesión'
                     : '¿No tienes una cuenta? Regístrate'}
                 </button>
-                {!isSignUp && (
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                    ¿Necesitas una cuenta? Contacta a tu promotoría para una invitación.
-                  </p>
-                )}
               </div>
             </form>
           )}

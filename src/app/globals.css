@@ -25,6 +25,14 @@
   --lifeops-accent: #c9a86c;
   --lifeops-on-accent: #1a1d24;
   --lifeops-watermark-stroke: #a78b5a;
+  /* Vista general charts — validated (dataviz validator) on --lifeops-chrome per mode */
+  --viz-current: #0ca30c;
+  --viz-due-soon: #2a78d6;
+  --viz-overdue: #ec835a;
+  --viz-at-risk: #d03b3b;
+  --viz-this-year: #a8823f;
+  --viz-last-year: #c4c4ca;
+  --viz-grid: #d4d4d8;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -161,6 +169,13 @@ h6 {
   --lifeops-accent: #fbdbac;
   --lifeops-on-accent: #1a1d24;
   --lifeops-watermark-stroke: #fbdbac;
+  --viz-current: #0ca30c;
+  --viz-due-soon: #3987e5;
+  --viz-overdue: #c98500;
+  --viz-at-risk: #d03b3b;
+  --viz-this-year: #b48c48;
+  --viz-last-year: #4b5260;
+  --viz-grid: #2f3540;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

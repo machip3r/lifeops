@@ -4,7 +4,7 @@ import { createUserClient } from "@/lib/supabase/user-client";
 import {
   clearCollectionPayment,
   upsertCollectionPayment,
-} from "@/lib/collections/service";
+} from "@/lib/db/collections-service";
 import { zodFieldErrors } from "@/lib/validation/field-errors";
 import {
   clearCollectionPaymentSchema,
@@ -59,6 +59,7 @@ export async function upsertCollectionPaymentAction(
   });
 }
 
+/** @lintignore Only used by src/parked (collections grid). */
 export async function clearCollectionPaymentAction(
   accessToken: string,
   input: unknown,

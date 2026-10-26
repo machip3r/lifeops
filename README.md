@@ -25,162 +25,70 @@ lifeops/
 ├── .cursor/rules/lifeops.mdc         # Cursor always-on project rules
 ├── docs/
 │   ├── database.md                   # Schema / RPC / RLS reference
-│   └── product-flows.md              # UX flows by role
+│   ├── product-flows.md              # UX flows by role
+│   └── …                             # decisions, backlog, due-date math, user stories
 ├── src/
 │   ├── app/                          # Next.js App Router pages
 │   │   ├── dashboard/                # Protected dashboard routes
-│   │   │   ├── extractor/           # HTML table extractor & import
-│   │   │   ├── contracts/           # Contract management
-│   │   │   ├── consultants/         # Consultant management
-│   │   │   ├── clients/              # Client management
-│   │   │   ├── collections/         # Cobranza
-│   │   │   ├── projection/          # Proyección
-│   │   │   ├── change-requests/     # Contract change requests
-│   │   │   └── profile/             # User profile
-│   │   ├── login/                   # Authentication page
-│   │   ├── invite/[token]/         # Consultant invitation acceptance
-│   │   └── api/                    # API routes
-│   ├── components/                  # Reusable React components
-│   │   └── ui/                      # Design-system primitives + FormField
-│   ├── contexts/                    # React contexts (auth)
-│   └── lib/                        # Utility functions
-│       ├── db.ts                   # Database interaction functions
-│       ├── supabase.ts             # Browser client & types (legacy admin export)
-│       ├── supabase/               # env + server-only admin client
-│       └── validation/             # Zod schemas + field errors
+│   │   │   ├── extractor/            # HTML commission import
+│   │   │   ├── contracts/            # Pólizas (list, detail, files, manual registration)
+│   │   │   ├── collections/          # Cobranza
+│   │   │   ├── clients/              # Clientes
+│   │   │   ├── consultants/          # Asesores (promotory only)
+│   │   │   └── profile/              # Perfil (+ office wipe)
+│   │   ├── login/                    # Authentication page
+│   │   ├── invite/[token]/           # Consultant invitation acceptance
+│   │   └── api/                      # Route handlers (Bearer auth, service role)
+│   ├── components/                   # Shared UI by domain (+ ui/ primitives, FormField)
+│   ├── contexts/                     # auth, navigation guard, theme
+│   ├── hooks/                        # useQueryEffect, useDebouncedValue
+│   ├── lib/
+│   │   ├── db/                       # RLS table/RPC access per domain (all browser queries)
+│   │   ├── db-admin/                 # service-role table access per domain (server only)
+│   │   ├── extractor/                # commission import, receipt rules
+│   │   └── …                         # auth/, storage/, validation/, domain helpers
+│   └── parked/                       # Parked UI (projection, change requests, Excel import, …)
 ├── supabase/
-│   └── migrations/                 # SQL migration files (append-only)
-└── public/                         # Static assets
-
+│   └── migrations/                   # SQL migration files (append-only)
+└── public/                           # Static assets
 ```
 
 ## Database Schema
 
-### Core Tables
+Column-level reference: [`docs/database.md`](docs/database.md). Summary:
 
-#### 1. `office`
-- **Purpose**: Represents insurance offices/companies
-- **Key Fields**:
-  - `id` (UUID, PK, references `auth.users.id`)
-  - `name` (TEXT)
-  - `email` (TEXT, UNIQUE)
-- **Relationships**: One office has many consultants
-
-#### 2. `consultant`
-- **Purpose**: Insurance consultants/agents
-- **Key Fields**:
-  - `id` (UUID, PK, auto-generated)
-  - `office_id` (UUID, FK → `office.id`)
-  - `name` (TEXT)
-  - `email` (TEXT, nullable)
-  - `consultant_code` (TEXT, nullable, unique per office when not null) - **This is the "asesor" from HTML/Excel imports**
-  - `auth_user_id` (UUID, nullable, FK → `auth.users.id`)
-  - `status` (TEXT: `NOT_INVITED`, `PENDING`, `ACTIVE`, `INACTIVE`) — `NOT_INVITED` means the office has not sent an invite yet
-- **Relationships**:
-  - Belongs to one office
-  - Has many contracts
-  - Can optionally link to an auth user account
-
-#### 3. `client`
-- **Purpose**: Insurance clients/customers
-- **Key Fields**:
-  - `id` (UUID, PK)
-  - `name` (TEXT)
-  - `birth_date` (DATE, nullable)
-- **Relationships**: One client can have many contracts
-
-#### 4. `contract`
-- **Purpose**: Insurance contracts/policies (polizas)
-- **Key Fields**:
-  - `id` (UUID, PK)
-  - `consultant_id` (UUID, FK → `consultant.id`)
-  - `client_id` (UUID, nullable, FK → `client.id`)
-  - `contract_number` (TEXT, nullable) - **This stores the "poliza" number from HTML**
-  - `folio_number` (TEXT, nullable)
-  - `currency` (TEXT, nullable) - moneda from HTML, stored as `UDI`, `PESO`, or `DOLAR`
-  - `status` (TEXT, default 'PENDING')
-  - Additional fields: `capture_date`, `project_name`, `insured_amount`, `annual_premium`, etc.
-- **Relationships**:
-  - Belongs to one consultant
-  - Belongs to one client
-  - Has many contract_details
-
-#### 5. `contract_detail`
-- **Purpose**: Detailed rows associated with a single contract (from HTML table data)
-- **Key Fields**:
-  - `id` (UUID, PK)
-  - `contract_id` (UUID, FK → `contract.id`)
-  - `ticket_number` (TEXT, nullable) - RECIBO
-  - `plan` (TEXT, nullable) - PLAN
-  - `issue_date` (DATE, nullable) - FECHA EMISION
-  - `product` (TEXT, nullable) - PRODUCTO
-  - `expiration_date` (DATE, nullable) - FECHA VENCIMIENTO
-  - `payment_date` (DATE, nullable) - FECHA PAGO
-  - `premium_payment` (TEXT, nullable) - PRIMA PAGO
-  - `payment_method` (TEXT, nullable) - FORMA DE PAGO
-  - `unit_value` (TEXT, nullable) - U.V.
-  - `participation_percentage` (TEXT, nullable) - PORCENTAJE PARTICIPACION
-  - `commission_premium` (TEXT, nullable) - PRIMA COMISION
-  - `commission_honoraries` (TEXT, nullable) - COMISION/HONORARIOS
-  - `condition` (TEXT, nullable) - CONDICION
-  - `commission_percentage` (TEXT, nullable) - % COMISION
-  - `movement` (TEXT, nullable) - MOVIMIENTO
-  - `collection_premium` (TEXT, nullable) - PRIMA COBRO
-  - `promotional_collection_premium` (TEXT, nullable) - PRIMA COBRO PROM
-  - `incremental_premium` (TEXT, nullable) - PRIMA INCREMENTAL
-  - `seniority` (TEXT, nullable) - ANTIGÜEDAD
-  - `generation_date` (DATE, nullable) - FECHA GENERACION
-  - `group_name` (TEXT, nullable) - GRUPO
-  - `index_premium` (TEXT, nullable) - PRIMA INDICE
-  - `target_premium` (TEXT, nullable) - PRIMA META
-  - `row_data` (JSONB, nullable) - Stores any additional/unmapped columns
-- **Relationships**: Belongs to one contract
-
-#### 6. `contract_change_request`
-- **Purpose**: Requests to change or correct contract information
-- **Key Fields**:
-  - `id` (UUID, PK)
-  - `contract_id` (UUID, FK → `contract.id`)
-  - `request_type` (TEXT: 'CHANGE' | 'CORRECT')
-  - `status` (TEXT, default 'PENDING')
-  - Additional fields: `folio_number`, `details`, `notes`, `folder_key`
-
-#### 7. `file`
-- **Purpose**: Metadata for documents uploaded with solicitudes (EMIT / CHANGE / CORRECT)
-- **Key Fields**: `office_id`, `consultant_id`, `contract_id`, optional `change_request_id`, `display_name`, `file_path`
-- **Storage**: private Supabase bucket `documents` at `{officeId}/{consultantId}/{contractId}/{contractCode}/…`; downloads via signed URLs
-
-#### 8. `token`
-- **Purpose**: Manages invitation tokens and other temporary tokens
-- **Key Fields**:
-  - `id` (UUID, PK)
-  - `token` (TEXT, UNIQUE)
-  - `type` (TEXT: 'CONSULTANT_INVITATION', 'EMAIL_VERIFICATION', 'PASSWORD_RESET')
-  - `status` (TEXT: 'ACTIVE', 'USED', 'EXPIRED')
-  - `expires_at` (TIMESTAMP)
-
-### Database Relationships Summary
+| Table | Purpose |
+| ----- | ------- |
+| `office` | Promotoría; `id` = `auth.users.id`. Onboarding answers (`name`, `state_code`, `agency_code`, ranges, `onboarding_completed_at`) + `office_contact`, `office_insurer`, `office_line_of_business` (catalogs `insurer`, `line_of_business`, `mx_state`) |
+| `consultant` | Asesor of one office. `consultant_code` = "Asesor" from imports, unique per office. `status`: `NOT_INVITED`, `PENDING`, `ACTIVE`, `INACTIVE` |
+| `client` | Asegurado. Optional `curp` / `rfc` (globally unique); without them the client is local to its office |
+| `contract` | Póliza. `contract_number` = "Poliza" from imports, unique per office. `source` = `import` / `manual` / `mixed`; cobranza fields `collection_status`, `collection_day` |
+| `contract_detail` | One paid receipt from a commission file. `receipt_number` (RECIBO) unique per póliza |
+| `commission_import` | One commission-file upload (required file `issue_date`) |
+| `contract_collection_payment` | Cobranza mark per póliza / year / month (`paid_at`, `source` manual or import) |
+| `file` | Documents in the private `documents` bucket (solicitudes, payment evidence) |
+| `audit_log` | Append-only activity (cobranza, reassign, invite, import, …) |
+| `contract_change_request` | CHANGE / CORRECT requests (UI parked) |
+| `token` | Invitation tokens |
 
 ```
 office (1) ──< (many) consultant
 consultant (1) ──< (many) contract
 client (1) ──< (many) contract
 contract (1) ──< (many) contract_detail
-contract (1) ──< (many) contract_change_request
+contract (1) ──< (many) contract_collection_payment
 contract (1) ──< (many) file
+contract (1) ──< (many) contract_change_request
 ```
 
 **Key Rules**:
-- One client can have many contracts
-- One consultant can have many contracts (and clients)
-- One contract has exactly one client and one consultant and one office (`contract.office_id` denormalized)
+- One contract has exactly one client, one consultant and one office (`contract.office_id` denormalized)
 - `contract_number` is unique per office when set
 - Client identity: CURP/RFC when available (global unique); otherwise local to office — see [`docs/product-decisions.md`](docs/product-decisions.md)
+- **Policy details have no duplicates.** Each commission file says which receipts were paid on its dates. Importing a receipt that already exists (same póliza + RECIBO) **updates** it with the file values, so amounts stay current and totals stay exact
 - A policy is **at risk** when its **next due** (from last known payment + forma de pago) is more than **30 days** overdue — same rule in Cobranza and Vista general (not every empty month in a lookback window)
 - Promotory may **reassign** a policy to another consultant in the same office (same policy number + client)
-- Solicitud documents attach to a contract; CHANGE/CORRECT also link `change_request_id`; payment evidence may link `file.collection_payment_id`
-- One contract can have many contract_detail rows (from HTML import)
-- Commission uploads are tracked in `commission_import` (required file `issue_date`)
+- Solicitud documents attach to a contract; CHANGE/CORRECT also link `change_request_id`; payment evidence links `file.collection_payment_id`
 - User stories (non-technical): [`docs/historias-de-usuario.md`](docs/historias-de-usuario.md)
 
 ## Key Features
@@ -201,7 +109,7 @@ contract (1) ──< (many) file
    - **New policies** require a per-póliza "último pago conocido" (not one date for the whole file). That date may be after the commission file date when the file is old; only future dates are rejected (today is allowed).
    - File `issue_date` cannot be in the future (today is allowed).
    - Rows missing `FECHA EMISION` must be filled before import (written back into the preview table); that date must be **before** the commission file date and not in the future
-2. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist. Asesores only keep rows matching their own `consultant_code`; other codes are skipped (and rejected again in `importContractsFromTable` when scoped to that consultant).
+2. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist. Asesores only keep rows matching their own `consultant_code`; other codes are skipped (and rejected again on the server, scoped by the asesor's session).
 3. **Missing-consultant creation** (promotoría only): If codes are missing for the office:
    - Default: auto-create via `POST /api/extractor/create-consultants` (`mode: auto`)
    - If `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`: show dialog and require name/email/password for each new asesor (`mode: manual`) before import continues
@@ -219,12 +127,14 @@ contract (1) ──< (many) file
    - Checks if contract with same `contract_number` (poliza) exists
    - Creates new contract if it doesn't exist, and stores the earliest `FECHA EMISION` on `contract.issue_date` (also fills it when a later import finds the póliza without that date)
 6. **Contract Details Creation**: For each row in a contract group:
-   - Creates a `contract_detail` record (deduped when all mapped columns match)
-   - Maps columns by header name to database fields
-   - Stores dates in YYYY-MM-DD format (converted from DD/MM/YYYY)
-   - Seeds cobranza month marks from payment dates (`source=import`)
+   - Maps columns by header name to database fields; dates stored as YYYY-MM-DD (converted from DD/MM/YYYY)
+   - **One detail per receipt (RECIBO).** If the póliza already has that receipt, its values are updated with the file; otherwise it is created. If a receipt shows up twice in the same upload, the last row wins
+   - Details saved before RECIBO was stored are matched by identical values and take the receipt number instead of creating a copy
+   - If the file has no RECIBO column, rows identical in every value to a saved detail are skipped (the import warns about it)
+   - The duplicate check before import lists receipts that already exist; continuing updates them
+   - Seeds cobranza month marks from payment dates of new and updated details (`source=import`)
    - For **first-time** policies: seeds that póliza’s prior payment mark, sets `collection_day`, and initial `collection_status` (`CORRIENTE` / `ATRASADO` if prior is already past the at-risk window)
-   - Clients are find-or-created by name for the office (names with spaces are supported; broken PostgREST `ilike` OR filters were fixed)
+   - Clients are find-or-created by name for the office (names with spaces are supported)
 
 While an import is in progress (files loaded, dates, summary, or the save itself), changing section, signing out, or closing the tab asks for confirmation so that work is not abandoned without noticing.
 
@@ -234,6 +144,7 @@ While an import is in progress (files loaded, dates, summary, or the save itself
 - `Cliente` → `client.name`
 - `Moneda` / `Tipo Cambio` → `contract.currency` / `exchange_rate`
 - `FECHA EMISION` → `contract.issue_date` (earliest date in the póliza) and each `contract_detail.issue_date`
+- `RECIBO` → `contract_detail.receipt_number` (identifies the receipt; re-imports update it)
 - Other detail headers (FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, …) → `contract_detail`
 
 ### 2. Authentication & Authorization
@@ -244,7 +155,9 @@ While an import is in progress (files loaded, dates, summary, or the save itself
 - Cobranza list shows **one row per póliza**; next due uses the **latest known payment** (prior/manual mark beats old commission `FECHA PAGO`). See [`docs/collection-due-dates.md`](docs/collection-due-dates.md).
 
 **Authentication Flow**:
-- Uses Supabase Auth
+- Uses Supabase Auth. Sign in and sign up are **correo + contraseña** (sign up is promotoría-only; asesores are invited)
+- **Registro → onboarding → dashboard:** a promotoría without `office.onboarding_completed_at` (new or existing) is redirected to `/onboarding` (3 steps: promotoría, quién se registra, operación). Each step is saved; finishing opens the dashboard. Answers are editable later in Perfil except the **clave de promotoría** once captured and the account correo
+- **Aseguradoras:** LifeOps supports only **Seguros Monterrey New York Life** for now. If a promotoría selects aseguradoras without Monterrey, onboarding and Perfil show a warning with a support contact (`NEXT_PUBLIC_SUPPORT_EMAIL` / `NEXT_PUBLIC_SUPPORT_WHATSAPP`), and finishing onboarding asks them to acknowledge it before entering. They can still use LifeOps; with Monterrey selected the flow continues normally. Their choices stay in `office_insurer` for follow-up
 - Profile stored in `office` or `consultant` tables; if both resolve for the same auth user, **consultant wins** (avoids phantom office rows granting promotory UI)
 - `ProtectedRoute` component enforces role-based access
 - Consultant invitations create tokens that can be used to sign up
@@ -254,9 +167,9 @@ While an import is in progress (files loaded, dates, summary, or the save itself
 - `src/contexts/auth-context.tsx`: Provides `useAuth()` hook
 - `src/components/protected-route.tsx`: Route protection component
 
-### 3. Database Functions (`src/lib/db.ts`)
+### 3. Database Functions (`src/lib/db/`)
 
-Organized by table, provides CRUD operations:
+All database requests live in `src/lib/db/` (RLS: `db` for the browser, `createDb(client)` for a server client bound to the user JWT) and `src/lib/db-admin/` (service role, server only). Nothing else calls Supabase directly. `db` is organized by table:
 
 - `db.office.*`: Office management
 - `db.consultant.*`: Consultant management
@@ -266,22 +179,24 @@ Organized by table, provides CRUD operations:
   - `findOrCreateClientByName(name)`: Auto-creates if doesn't exist
 - `db.contract.*`: Contract management
 - `db.contractDetail.*`: Contract detail management
-  - `createContractDetail(data)`: Create single detail
-  - `createDetails(details[])`: Bulk create
+  - `writeImportedDetails(contractId, details)`: Insert or update by receipt (no duplicates)
 - `db.contractChangeRequest.*`: Change request management
 - `db.token.*`: Token management
+- `db.collections.*`, `db.dashboard.*`, `db.commissionImport.*`: Cobranza (+ import sync), overview RPCs, import batches
+- Shared with Server Actions (take a `SupabaseClient`): `db/collections-service.ts`, `db/manual-contract.ts`, `db/audit-log.ts`
 
-**Import Function**:
-- `db.contract.importContractsFromTable(rows, officeId, consultantAuthUserId?)`:
-  - Main import logic
-  - Groups rows by contract
-  - Creates contracts and contract_details
-  - Returns `{ success: number, errors: Array<{row, error}> }`
+**Import Function** — batched, no total time limit (works on Vercel for promotorías with many pólizas):
+- The browser coordinates (`runCommissionImport` in `src/lib/extractor/import/client.ts`): `planImportBatches` splits the preview table into batches of ~50 pólizas / ≤800 rows, keeping every row of one póliza number in the same batch.
+- Each step is a Server Action in `src/app/dashboard/extractor/actions.ts` (`maxDuration = 60` per call via the segment `layout.tsx`): **start** (validate dates, open `commission_import` as `pending`) → **batch** × n → **finish** (status `imported` / `failed`, totals, one audit entry). Inputs are validated with Zod (`commissionImport*Schema`).
+- Server logic lives in `src/lib/extractor/import/import-contracts.ts` (server only) and runs with `createDb(createUserClient(jwt))`, so RLS scopes every query; asesores are scoped by their session, not by the request.
+- Per batch, writes are grouped: new pólizas in one insert (with `collection_day` and initial `collection_status`), their prior payment right after, and all receipts loaded and written together.
+- A failed batch is retried up to 3 times. Retrying is safe: receipts are keyed by póliza + RECIBO, pólizas by number, and a póliza created by an interrupted attempt gets its prior payment repaired on the retry. If a batch still fails, its rows are reported and re-importing the file completes them without duplicates.
+- An interrupted import leaves its `commission_import` row in `pending`.
 
 ### 4. TypeScript Types (`src/lib/supabase.ts`)
 
 Defines interfaces for all database tables:
-- `Office`, `Consultant`, `Client`, `Contract`, `ContractDetail`, `ContractChangeRequest`, `File`, `Token`
+- `Office`, `Consultant`, `Client`, `Contract`, `ContractDetail`, `CommissionImport`, `ContractCollectionPayment`, `AuditLog`, `ContractChangeRequest`, `File`
 
 ## Database Migrations
 
@@ -319,6 +234,9 @@ Optional:
 ```
 # When true, import opens a dialog for new asesores (generated correo, optional invite) instead of auto-create.
 NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true
+# Support contact shown in the UI (e.g. aseguradora not supported yet). Without them a generic "contacta a soporte" text is shown.
+NEXT_PUBLIC_SUPPORT_EMAIL=soporte@example.com
+NEXT_PUBLIC_SUPPORT_WHATSAPP=523312345678
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` is server-only — never use a `NEXT_PUBLIC_` prefix and never put it in `next.config.ts` `env`.
@@ -378,7 +296,8 @@ Open [http://localhost:3000](http://localhost:3000)
 ### Database Layer
 
 - `src/lib/supabase.ts`: Supabase client configuration and TypeScript types
-- `src/lib/db.ts`: All database interaction functions organized by table
+- `src/lib/db/`: RLS-scoped database access, one module per table/domain
+- `src/lib/db-admin/`: Service-role database access per domain (server only)
 
 ## Notes for Future Development
 
@@ -397,7 +316,7 @@ Open [http://localhost:3000](http://localhost:3000)
 
 4. **Import Idempotency**:
    - If a contract with the same `contract_number` exists, it reuses it
-   - New `contract_detail` records are always created (no deduplication)
+   - Details are keyed by póliza + RECIBO: re-importing the same file updates values and never duplicates receipts (unique index `contract_detail_contract_receipt_key`)
 
 5. **Import auto-created asesores**:
    - Email pattern: `<asesorCode>.<officeTag>@lifeops.com` (unique per office; same code OK across promotorías)
@@ -407,7 +326,7 @@ Open [http://localhost:3000](http://localhost:3000)
 6. **Dashboard & Cobranza Features (current state)**:
    - List screens (asesores, clientes, pólizas, solicitudes, cobranza, and detail sub-tables) use **Supabase-backed pagination** (`.select(..., { count: 'exact' })` + `.range()`, default 25 rows; shared `TablePagination` UI).
    - Overview dashboard (`/dashboard`):
-     - **Promotory** and **consultant** both surface cobranza priority (at-risk >30 days + pending payments); promotory is office-wide, consultant own only.
+     - **Promotory** and **consultant** see the same Vista general (office-wide vs own cartera): KPIs, estado de la cartera, avisos, pagos registrados por mes (año actual vs anterior), antigüedad del atraso and cartera por asesor, plus the priority lists (at-risk >30 days + pending payments). Data comes from one RPC, `get_collection_overview`; **counts only** (amounts are not reliable across currencies). See [`docs/product-flows.md`](docs/product-flows.md).
      - Prima filters/counters UI for promotory is parked (`src/parked/dashboard/promotory-premium-overview.tsx`); RPCs remain available for a later restore.
    - Cobranza (`/dashboard/collections`):
      - Year-scoped grid of **active** contracts for payment control and reminder analysis.

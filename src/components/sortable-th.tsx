@@ -37,6 +37,7 @@ export function SortableHeaderButton({ label, active, dir, onSort }: Omit<Props,
   );
 }
 
+/** @lintignore Only used by src/parked (v0 cobranza, change requests). */
 export function SortableTh({ label, active, dir, onSort, className = "" }: Props) {
   return (
     <th

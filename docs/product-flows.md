@@ -11,7 +11,8 @@ UI language: **Spanish** (product). Code/SQL: English.
 | Surface | Who | Typical route | Notes |
 | ------- | --- | ------------- | ----- |
 | Marketing | Public | `/` | Landing |
-| Auth | Public | `/login` | Sign in / sign up / email OTP verification |
+| Auth | Public | `/login` | Sign in / sign up (correo + contraseña) / email OTP verification |
+| Onboarding | New promotoría | `/onboarding` | 3-step stepper before the dashboard |
 | Invite | Consultant prospect | `/invite/[token]` | Accept consultant invitation |
 | App (ops) | Promotory + consultant | `/dashboard/…` | Role-gated chrome |
 
@@ -48,9 +49,27 @@ office (promotory) ── owns ──► consultants (asesores)
 
 ### Login / signup (`/login`)
 
-1. User signs in or registers.
+1. User signs in (correo + contraseña) or registers. Sign-up asks **only correo + contraseña** (promotorías only; asesores are invited).
 2. Optional email verification OTP when required.
-3. Redirect into `/dashboard` (or role-appropriate default).
+3. Promotorías without onboarding go to `/onboarding`; everyone else to `/dashboard`.
+
+### Onboarding (`/onboarding`) — promotoría
+
+Registro → onboarding → dashboard. Applies to new promotorías **and** existing ones that never completed it (`office.onboarding_completed_at` is null); the dashboard layout redirects them here. Completed promotorías and asesores are redirected away.
+
+1. **Tu promotoría:** nombre (required), estado (required), clave de promotoría (optional).
+2. **¿Quién eres?:** nombre completo, rol (Dueño(a) / Director(a) / Gerente de operaciones / Asistente o administrativo / Otro), teléfono o WhatsApp (10 dígitos). If the rol is not Dueño(a): nombre y teléfono del dueño(a).
+3. **Tu operación:** aseguradoras (multiple; "Otra" asks the name), ramos (multiple), número de asesores (range), pólizas activas (range), ¿qué quieres resolver primero? (optional).
+
+- Each step is saved on **Siguiente**, so closing the browser resumes at the next step. **Atrás** keeps answers.
+- **Terminar registro** marks the onboarding complete and opens the dashboard.
+- **Aseguradora no soportada:** only Seguros Monterrey New York Life is supported today. If the selection does not include it, step 3 (and Perfil) shows a warning: "Por ahora LifeOps solo funciona con Seguros Monterrey" with WhatsApp / correo links to support (prefilled message with the aseguradoras chosen). After **Terminar registro** a dialog repeats it; **Entendido, ir a LifeOps** opens the dashboard. With Monterrey selected (alone or with others) nothing is shown.
+- Submit stays disabled until the step's required fields are filled; server validation shows per-field errors.
+
+### Perfil (`/dashboard/profile`)
+
+- **Promotoría:** edit the onboarding answers in three cards (Tu promotoría / Contacto / Tu operación), each with its own **Guardar cambios**. The **clave de promotoría** is locked once captured and onboarding is complete (support changes it). The account correo is read-only. Zona de peligro stays at the bottom.
+- **Asesor:** edit their name; correo, promotoría and código de asesor are read-only.
 
 ### Invite consultant (promotory)
 
@@ -64,10 +83,10 @@ office (promotory) ── owns ──► consultants (asesores)
 
 1. Upload HTML/MHTML commission files (portal sync and Excel import are out of the live product).
 2. Preview combined rows; validate consultants by `consultant_code` (asesor). Client names are trimmed and uppercased (accents dropped, Ñ → N). A name close to an existing office client (similarity at least 0.86) is treated as that client. On the date and summary steps, click the name to edit it before import.
-3. **Asesor:** only rows matching their own `consultant_code` are kept; other codes are skipped (and rejected again in `importContractsFromTable`). They never auto-create other asesores.
+3. **Asesor:** only rows matching their own `consultant_code` are kept; other codes are skipped (and rejected again on the server). They never auto-create other asesores.
 4. Before import, user must enter **fecha de emisión del archivo**. If the file includes **pólizas nuevas** (first time in LifeOps), also enter **fecha del último pago conocido** — may be after the file date when the commission file is old; future dates are rejected. Used to seed cobranza, predict next dues, and set initial collection status.
 5. **Promotoría only:** missing consultants on import — default auto-create (`<asesorCode>.<officeTag>@lifeops.com`) via privileged Auth API; if `NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true`, a dialog lists the new codes with a generated correo. One action invites the checked rows (**Invitar e importar**) or, with none checked, only registers them (**Importar**). Clearing a correo and leaving it empty assigns another generated one. Submit rejects a correo that is repeated, already registered, or the same as the promotoría. Same asesor code may exist in another office.
-6. Import creates `commission_import` batch; upserts contracts + `contract_detail` rows; seeds prior payment for new policies; seeds cobranza marks from payment dates in the file.
+6. The import runs on the server in batches of ~50 pólizas coordinated by the page (progress bar per batch; no total time limit; failed batches are retried and re-importing never duplicates). It creates a `commission_import` batch; upserts contracts; writes `contract_detail` **one per receipt (póliza + RECIBO)** — a receipt already saved is updated with the file values, never duplicated. Before importing, a dialog lists the receipts that will be updated. Seeds prior payment for new policies; seeds cobranza marks from payment dates in the file.
 7. Once files are loaded, or while dates, the summary, or the save are in progress, leaving for another section, signing out, or closing/refreshing the tab asks for confirmation. A half-typed date (`12/21`) stays in the field if the user switches browser tab or window.
 
 ### Pólizas (`/dashboard/contracts`)
@@ -94,8 +113,17 @@ office (promotory) ── owns ──► consultants (asesores)
 - Same table chrome (card, sticky actions column).
 ### Vista general (`/dashboard`)
 
-- **Promotory:** at-risk (>30 days) + pending payments office-wide; link to cobranza. Prima filter/totals UI is parked (not shown).
-- **Consultant:** home with at-risk list + pending payments; links to cobranza and pólizas.
+Same view for both roles, scoped by session: **promotoría** = office-wide, **asesor** = own cartera. One SQL call (`get_collection_overview`); **counts only** — amounts are not shown because pólizas mix currencies (UDI / pesos / dólares) and manual payments may have no amount.
+
+1. **Indicadores:** pólizas activas · cobros de hoy (+ próximos 7 días) · pagos registrados este mes (vs the same elapsed days of last month) · vencidas (1–30 días) · en peligro (+30 días).
+2. **Estado de la cartera:** % al día + 100% stacked bar (Al corriente / Por vencer / Vencida / En peligro) by next due — same rule as Cobranza, so the numbers match the lists below. Pólizas without any known payment are counted apart (no next due can be computed).
+3. **Avisos:** only what needs action — en peligro, vencidas, pólizas sin pagos registrados, sin forma de pago (calculated as mensual), cobros de hoy, asesores sin invitar / invitaciones sin aceptar (promotoría). Each links to the screen that fixes it.
+4. **Pagos registrados por mes:** this year vs last year, January → current month, by payment date (counts of cobranza marks: imported FECHA PAGO, prior payments and manual payments).
+5. **Antigüedad del atraso:** overdue pólizas by days late (1–10, 11–20, 21–30 = vencida; 31–60, 61–90, +90 = en peligro).
+6. **Cartera por asesor** (promotoría, 2+ asesores): stacked bars per asesor, sorted by vencidas + en peligro; top 8, all in the table.
+7. **Prioridad de cobranza** lists (en peligro, pagos por registrar) stay below.
+
+Every chart has a legend, hover/focus tooltips and a **Ver datos** table. Colors (validated for both themes): `--viz-*` tokens in `globals.css`. Prima filter/totals UI stays parked.
 
 ### Solicitudes de cambio (`/dashboard/change-requests`)
 

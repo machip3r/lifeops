@@ -26,6 +26,12 @@ English reference for the Postgres schema (Supabase). Source of truth: migration
 | `020_consultant_auth_user_rls.sql` | RLS for invited asesores: match `consultant.id` **or** `auth_user_id`; office readable by its asesores |
 | `021_drop_phantom_consultant_offices.sql` | Deletes phantom `office` rows where `id` = invited asesor `auth_user_id` but real `office_id` differs |
 | `022_fix_office_rls_actor_role_office.sql` | Break office↔consultant RLS recursion (`my_consultant_office_ids`); `audit_log.actor_role` uses `office` not `promotory` |
+| `023_at_risk_from_last_payment.sql` | Risk / pending RPCs use next due from last known payment + forma de pago (same rule as Cobranza) |
+| `024_consultant_not_invited_status.sql` | Adds `NOT_INVITED` to `consultant.status`; backfills `PENDING` rows that never got an invitation token |
+| `025_backfill_contract_issue_date.sql` | Fills empty `contract.issue_date` with the earliest `contract_detail.issue_date` |
+| `026_contract_detail_receipt_number.sql` | `contract_detail.receipt_number` (RECIBO) unique per contract; removes exact copies left by re-uploading the same file |
+| `027_office_onboarding.sql` | Promotoría onboarding: catalogs (`mx_state`, `insurer`, `line_of_business`), onboarding columns on `office` (`name` now nullable), `office_contact`, `office_insurer`, `office_line_of_business`, save RPCs, clave lock trigger |
+| `028_collection_overview.sql` | `get_collection_overview` — Vista general in one call (status buckets, aging, payments per month, per asesor) |
 
 **Rule:** never edit an applied migration. Append `002_…`, `003_…`, etc.
 
@@ -40,6 +46,10 @@ auth.users
  ├── office (id = auth.users.id)          → role: promotory
  └── consultant.auth_user_id → auth.users → role: consultant
 
+office (1) ──< (many) office_contact (REGISTRANT, OWNER)
+office (n) ──< office_insurer >── (n) insurer
+office (n) ──< office_line_of_business >── (n) line_of_business
+office (n) ──> (1) mx_state
 office (1) ──< (many) consultant
 office (1) ──< (many) commission_import
 office (1) ──< (many) audit_log
@@ -61,7 +71,7 @@ contract_collection_payment (1) ──< (many) file (payment evidence via collec
 | Customer | `client` | Insured / client person |
 | Policy | `contract` | Póliza; `contract_number` = poliza id from HTML; `office_id` denormalized; `source` = import/manual/mixed |
 | Import batch | `commission_import` | One upload of commissions HTML/Excel with required `issue_date` |
-| Line items | `contract_detail` | Commission/table rows for a contract; optional `commission_import_id` |
+| Line items | `contract_detail` | One paid receipt per row (RECIBO unique per contract); optional `commission_import_id` |
 | Collection marks | `contract_collection_payment` | Per year/month paid mark + scheduled day |
 | Activity | `audit_log` | Append-only app activity (cobranza, reassign, invite, create, …) |
 | Requests | `contract_change_request` | CHANGE / CORRECT workflows (UI parked) |
@@ -78,8 +88,37 @@ contract_collection_payment (1) ──< (many) file (payment evidence via collec
 | Column | Notes |
 | ------ | ----- |
 | `id` | PK, FK → `auth.users` |
-| `name`, `email` | Email unique |
+| `name` | Promotoría name. **Nullable** since `027`: signup asks only correo + contraseña; onboarding step 1 fills it |
+| `email` | Unique |
+| `agency_code` | Clave de promotoría (optional). App users can set it while empty or until onboarding is complete; then the `office_lock_agency_code` trigger blocks changes from `authenticated` (support changes it with the service role) |
+| `state_code` | FK → `mx_state` |
+| `consultant_count_range` | `1_5` \| `6_20` \| `21_50` \| `51_100` \| `100_PLUS` |
+| `active_policy_range` | `LT_100` \| `100_500` \| `500_2000` \| `2000_10000` \| `GT_10000` |
+| `primary_goal` | Optional: `COLLECTIONS` \| `COMMISSIONS` \| `CONSULTANTS` \| `ALL` |
+| `onboarding_step` | Last step saved, 0–3 (resume point) |
+| `onboarding_version` | Questions version answered (bump to ask new required questions) |
+| `onboarding_completed_at` | `NULL` ⇒ the promotoría is sent to `/onboarding` before the dashboard. A CHECK requires name, state and both ranges once set |
 | `created_at`, `updated_at` | |
+
+### Onboarding tables (`027`)
+
+Single-choice answers are CHECK-constrained codes on `office` (labels in `src/lib/onboarding/options.ts`). Multi-choice answers use catalogs + join tables.
+
+| Table | Key | Notes |
+| ----- | --- | ----- |
+| `mx_state` | `code` (ISO 3166-2:MX, e.g. `JAL`) | 32 estados; read-only |
+| `insurer` | `code` (e.g. `MONTERREY_NYL`, `GNP`, `OTHER`) | `name`, `sort_order`; read-only |
+| `line_of_business` | `code` (`LIFE`, `HEALTH`, `SAVINGS`, `AUTO`, `PROPERTY`, `OTHER`) | Ramos; read-only |
+| `office_contact` | (`office_id`, `kind`) | `kind` = `REGISTRANT` (who signed up; requires `job_role`) or `OWNER` (only when the registrant is not the owner). `full_name`, `phone` (10 digits) |
+| `office_insurer` | (`office_id`, `insurer_code`) | `other_name` required only for `OTHER` |
+| `office_line_of_business` | (`office_id`, `line_code`) | |
+
+Indexes: PKs cover lookups by office; `idx_office_insurer_insurer_code`, `idx_office_line_of_business_line_code`, `idx_office_state_code` serve reverse lookups (e.g. promotorías per aseguradora).
+
+**Save RPCs** (SECURITY INVOKER, so RLS applies; one transaction per step; reused by Perfil):
+- `save_office_onboarding_profile(p_name, p_state_code, p_agency_code)` — step 1; keeps a locked clave silently.
+- `save_office_onboarding_contacts(p_full_name, p_job_role, p_phone, p_owner_name, p_owner_phone)` — step 2; upserts `REGISTRANT`, upserts or deletes `OWNER`.
+- `save_office_onboarding_operation(p_insurer_codes[], p_other_insurer, p_line_codes[], p_consultant_count_range, p_active_policy_range, p_primary_goal, p_version)` — step 3; replaces selections, sets `onboarding_completed_at` the first time and returns it.
 
 ### `consultant`
 
@@ -150,7 +189,20 @@ Batch metadata for one commission file upload.
 
 ### `contract_detail`
 
-Detailed HTML import rows (RECIBO, PLAN, dates, premiums, commissions, …). Unmapped columns may live in `row_data` JSONB.
+One payment receipt from a commission file (the file lists which receipts were paid on its dates).
+
+| Column | Notes |
+| ------ | ----- |
+| `contract_id` | FK → `contract` (cascade delete) |
+| `commission_import_id` | Last `commission_import` batch that wrote the row |
+| `receipt_number` | RECIBO; unique with `contract_id` when set (`contract_detail_contract_receipt_key`) |
+| `issue_date`, `payment_date` | FECHA EMISION, FECHA PAGO |
+| `premium_payment`, `payment_method` | PRIMA PAGO, FORMA DE PAGO |
+| `commission_premium`, `commission_honoraries`, `commission_percentage` | PRIMA COMISION, COMISION/HONORARIOS, % COMISION |
+| `collection_premium`, `target_premium` | PRIMA COBRO, PRIMA META |
+| `movement`, `seniority` | MOVIMIENTO, ANTIGÜEDAD |
+
+**No duplicates:** importing a receipt that already exists updates its values instead of adding a row. Rows saved before `026` have no `receipt_number`; an incoming receipt with identical values adopts that row. Files without a RECIBO column fall back to skipping rows identical in every value. Logic: `src/lib/extractor/receipt.ts`.
 
 ### `contract_collection_payment`
 
@@ -167,7 +219,7 @@ One row per `(contract_id, year, month)` for the Cobranza grid.
 
 ### `audit_log`
 
-Append-only office activity (migration `017`). Replaces `collection_audit_log` and `contract_reassignment_log`. Writer helper: `src/lib/audit/write.ts`. See [`audit-log-plan.md`](audit-log-plan.md).
+Append-only office activity (migration `017`). Replaces `collection_audit_log` and `contract_reassignment_log`. Writer helper: `src/lib/db/audit-log.ts` (`writeAuditLogAdmin` in `db-admin` for route handlers). See [`audit-log-plan.md`](audit-log-plan.md).
 
 | Column | Notes |
 | ------ | ----- |
@@ -217,7 +269,7 @@ Overview and Cobranza prefer SQL RPCs with a shared filter contract, for example
 - `contract_type_filter` (ramo VI / GM / all)
 - `payment_method_filter`
 
-Known RPC family (see `001_baseline_schema.sql` and `db.dashboard.*`): `get_office_totals`, `get_top_consultants_by_sales`, `get_office_totals_by_type`, `get_office_consultants_sales`.
+Known RPC family (see `001_baseline_schema.sql` and `src/lib/db/dashboard.ts`): `get_office_totals`, `get_top_consultants_by_sales`, `get_office_totals_by_type`, `get_office_consultants_sales`.
 
 Collections helper (see `002_collections_control.sql`):
 
@@ -230,6 +282,7 @@ Risk / reminders (see `011_commission_import_risk_evidence.sql`, `012_at_risk_da
 - `contract_last_known_payment(contract_id)` — latest `contract_collection_payment.paid_at`, else latest `contract_detail.payment_date`.
 - `list_contracts_at_risk(office_id, consultant_id, risk_days=30, lookback_months=12)` — SECURITY DEFINER + `caller_can_access_*`; next due from last known payment more than `risk_days` overdue (`lookback_months` unused, kept for API compat).
 - `list_contracts_pending_payment(office_id, consultant_id, within_days=15)` — next due within horizon (or overdue ≤ 30 days); excludes at-risk.
+- `get_collection_overview(office_id, consultant_id, risk_days=30, due_soon_days=15)` — SECURITY DEFINER + `caller_can_access_*`; returns JSONB for Vista general: active pólizas by bucket (`current`, `due_soon`, `overdue`, `at_risk`, `no_payment`) using the same next-due rule (so `at_risk` = the at-risk list and `overdue + due_soon` = the pending list), cobros de hoy / próximos 7 días, pólizas sin forma de pago, aging buckets, payments month-to-date vs the same elapsed days of last month, payment counts per month (this + last year, by `paid_at`, inactive pólizas included), per-asesor breakdown, and invite counts (office scope). Counts only.
 - `month_due_date(y, m, day)` — clamps day-of-month to calendar month length.
 
 Prefer **extending RPCs** over client-side heavy aggregation. Any signature change ships as a **new migration** and an update to this doc.
@@ -238,7 +291,8 @@ Prefer **extending RPCs** over client-side heavy aggregation. Any signature chan
 
 ## RLS summary
 
-- RLS enabled on core tables (`office`, `consultant`, `client`, `contract`, `contract_detail`, `contract_collection_payment`, `audit_log`, `contract_change_request`, `token`, `file`, `commission_import`).
+- RLS enabled on core tables (`office`, `consultant`, `client`, `contract`, `contract_detail`, `contract_collection_payment`, `audit_log`, `contract_change_request`, `token`, `file`, `commission_import`, `office_contact`, `office_insurer`, `office_line_of_business`) and on the read-only catalogs (`mx_state`, `insurer`, `line_of_business`: SELECT for `authenticated`).
+- Onboarding tables: only the office itself (`office_id = auth.uid()`) can read or write its rows.
 - Offices manage their own profile and their consultants’ data.
 - Consultants read/update their own profile and own contracts.
 - `commission_import`: office ALL; consultants SELECT same office.
@@ -261,6 +315,7 @@ When adding tables: copy the office/consultant isolation pattern.
 | Poliza | `contract.contract_number` |
 | Cliente | `client.name` |
 | Moneda | `contract.currency` |
-| Remaining columns | `contract_detail` (+ `row_data`) |
+| Recibo | `contract_detail.receipt_number` |
+| Remaining detail columns | `contract_detail` |
 
 Dates in HTML are typically `DD/MM/YYYY` → store as `YYYY-MM-DD`.

@@ -30,7 +30,7 @@ function clampIso(iso: string, min?: string, max?: string): string {
 }
 
 /** Digits only → DD/MM/AAAA with automatic slashes. */
-export function maskDateDigits(raw: string): string {
+function maskDateDigits(raw: string): string {
   const digits = raw.replace(/\D/g, '').slice(0, 8);
   if (digits.length <= 2) return digits;
   if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;

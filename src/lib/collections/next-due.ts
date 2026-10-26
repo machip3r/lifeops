@@ -2,7 +2,9 @@
  * Shared next-collection date math for Cobranza + docs.
  * Last known payment (prior / marca / detalle) wins over old commission lines.
  */
+import { POLICY_AT_RISK_DAYS } from "@/lib/collections/constants";
 
+/** @lintignore Only used by src/parked. */
 export const FORMA_PAGO_MONTHS: Record<string, number> = {
   Mensual: 1,
   Trimestral: 3,
@@ -10,12 +12,12 @@ export const FORMA_PAGO_MONTHS: Record<string, number> = {
   Anual: 12,
 };
 
-export function paymentMethodMonths(paymentMethod: string | null | undefined): number {
+function paymentMethodMonths(paymentMethod: string | null | undefined): number {
   if (!paymentMethod?.trim()) return FORMA_PAGO_MONTHS.Mensual;
   return FORMA_PAGO_MONTHS[paymentMethod.trim()] ?? FORMA_PAGO_MONTHS.Mensual;
 }
 
-export function parseIsoLocal(value: string): Date | null {
+function parseIsoLocal(value: string): Date | null {
   if (!/^\d{4}-\d{2}-\d{2}/.test(value)) {
     const d = new Date(value);
     return Number.isNaN(d.getTime()) ? null : d;
@@ -24,14 +26,14 @@ export function parseIsoLocal(value: string): Date | null {
   return new Date(y, m - 1, day);
 }
 
-export function addMonthsLocal(date: Date, months: number): Date {
+function addMonthsLocal(date: Date, months: number): Date {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   d.setMonth(d.getMonth() + months);
   return d;
 }
 
 /** Clamp day-of-month into a calendar month (31 → 28/29 in Feb). */
-export function dateWithDayOfMonth(year: number, monthIndex: number, day: number): Date {
+function dateWithDayOfMonth(year: number, monthIndex: number, day: number): Date {
   const lastDay = new Date(year, monthIndex + 1, 0).getDate();
   return new Date(year, monthIndex, Math.min(Math.max(1, day), lastDay));
 }
@@ -71,4 +73,15 @@ export function maxIsoDate(
     if (!best || iso > best) best = iso;
   }
   return best;
+}
+
+/** Initial cobranza estatus for a new póliza: ATRASADO when its last payment is past the at-risk window. */
+export function initialCollectionStatus(
+  lastPaidIso: string,
+  today: Date = new Date(),
+): "CORRIENTE" | "ATRASADO" {
+  const lastPaid = parseIsoLocal(lastPaidIso);
+  if (!lastPaid) return "CORRIENTE";
+  const daysSince = Math.floor((today.getTime() - lastPaid.getTime()) / (1000 * 60 * 60 * 24));
+  return daysSince > POLICY_AT_RISK_DAYS ? "ATRASADO" : "CORRIENTE";
 }

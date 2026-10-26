@@ -3,10 +3,6 @@ export const CURRENCY_OPTIONS = ['UDI', 'PESO', 'DOLAR'] as const;
 
 export type CurrencyCode = (typeof CURRENCY_OPTIONS)[number];
 
-export function isCurrencyCode(value: string): value is CurrencyCode {
-  return (CURRENCY_OPTIONS as readonly string[]).includes(value);
-}
-
 function foldCurrency(value: string): string {
   return value
     .trim()

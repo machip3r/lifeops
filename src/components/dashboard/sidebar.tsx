@@ -67,8 +67,6 @@ export const consultantNavItems: DashboardNavItem[] = [
   { href: '/dashboard/clients', label: 'Clientes', icon: Users },
 ];
 
-export const SIDEBAR_WIDTH_CLASS = 'lg:w-[260px]';
-
 const railTransition =
   'duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]';
 

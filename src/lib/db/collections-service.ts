@@ -3,7 +3,7 @@ import {
   collectionAction,
   mapCollectionSource,
   writeAuditLog,
-} from "@/lib/audit/write";
+} from "@/lib/db/audit-log";
 import type {
   CollectionAuditActionType,
   CollectionPaymentSource,
@@ -11,7 +11,6 @@ import type {
   ContractCollectionPayment,
 } from "@/lib/supabase";
 import { chunkArray, IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
-import { POLICY_AT_RISK_DAYS } from "@/lib/collections/constants";
 import {
   emptyPageResult,
   normalizePageParams,
@@ -27,6 +26,7 @@ type CollectionsActor = {
   consultantId?: string;
 };
 
+/** @lintignore Only used by src/parked (collections grid). */
 export type CollectionMonthCell = {
   month: number;
   scheduledDay: number | null;
@@ -39,6 +39,7 @@ export type CollectionMonthCell = {
   evidenceDisplayName: string | null;
 };
 
+/** @lintignore Only used by src/parked (collections grid). */
 export type CollectionsGridRow = {
   contractId: string;
   consultantId: string | null;
@@ -172,6 +173,7 @@ async function seedCollectionPaymentsForYear(
   return typeof data === "number" ? data : 0;
 }
 
+/** @lintignore Only used by src/parked (collections grid). */
 export async function getCollectionsGrid(
   client: SupabaseClient,
   year: number,
@@ -357,6 +359,7 @@ export async function getCollectionsGrid(
   };
 }
 
+/** @lintignore Only used by src/parked (collections grid). */
 export async function updateCollectionStatus(
   client: SupabaseClient,
   contractId: string,
@@ -399,6 +402,7 @@ export async function updateCollectionStatus(
   return { ok: true, data: { collectionStatus: status } };
 }
 
+/** @lintignore Only used by src/parked (collections grid). */
 export async function updatePaymentChannel(
   client: SupabaseClient,
   contractId: string,
@@ -441,6 +445,7 @@ export async function updatePaymentChannel(
   return { ok: true, data: { paymentChannel } };
 }
 
+/** @lintignore Only used by src/parked (collections grid). */
 export async function updateProjectName(
   client: SupabaseClient,
   contractId: string,
@@ -759,34 +764,26 @@ export async function syncPaymentsFromImportedDetailsBatch(
 }
 
 /**
- * For first-time policies in an import: record the last payment before this
- * commission file (per póliza) so cobranza can predict next dues and risk.
+ * Marks the "último pago conocido" month as paid for first-time pólizas (`source=import`).
+ * `collection_day` / `collection_status` are set when the póliza is created.
  */
-export async function seedPriorPaymentsForNewContracts(
+export async function seedPriorPayments(
   client: SupabaseClient,
   input: {
-    officeId: string;
     actorUserId: string | null;
     /** contract_id → ISO date (YYYY-MM-DD) of last payment before this file */
     priorByContractId: Record<string, string>;
     commissionImportId?: string | null;
   },
 ): Promise<number> {
-  const entries = Object.entries(input.priorByContractId).filter(([, paidAt]) =>
-    /^\d{4}-\d{2}-\d{2}$/.test(paidAt.trim()),
-  );
-  if (entries.length === 0) return 0;
-
-  const rows = entries.map(([contractId, paidAtRaw]) => {
-    const paidAt = paidAtRaw.trim();
-    const year = Number.parseInt(paidAt.slice(0, 4), 10);
-    const month = Number.parseInt(paidAt.slice(5, 7), 10);
-    const day = Number.parseInt(paidAt.slice(8, 10), 10);
-    return {
+  const rows = Object.entries(input.priorByContractId)
+    .map(([contractId, raw]) => [contractId, raw.trim()] as const)
+    .filter(([, paidAt]) => /^\d{4}-\d{2}-\d{2}$/.test(paidAt))
+    .map(([contractId, paidAt]) => ({
       contract_id: contractId,
-      year,
-      month,
-      scheduled_day: day,
+      year: Number.parseInt(paidAt.slice(0, 4), 10),
+      month: Number.parseInt(paidAt.slice(5, 7), 10),
+      scheduled_day: Number.parseInt(paidAt.slice(8, 10), 10),
       paid_at: paidAt,
       amount: null as number | null,
       notes: "Último pago previo al archivo de comisiones (alta inicial)",
@@ -794,50 +791,32 @@ export async function seedPriorPaymentsForNewContracts(
       commission_import_id: input.commissionImportId ?? null,
       updated_by: input.actorUserId,
       created_by: input.actorUserId,
-    };
-  });
+    }));
 
-  let upserted = 0;
   for (const chunk of chunkArray(rows, IMPORT_BATCH_SIZE)) {
     const { error } = await client.from("contract_collection_payment").upsert(chunk, {
       onConflict: "contract_id,year,month",
     });
     if (error) throw error;
-    upserted += chunk.length;
   }
+  return rows.length;
+}
 
-  for (const chunk of chunkArray(entries, IMPORT_BATCH_SIZE)) {
-    const ids = chunk.map(([id]) => id);
-    const { data: contracts } = await client
-      .from("contract")
-      .select("id, collection_day, collection_status")
-      .in("id", ids);
-
-    const paidById = new Map(chunk);
-    for (const contract of contracts || []) {
-      const paidAt = paidById.get(contract.id)?.trim();
-      if (!paidAt) continue;
-      const day = Number.parseInt(paidAt.slice(8, 10), 10);
-      const updates: Record<string, unknown> = {};
-      if (contract.collection_day == null && Number.isFinite(day)) {
-        updates.collection_day = day;
-      }
-      const prior = new Date(`${paidAt}T12:00:00`);
-      const today = new Date();
-      const daysSince =
-        Math.floor((today.getTime() - prior.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysSince > POLICY_AT_RISK_DAYS && contract.collection_status == null) {
-        updates.collection_status = "ATRASADO";
-      } else if (contract.collection_status == null) {
-        updates.collection_status = "CORRIENTE";
-      }
-      if (Object.keys(updates).length > 0) {
-        await client.from("contract").update(updates).eq("id", contract.id);
-      }
-    }
+/** Pólizas (of the given ids) that already have at least one cobranza mark. */
+export async function listContractIdsWithPayments(
+  client: SupabaseClient,
+  contractIds: string[],
+): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (const chunk of chunkArray(contractIds, IMPORT_BATCH_SIZE)) {
+    const { data, error } = await client
+      .from("contract_collection_payment")
+      .select("contract_id")
+      .in("contract_id", chunk);
+    if (error) throw error;
+    for (const row of data || []) found.add(row.contract_id as string);
   }
-
-  return upserted;
+  return found;
 }
 
 export async function writeImportSyncAudit(
@@ -849,6 +828,7 @@ export async function writeImportSyncAudit(
     contractsTouched: number;
     paymentsUpserted: number;
     detailsInserted: number;
+    detailsUpdated?: number;
   },
 ): Promise<void> {
   await writeAuditLog(client, {
@@ -864,6 +844,7 @@ export async function writeImportSyncAudit(
       contracts_touched: input.contractsTouched,
       payments_upserted: input.paymentsUpserted,
       details_inserted: input.detailsInserted,
+      details_updated: input.detailsUpdated ?? 0,
     },
   });
 }

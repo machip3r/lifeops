@@ -1,5 +1,5 @@
 /** Minimum similarity (0–1) to treat two client names as the same person. */
-export const CLIENT_NAME_MATCH_THRESHOLD = 0.86;
+const CLIENT_NAME_MATCH_THRESHOLD = 0.86;
 
 const MAX_CLIENT_NAME_LENGTH = 120;
 
@@ -50,7 +50,7 @@ function sortedTokens(value: string): string {
 }
 
 /** 1 when the normalized names are equal, otherwise Levenshtein on the full name and on sorted words. */
-export function clientNameSimilarity(left: string, right: string): number {
+function clientNameSimilarity(left: string, right: string): number {
   const a = normalizeClientName(left);
   const b = normalizeClientName(right);
   if (!a || !b) return 0;

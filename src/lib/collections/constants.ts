@@ -6,6 +6,7 @@ export const POLICY_AT_RISK_DAYS = 30;
 /** Horizon for "pagos por registrar" on Vista general. */
 export const PENDING_PAYMENT_WITHIN_DAYS = 15;
 
+/** @lintignore Only used by src/parked (collections grid). */
 export const COLLECTION_STATUS_OPTIONS: {
   value: CollectionStatus;
   label: string;
@@ -19,6 +20,7 @@ export const COLLECTION_STATUS_OPTIONS: {
     { value: "ATRASADO", label: "ATRASADO" },
   ];
 
+/** @lintignore Only used by src/parked (collections grid). */
 export const MONTH_COLUMNS = [
   { month: 1, label: "ENE" },
   { month: 2, label: "FEB" },

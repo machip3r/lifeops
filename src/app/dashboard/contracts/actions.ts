@@ -1,6 +1,6 @@
 "use server";
 
-import { createManualContract } from "@/lib/contracts/manual-create";
+import { createManualContract } from "@/lib/db/manual-contract";
 import { createUserClient } from "@/lib/supabase/user-client";
 import { zodFieldErrors } from "@/lib/validation/field-errors";
 import { createManualContractSchema } from "@/lib/validation/schemas";

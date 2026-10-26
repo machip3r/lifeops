@@ -7,6 +7,7 @@ import { db } from '@/lib/db';
 import { ConsultantHome } from '@/components/dashboard/consultant-home';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { CollectionOverview } from '@/components/dashboard/overview/collection-overview';
 import {
   PENDING_PAYMENT_WITHIN_DAYS,
   POLICY_AT_RISK_DAYS,
@@ -16,25 +17,24 @@ import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
 
 export default function DashboardPage() {
   const { profile, loading } = useAuth();
-  const [priorityLoading, setPriorityLoading] = useQueryLoading(
-    profile?.role === 'promotory' ? profile.id : '',
-  );
+  const officeId = profile?.role === 'promotory' ? profile.id : '';
+  const [priorityLoading, setPriorityLoading] = useQueryLoading(officeId);
   const [atRisk, setAtRisk] = useState<ContractAtRisk[]>([]);
   const [pendingPayments, setPendingPayments] = useState<ContractPendingPayment[]>([]);
 
   const loadPriorityLists = useCallback(async () => {
-    if (!profile?.id || profile.role !== 'promotory') {
+    if (!officeId) {
       setPriorityLoading(false);
       return;
     }
     try {
       const [riskRows, pendingRows] = await Promise.all([
         db.dashboard.listContractsAtRisk({
-          officeId: profile.id,
+          officeId,
           riskDays: POLICY_AT_RISK_DAYS,
         }),
         db.dashboard.listContractsPendingPayment({
-          officeId: profile.id,
+          officeId,
           withinDays: PENDING_PAYMENT_WITHIN_DAYS,
         }),
       ]);
@@ -45,9 +45,9 @@ export default function DashboardPage() {
     } finally {
       setPriorityLoading(false);
     }
-  }, [profile?.id, profile?.role, setPriorityLoading]);
+  }, [officeId, setPriorityLoading]);
 
-  useQueryEffect(!loading && profile?.role === 'promotory', loadPriorityLists);
+  useQueryEffect(!loading && Boolean(officeId), loadPriorityLists);
 
   if (loading) {
     return (
@@ -70,10 +70,12 @@ export default function DashboardPage() {
       <PageHeader
         title="Vista general"
         watermark="Vista general"
-        description="Prioriza cobranza y recordatorios de tu promotoría."
+        description="Cartera y cobranza de tu promotoría de un vistazo."
       />
 
-      <div className="mb-10 space-y-4">
+      <CollectionOverview scope={{ officeId: profile.id }} />
+
+      <div className="mt-10 mb-10 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold text-(--lifeops-fg)">
             Prioridad de cobranza

@@ -15,6 +15,9 @@ export type ValidationMessages = {
   consultantCode: string;
   consultantName: string;
   notes: string;
+  phone: string;
+  agencyCode: string;
+  selectAtLeastOne: string;
   invalid: string;
 };
 
@@ -32,6 +35,9 @@ export const VALIDATION_MESSAGES: ValidationMessages = {
   consultantCode: "Ingresa un código de asesor válido.",
   consultantName: "Ingresa un nombre de asesor válido.",
   notes: "El texto contiene caracteres no permitidos.",
+  phone: "Ingresa un teléfono de 10 dígitos.",
+  agencyCode: "Usa solo letras, números y . _ / - (máximo 32).",
+  selectAtLeastOne: "Elige al menos una opción.",
   invalid: "El valor no es válido.",
 };
 
@@ -65,6 +71,17 @@ const FIELD_KIND: Record<string, keyof ValidationMessages> = {
   paymentMethod: "required",
   consultantId: "required",
   clientId: "required",
+  officeName: "entityName",
+  stateCode: "required",
+  agencyCode: "agencyCode",
+  fullName: "personName",
+  jobRole: "required",
+  phone: "phone",
+  ownerName: "personName",
+  ownerPhone: "phone",
+  otherInsurer: "entityName",
+  consultantCountRange: "required",
+  activePolicyRange: "required",
 };
 
 /** Map Zod issues to per-field Spanish messages. */
@@ -91,6 +108,7 @@ function messageForIssue(
   if (issue.message === "mismatch") return messages.passwordMismatch;
   if (issue.message === "date") return messages.date;
   if (issue.message === "required") return messages.required;
+  if (issue.message === "selectAtLeastOne") return messages.selectAtLeastOne;
   if (issue.code === "too_small" && issue.origin === "string") {
     if (issue.minimum === 1) return messages.required;
     if (field === "password" || field === "confirmPassword") {

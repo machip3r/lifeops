@@ -15,7 +15,7 @@ export type AuditWriteInput = {
 };
 
 /** Map session/app role to audit_log.actor_role (`promotory` → `office`). */
-export function toAuditActorRole(
+function toAuditActorRole(
   role: string | null | undefined,
 ): AuditActorRole | null {
   if (role === "office" || role === "consultant" || role === "system") {

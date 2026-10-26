@@ -7,13 +7,20 @@ import { authFetch } from '@/lib/api-client';
 import ProtectedRoute from '@/components/protected-route';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { DetailCard } from '@/components/dashboard/detail-card';
+import { OfficeSettings } from '@/components/onboarding/office-settings';
+import { useToast } from '@/components/toast';
+import { Button } from '@/components/ui/button';
+import { FormField } from '@/components/ui/form-field';
+import { Input } from '@/components/ui/input';
+import { LIMITS } from '@/lib/validation/schemas';
 
 function ProfilePageContent() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, loading: authLoading, reloadProfile } = useAuth();
+  const { toast } = useToast();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [cleaning, setCleaning] = useState(false);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const profileKey = profile
@@ -46,37 +53,22 @@ function ProfilePageContent() {
     };
   }, [officeId]);
 
+  /** Asesor display name (promotoría data is edited in OfficeSettings). */
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!profile) return;
+    if (profile?.role !== 'consultant') return;
 
     setSaving(true);
-    setMessage(null);
-
     try {
-      if (profile.role === 'promotory') {
-        // Update office name
-        await db.office.updateOffice(profile.id, { name });
-      } else if (profile.role === 'consultant') {
-        // getConsultantById searches by both id and auth_user_id
-        const consultant = await db.consultant.getConsultantById(profile.id);
-        if (!consultant) {
-          throw new Error('Consultant not found');
-        }
-        // Use the consultant's actual id (not auth_user_id) for the update
-        await db.consultant.updateConsultant(consultant.id, { name });
-      }
-
-      setMessage({ type: 'success', text: 'Nombre actualizado correctamente' });
-
-      // Reload the page after a short delay to refresh profile data
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
-    } catch (error: any) {
+      // getConsultantById searches by both id and auth_user_id
+      const consultant = await db.consultant.getConsultantById(profile.id);
+      if (!consultant) throw new Error('No encontramos tu perfil de asesor.');
+      await db.consultant.updateConsultant(consultant.id, { name: name.trim() });
+      await reloadProfile();
+      toast.success('Nombre actualizado.');
+    } catch (error: unknown) {
       console.error('Error updating profile:', error);
-      setMessage({ type: 'error', text: error.message || 'Error al actualizar el perfil' });
+      toast.error('No se pudo actualizar tu nombre. Intenta de nuevo.');
     } finally {
       setSaving(false);
     }
@@ -103,125 +95,78 @@ function ProfilePageContent() {
       <PageHeader
         title="Perfil"
         watermark="Perfil"
-        description="Gestiona la configuración y preferencias de tu perfil"
+        description={profile.role === 'promotory' ? 'Datos de tu promotoría y de tu cuenta' : 'Tus datos como asesor'}
       />
 
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 max-w-2xl">
-        <form onSubmit={handleSave} className="space-y-6">
-          <div>
-            <label htmlFor="profile-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Nombre
-            </label>
-            <input
-              id="profile-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="Tu nombre"
-              required
-            />
-          </div>
+      {profile.role === 'promotory' ? (
+        <div className="max-w-3xl">
+          <OfficeSettings officeId={profile.id} />
 
-          <div>
-            <label htmlFor="profile-email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Correo Electrónico
-            </label>
-            <input
-              id="profile-email"
-              type="email"
-              value={email}
-              disabled
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
-              placeholder="tu.correo@ejemplo.com"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              El correo electrónico no se puede modificar
-            </p>
-          </div>
-
-          {profile.role === 'consultant' && (
-            <>
-              <div>
-                <label
-                  htmlFor="profile-office"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                >
-                  Promotoría
-                </label>
-                <input
-                  id="profile-office"
-                  type="text"
-                  value={officeName || '—'}
-                  disabled
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
-                />
-              </div>
-              {profile.consultant_code ? (
-                <div>
-                  <label
-                    htmlFor="profile-consultant-code"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-                  >
-                    Código de asesor
-                  </label>
-                  <input
-                    id="profile-consultant-code"
-                    type="text"
-                    value={profile.consultant_code}
-                    disabled
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 cursor-not-allowed"
-                  />
-                </div>
-              ) : null}
-            </>
-          )}
-
-          {message && (
-            <div className={`p-4 rounded-lg ${message.type === 'success'
-              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
-              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-              }`}>
-              <p className={`text-sm ${message.type === 'success'
-                ? 'text-green-800 dark:text-green-200'
-                : 'text-red-800 dark:text-red-200'
-                }`}>
-                {message.text}
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-col gap-4">
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-fit"
+          <DetailCard title="Cuenta">
+            <FormField
+              label="Correo electrónico"
+              htmlFor="profile-email"
+              variant="auth"
+              hint="El correo de la cuenta no se puede modificar."
             >
-              {saving ? 'Guardando...' : 'Guardar Cambios'}
-            </button>
+              <Input id="profile-email" type="email" value={email} disabled />
+            </FormField>
+          </DetailCard>
 
-            {profile.role === 'promotory' && (
-              <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
-                <h2 className="text-sm font-semibold text-red-600 dark:text-red-400 mb-2">
-                  Zona de peligro
-                </h2>
-                <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                  Esta acción eliminará todas las pólizas, detalles, cobranza (pagos e historial),
-                  clientes y asesores asociados a esta promotoría. No se pueden deshacer estos cambios.
-                </p>
-                <button
-                  type="button"
-                  disabled={cleaning}
-                  onClick={() => setShowCleanupDialog(true)}
-                  className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed w-fit"
-                >
-                  Limpiar todos los datos registrados
-                </button>
-              </div>
-            )}
-          </div>
+          <DetailCard title="Zona de peligro">
+            <p className="mb-4 text-sm text-(--lifeops-muted)">
+              Esta acción eliminará todas las pólizas, detalles, cobranza (pagos e historial),
+              clientes y asesores asociados a esta promotoría. No se puede deshacer.
+            </p>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={cleaning}
+              onClick={() => setShowCleanupDialog(true)}
+            >
+              Limpiar todos los datos registrados
+            </Button>
+          </DetailCard>
+        </div>
+      ) : (
+        <form onSubmit={handleSave} className="max-w-2xl">
+          <DetailCard title="Tus datos">
+            <div className="flex flex-col gap-5">
+              <FormField label="Nombre" htmlFor="profile-name" variant="auth">
+                <Input
+                  id="profile-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={LIMITS.personName}
+                  autoCapitalize="words"
+                  required
+                />
+              </FormField>
+              <FormField
+                label="Correo electrónico"
+                htmlFor="profile-email"
+                variant="auth"
+                hint="El correo de la cuenta no se puede modificar."
+              >
+                <Input id="profile-email" type="email" value={email} disabled />
+              </FormField>
+              <FormField label="Promotoría" htmlFor="profile-office" variant="auth">
+                <Input id="profile-office" value={officeName || '—'} disabled />
+              </FormField>
+              {profile.consultant_code ? (
+                <FormField label="Código de asesor" htmlFor="profile-consultant-code" variant="auth">
+                  <Input id="profile-consultant-code" value={profile.consultant_code} disabled />
+                </FormField>
+              ) : null}
+            </div>
+            <div className="mt-6 flex justify-end">
+              <Button type="submit" variant="brand" disabled={saving || !name.trim()}>
+                {saving ? 'Guardando…' : 'Guardar cambios'}
+              </Button>
+            </div>
+          </DetailCard>
         </form>
-      </div>
+      )}
 
       <ConfirmDialog
         open={showCleanupDialog}
@@ -238,7 +183,6 @@ function ProfilePageContent() {
           void (async () => {
             if (!profile?.id) return;
             setCleaning(true);
-            setMessage(null);
             try {
               const res = await authFetch('/api/office/cleanup', {
                 method: 'POST',
@@ -251,19 +195,14 @@ function ProfilePageContent() {
                 );
               }
               setShowCleanupDialog(false);
-              setMessage({
-                type: 'success',
-                text: 'Datos de la promotoría eliminados correctamente.',
-              });
+              toast.success('Datos de la promotoría eliminados correctamente.');
             } catch (error: unknown) {
               console.error('Error cleaning office data:', error);
-              setMessage({
-                type: 'error',
-                text:
-                  error instanceof Error
-                    ? error.message
-                    : 'Error al limpiar los datos de la promotoría',
-              });
+              toast.error(
+                error instanceof Error
+                  ? error.message
+                  : 'Error al limpiar los datos de la promotoría',
+              );
             } finally {
               setCleaning(false);
             }

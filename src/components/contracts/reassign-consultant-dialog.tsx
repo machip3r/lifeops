@@ -9,6 +9,7 @@ import { AppDialog } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 
 type Props = {
   officeId: string;
@@ -16,9 +17,6 @@ type Props = {
   currentConsultantId: string;
   onReassigned: () => void;
 };
-
-const selectClass =
-  'h-9 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
 
 export function ReassignConsultantDialog({
   officeId,
@@ -128,12 +126,11 @@ export function ReassignConsultantDialog({
             variant="auth"
             error={fieldErrors.toConsultantId}
           >
-            <select
+            <Select
               id="to-consultant"
               value={toConsultantId}
               disabled={loadingList || submitting}
               onChange={(e) => setToConsultantId(e.target.value)}
-              className={selectClass}
             >
               <option value="">
                 {loadingList ? 'Cargando…' : 'Selecciona un asesor'}
@@ -144,7 +141,7 @@ export function ReassignConsultantDialog({
                   {c.consultant_code ? ` (${c.consultant_code})` : ''}
                 </option>
               ))}
-            </select>
+            </Select>
           </FormField>
 
           <FormField label="Nota (opcional)" htmlFor="reassign-notes" variant="auth">

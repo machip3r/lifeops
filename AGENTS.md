@@ -4,6 +4,10 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+## Git
+
+**Never commit, push, or open PRs** — the user always makes commits themselves. Leave changes in the working tree and summarize what changed.
+
 ## Package manager
 
 Use **pnpm** only (`pnpm install`, `pnpm add`, `pnpm run dev`, etc.). Do not use `npm` or `yarn` for this repo.
@@ -14,7 +18,7 @@ Do **not** run `pnpm run build` (or `next build`) on every change unless the use
 
 ## Project
 
-Insurance operations admin for offices (**promotoría**) and agents (**asesores**) — Next.js App Router, Supabase, Tailwind, shadcn. Product UI under `/dashboard`; auth at `/login`; invitations at `/invite/[token]`.
+Insurance operations admin for offices (**promotoría**) and agents (**asesores**) — Next.js App Router, Supabase, Tailwind, shadcn. Product UI under `/dashboard`; auth at `/login`; promotoría onboarding at `/onboarding`; invitations at `/invite/[token]`.
 
 - **Roles:** `promotory` (office, row in `office` where `id` = `auth.users.id`) and `consultant` (row in `consultant`, optionally linked via `auth_user_id`).
 - **Tenancy:** office-scoped. Promotory sees office-wide data; consultants see only their own contracts/clients/related rows.
@@ -30,6 +34,7 @@ src/
     dashboard/            # authenticated product
     login/                # auth
     invite/[token]/       # consultant invitation acceptance
+    onboarding/           # promotoría onboarding stepper (+ actions.ts reused by Perfil)
     api/                  # route handlers (webhooks, privileged HTTP, OCR, invites)
   components/
     ui/                   # shadcn / design-system primitives
@@ -40,8 +45,9 @@ src/
     auth/                 # Auth adapters: client.ts, admin.ts, token.ts, api.ts (Bearer)
     storage/              # Storage adapters: admin.ts (documents bucket, server only)
     validation/           # Zod schemas, field-error mapping
-    db.ts                 # RLS-scoped table access (output adapter)
-    db-admin.ts           # privileged table access (output adapter; wraps Auth/Storage when needed)
+    db/                   # RLS-scoped table / RPC access, one module per domain (`db` object in index.ts)
+    db-admin/             # privileged (service role) table access per domain; wraps Auth/Storage when needed
+    extractor/            # commission import (import/), receipt rules, batching — calls `db`, never Supabase
     utils.ts
   types/                  # shared domain types / DTOs (prefer over growing supabase.ts)
 supabase/migrations/      # SQL only — schema / RPC / RLS changes go here
@@ -133,11 +139,11 @@ User-uploaded files (payment evidence, document attachments, etc.) must be treat
 ## Backend: Server Actions, APIs, errors
 
 - **Direction of travel:** new mutations and privileged reads via **Next.js Server Actions** or Route Handlers using a **server-only** Supabase client. Do not expand client-side service-role usage.
-- **Today:** most reads/writes still go through `src/lib/db.ts` (anon + RLS) from client components. Privileged Auth/admin work is on `/api/**` with Bearer auth — do not reintroduce service-role usage on the client.
+- **Today:** most reads/writes still go through `db` (`src/lib/db/`, anon + RLS) from client components. Privileged Auth/admin work is on `/api/**` with Bearer auth — do not reintroduce service-role usage on the client.
 - **Route Handlers** (`src/app/api/**/route.ts`): use for invites (Resend), OCR, cleanup, webhooks, or public HTTP — follow **REST** (correct methods, status codes, JSON error body). Do not add GraphQL unless explicitly requested.
 - **Service role** (`src/lib/supabase/admin.ts`): **server only** via env `SUPABASE_SERVICE_ROLE_KEY`. Never put it in `NEXT_PUBLIC_*` or in `next.config.ts` `env` (that inlines into the client). Never import `supabaseAdmin` in client components.
 - Privileged Route Handlers must call `requireOfficeContext` (`Authorization: Bearer <access_token>`; client helper `authFetch`) then authorize tenancy before using `db-admin` / Auth Admin / Storage Admin.
-- Client data access uses RLS-scoped `supabase` from `src/lib/supabase.ts` + `src/lib/db.ts`. Admin Auth / cross-tenant work goes through `/api/**` (extractor create/missing consultants, consultant email update, office cleanup, invites).
+- Client data access uses the RLS-scoped `db` adapters in `src/lib/db/`. Admin Auth / cross-tenant work goes through `/api/**` (extractor create/missing consultants, consultant email update, office cleanup, invites).
 - **Errors**: handle consistently — map failures to safe user-facing messages (Spanish UI copy is fine); return `{ error: string }` (or a shared result type); do not leak raw DB/Auth stack traces. Log server-side detail when useful; show safe copy to users.
 - After successful mutations: `revalidatePath` / `redirect` as appropriate when using Server Actions; keep success and failure paths explicit (no silent `catch`).
 
@@ -149,7 +155,13 @@ Hexagonal light: pages and route handlers are **input**; persistence lives in ad
 - **JWT on the server** — validate Bearer tokens via `src/lib/auth/token.ts` (`getUserFromAccessToken`); `requireOfficeContext` in `src/lib/auth/api.ts` stays the HTTP boundary.
 - **Auth Admin** (create/update/delete/list users) — only via `src/lib/auth/admin.ts`. Do **not** call `supabaseAdmin.auth.admin.*` from route handlers; `db-admin` may wrap these helpers for multi-step flows.
 - **Storage** (documents bucket upload / signed URL / remove) — only via `src/lib/storage/admin.ts`. Do **not** call `supabaseAdmin.storage.*` from routes.
-- **Tables** — prefer `src/lib/db.ts` (RLS) and `src/lib/db-admin.ts` (service role). New privileged queries/mutations belong in `db-admin`, not inline `.from()` in routes when the same concern already has (or should have) an adapter.
+- **Tables / RPCs — one place only.** Every `supabase.*` / `supabaseAdmin.*` / injected-client `.from()` / `.rpc()` request lives in `src/lib/db/` (RLS) or `src/lib/db-admin/` (service role). Routes, Server Actions, pages, components, contexts and domain helpers (`lib/extractor`, `lib/collections`, …) call adapter functions — never Supabase directly.
+  - Add the query to the module of its domain (`db/contract.ts`, `db-admin/consultants.ts`, …); create a new domain module rather than growing an unrelated one.
+  - Code shared by the browser and Server Actions takes a `SupabaseClient` argument and lives in `src/lib/db/` too (`collections-service.ts`, `manual-contract.ts`, `audit-log.ts`); the Server Action only builds the JWT client (`createUserClient`) and passes it in.
+  - `db-admin` files start with `import "server-only"`; import them through `@/lib/db-admin`.
+  - Server code that should still respect RLS uses `createDb(createUserClient(ctx.accessToken))` (`ctx` from `requireOfficeContext`) instead of the browser `db` instance — e.g. the extractor import actions. Server Actions get tenancy with `resolveOfficeContext(accessToken)`.
+- **Long work on Vercel** — never one long request: split it into short Server Action / API calls coordinated by the browser (see the batched commission import).
+- **Parked-only exports** (used only by `src/parked/`, which knip ignores) keep a `@lintignore Only used by src/parked…` JSDoc tag so `pnpm run knip` stays clean.
 
 ---
 

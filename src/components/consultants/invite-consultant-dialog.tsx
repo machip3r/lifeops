@@ -9,7 +9,7 @@ import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { LIMITS } from '@/lib/validation/schemas';
 
-export type InvitedConsultantInfo = {
+type InvitedConsultantInfo = {
   consultantCode: string;
   name: string;
   email: string;

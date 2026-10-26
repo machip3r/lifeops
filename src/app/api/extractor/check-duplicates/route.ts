@@ -4,9 +4,12 @@ import {
   assertOfficeAccess,
   requireOfficeContext,
 } from "@/lib/auth/api";
-import { findContractsByNumbers } from "@/lib/db-admin";
-import { chunkArray, IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  findContractsByNumbers,
+  listDetailKeysForContractsAdmin,
+} from "@/lib/db-admin";
+import { IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
+import { normalizeReceiptNumber } from "@/lib/extractor/receipt";
 import {
   contractNumberSchema,
   LIMITS,
@@ -16,11 +19,15 @@ const bodySchema = z.object({
   officeId: z.string().uuid(),
   /** Accept raw strings; validate each entry so one bad póliza does not blank the import. */
   contractNumbers: z.array(z.coerce.string()).max(IMPORT_BATCH_SIZE),
-  /** Optional detail checks: contract_number + payment_date + premium for duplicate detection */
+  /** Optional detail checks: contract_number + RECIBO (fallback: payment_date + premium) */
   details: z
     .array(
       z.object({
         contractNumber: z.coerce.string().min(1).max(LIMITS.contractNumber),
+        receiptNumber: z
+          .union([z.string().max(128), z.null(), z.undefined()])
+          .optional()
+          .transform((v) => normalizeReceiptNumber(v)),
         paymentDate: z
           .union([z.string(), z.null(), z.undefined()])
           .optional()
@@ -105,26 +112,13 @@ export async function POST(request: NextRequest) {
     if (parsed.data.details?.length) {
       const contractIds = existing.map((c) => c.id);
       if (contractIds.length > 0) {
-        const existingDetailRows: Array<{
-          contract_id: string;
-          payment_date: string | null;
-          premium_payment: number | null;
-        }> = [];
-        for (const idChunk of chunkArray(contractIds, IMPORT_BATCH_SIZE)) {
-          const { data: details, error: detailsError } = await supabaseAdmin
-            .from("contract_detail")
-            .select("contract_id, payment_date, premium_payment")
-            .in("contract_id", idChunk);
-          if (detailsError) throw detailsError;
-          existingDetailRows.push(
-            ...((details || []) as Array<{
-              contract_id: string;
-              payment_date: string | null;
-              premium_payment: number | null;
-            }>),
-          );
-        }
+        const existingDetailRows = await listDetailKeysForContractsAdmin(contractIds);
 
+        const existingReceipts = new Set(
+          existingDetailRows
+            .filter((d) => d.receipt_number)
+            .map((d) => `${d.contract_id}|${d.receipt_number}`),
+        );
         const existingKeys = new Set(
           existingDetailRows.map(
             (d) =>
@@ -139,6 +133,16 @@ export async function POST(request: NextRequest) {
           if (!checked.success) continue;
           const contract = byNumber.get(checked.data);
           if (!contract) continue;
+          if (row.receiptNumber) {
+            if (existingReceipts.has(`${contract.id}|${row.receiptNumber}`)) {
+              duplicateDetails.push({
+                contract: checked.data,
+                ticket: row.receiptNumber,
+                row: row.row,
+              });
+            }
+            continue;
+          }
           const key = `${contract.id}|${row.paymentDate ?? ""}|${row.premiumPayment ?? ""}`;
           if (existingKeys.has(key)) {
             duplicateDetails.push({

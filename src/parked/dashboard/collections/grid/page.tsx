@@ -19,7 +19,7 @@ import {
 import type {
   CollectionMonthCell,
   CollectionsGridRow,
-} from '@/lib/collections/service';
+} from '@/lib/db/collections-service';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { useQueryLoading } from '@/hooks/use-query-effect';
 import type { CollectionStatus } from '@/lib/supabase';

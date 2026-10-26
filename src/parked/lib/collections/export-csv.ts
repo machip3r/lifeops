@@ -2,7 +2,7 @@ import {
   COLLECTION_STATUS_OPTIONS,
   MONTH_COLUMNS,
 } from "@/lib/collections/constants";
-import type { CollectionsGridRow } from "@/lib/collections/service";
+import type { CollectionsGridRow } from "@/lib/db/collections-service";
 import type { CollectionStatus } from "@/lib/supabase";
 
 function collectionStatusLabel(

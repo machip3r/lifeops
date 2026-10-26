@@ -13,6 +13,7 @@ import {
 } from '@/components/dashboard/sidebar';
 import { assets } from '@/app/theme/assets';
 import { Button } from '@/components/ui/button';
+import { needsOnboarding, ONBOARDING_PATH } from '@/lib/onboarding/routes';
 
 export default function DashboardLayout({
   children,
@@ -34,6 +35,11 @@ export default function DashboardLayout({
       router.replace('/login');
     }
   }, [loading, session, router]);
+
+  const mustOnboard = Boolean(profile && needsOnboarding(profile));
+  useEffect(() => {
+    if (mustOnboard) router.replace(ONBOARDING_PATH);
+  }, [mustOnboard, router]);
 
   if (loading || (session && !profile && profilePhase === 'loading')) {
     return (
@@ -81,6 +87,14 @@ export default function DashboardLayout({
             </Button>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (mustOnboard) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page)">
+        <p className="text-lg text-(--lifeops-fg)">Preparando tu registro...</p>
       </div>
     );
   }

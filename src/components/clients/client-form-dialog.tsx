@@ -21,7 +21,7 @@ function todayIsoDate(): string {
   return `${y}-${m}-${day}`;
 }
 
-export type ClientFormSubmitData = {
+type ClientFormSubmitData = {
   name: string;
   date_of_birth: string;
   curp: string | null;

@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 export const dataTablePanelClass =
   'overflow-hidden rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) shadow-lg';
 
-export type DataTableSort = {
+type DataTableSort = {
   label: string;
   active: boolean;
   dir: SortDir;

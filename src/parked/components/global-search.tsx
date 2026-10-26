@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/auth-context';
 import {
     TABLE_FILTER_DEBOUNCE_MS,
     useDebouncedValue,
-} from '@/hooks/use-debounced-value';
+} from '@/parked/hooks/use-debounced-value';
 
 interface SearchResult {
     type: 'contract' | 'consultant' | 'client';

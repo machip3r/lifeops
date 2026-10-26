@@ -9,6 +9,7 @@ import { AppDialog } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/contracts/payment-methods';
 import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
 import { db } from '@/lib/db';
@@ -20,9 +21,6 @@ type Props = {
   onClose: () => void;
   onCreated: () => void;
 };
-
-const selectClass =
-  'h-9 w-full rounded-lg border-2 border-(--lifeops-border) bg-(--lifeops-chrome) px-3 text-sm text-(--lifeops-fg) shadow-xs outline-none focus-visible:border-(--lifeops-accent) focus-visible:ring-3 focus-visible:ring-[#FBDBAC]/30';
 
 function todayIsoDate(): string {
   const d = new Date();
@@ -253,9 +251,8 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                 error={fieldErrors.consultantId}
                 className="flex-1 min-w-[220px]"
               >
-                <select
+                <Select
                   id="manual-consultant"
-                  className={selectClass}
                   value={consultantId}
                   onChange={(e) => setConsultantId(e.target.value)}
                   required
@@ -266,7 +263,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                       {(c.consultant_code || '—') + ' · ' + (c.name || 'Sin nombre')}
                     </option>
                   ))}
-                </select>
+                </Select>
               </FormField>
               <Button
                 type="button"
@@ -332,9 +329,8 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                 variant="auth"
                 error={fieldErrors.clientId}
               >
-                <select
+                <Select
                   id="manual-client-select"
-                  className={selectClass}
                   value={clientId}
                   onChange={(e) => handleClientSelect(e.target.value)}
                   required
@@ -345,7 +341,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                       {c.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </FormField>
             ) : (
               <div className="space-y-4">
@@ -497,9 +493,8 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
               variant="auth"
               error={fieldErrors.projectName}
             >
-              <select
+              <Select
                 id="manual-project"
-                className={selectClass}
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
                 required
@@ -510,7 +505,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </FormField>
 
             <FormField
@@ -519,9 +514,8 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
               variant="auth"
               error={fieldErrors.paymentMethod}
             >
-              <select
+              <Select
                 id="manual-payment-method"
-                className={selectClass}
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 required
@@ -532,7 +526,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                     {name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </FormField>
           </div>
 

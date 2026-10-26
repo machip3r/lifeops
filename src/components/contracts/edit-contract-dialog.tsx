@@ -8,6 +8,7 @@ import { AppDialog } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { CURRENCY_OPTIONS, currencyToStore, normalizeCurrency } from '@/lib/contracts/currencies';
 
 type Props = {
@@ -16,9 +17,6 @@ type Props = {
   onClose: () => void;
   onSaved: (next: Contract) => void;
 };
-
-const selectClass =
-  'h-12 w-full rounded-lg border border-input bg-transparent px-3 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50';
 
 export function EditContractDialog({ open, contract, onClose, onSaved }: Props) {
   const [payment, setPayment] = useState(contract.payment_method ?? '');
@@ -88,12 +86,11 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
     >
       <div className="space-y-4">
         <FormField label="Forma de pago" htmlFor="edit-contract-payment" variant="auth">
-          <select
+          <Select
             id="edit-contract-payment"
             value={payment}
             disabled={saving}
             onChange={(e) => setPayment(e.target.value)}
-            className={selectClass}
           >
             <option value="">Sin definir</option>
             {paymentOptions.map((option) => (
@@ -101,7 +98,7 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
                 {option}
               </option>
             ))}
-          </select>
+          </Select>
         </FormField>
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Prima anual" htmlFor="edit-contract-premium" variant="auth">
@@ -124,9 +121,8 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
           </FormField>
         </div>
         <FormField label="Moneda" htmlFor="edit-contract-currency" variant="auth">
-          <select
+          <Select
             id="edit-contract-currency"
-            className={selectClass}
             value={currency}
             disabled={saving}
             onChange={(e) => setCurrency(e.target.value)}
@@ -140,7 +136,7 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
             {currency && !normalizeCurrency(currency) ? (
               <option value={currency}>{currency}</option>
             ) : null}
-          </select>
+          </Select>
         </FormField>
         {error ? (
           <p role="alert" className="text-sm text-red-600 dark:text-red-300">

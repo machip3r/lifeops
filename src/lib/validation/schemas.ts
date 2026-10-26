@@ -1,5 +1,12 @@
 import { z } from "zod";
 import { PAYMENT_METHOD_OPTIONS } from "@/lib/contracts/payment-methods";
+import {
+  ACTIVE_POLICY_RANGES,
+  CONSULTANT_COUNT_RANGES,
+  JOB_ROLES,
+  OTHER_CODE,
+  PRIMARY_GOALS,
+} from "@/lib/onboarding/options";
 
 /** Shared limits — keep form `maxLength` in sync with these. */
 export const LIMITS = {
@@ -17,6 +24,12 @@ export const LIMITS = {
   documentFileBytes: 20 * 1024 * 1024,
   changeDetails: 4000,
   folioNumber: 64,
+  importRows: 20000,
+  importColumns: 64,
+  importCell: 1000,
+  importPriorKey: 200,
+  importBatchRows: 1000,
+  fileName: 255,
 } as const;
 
 /** Lowercase email local+domain shape (after trim + lowercasing). */
@@ -42,6 +55,9 @@ export const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Free text — allow newlines/tabs, reject other controls. */
 export const MESSAGE_PATTERN = /^[^\x00-\x08\x0B\x0C\x0E-\x1F\x7F]+$/;
+
+/** Extracted file cell / header — may be empty; tabs/newlines allowed, other controls rejected. */
+export const IMPORT_CELL_PATTERN = /^[^\x00-\x08\x0B\x0C\x0E-\x1F\x7F]*$/;
 
 /** Poliza / folio style identifiers. */
 export const CONTRACT_NUMBER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/\-]*$/;
@@ -239,8 +255,8 @@ export const loginSchema = z.object({
   password: loginPasswordSchema,
 });
 
+/** Promotoría signup: account only; the rest is asked in onboarding. */
 export const signupSchema = z.object({
-  name: personNameSchema,
   email: emailSchema,
   password: passwordSchema,
 });
@@ -459,3 +475,136 @@ export const createManualContractSchema = z.object({
   projectName: entityNameSchema,
   paymentMethod: paymentMethodSchema,
 });
+
+const importCellSchema = z
+  .string()
+  .max(LIMITS.importCell)
+  .regex(IMPORT_CELL_PATTERN);
+
+const commissionImportMetaInputSchema = z.object({
+  fileIssueDate: z.string().trim().regex(ISO_DATE_PATTERN, { message: "date" }),
+  priorPaymentByContract: z
+    .record(
+      z.string().min(1).max(LIMITS.importPriorKey).regex(IMPORT_CELL_PATTERN),
+      z.string().trim().regex(ISO_DATE_PATTERN, { message: "date" }),
+    )
+    .optional(),
+  fileName: z
+    .string()
+    .trim()
+    .max(LIMITS.fileName)
+    .regex(IMPORT_CELL_PATTERN)
+    .nullable()
+    .optional(),
+  requirePriorForNew: z.boolean().optional(),
+});
+
+/** Extractor import, step 1: validate dates and open the batch record. */
+export const commissionImportStartSchema = z.object({
+  rowCount: z.number().int().min(1).max(LIMITS.importRows),
+  importMeta: commissionImportMetaInputSchema,
+});
+
+/** Extractor import, step 2: one batch of preview rows (whole pólizas). */
+export const commissionImportBatchSchema = z.object({
+  commissionImportId: uuidSchema.nullable(),
+  headers: z.array(importCellSchema).max(LIMITS.importColumns),
+  rows: z
+    .array(
+      z.object({
+        index: z.number().int().min(0).max(LIMITS.importRows),
+        cells: z.array(importCellSchema).max(LIMITS.importColumns),
+      }),
+    )
+    .min(1)
+    .max(LIMITS.importBatchRows),
+  importMeta: commissionImportMetaInputSchema,
+});
+
+const importCountSchema = z.number().int().min(0).max(1_000_000);
+
+/** Extractor import, step 3: close the batch record and audit the totals. */
+export const commissionImportFinishSchema = z.object({
+  commissionImportId: uuidSchema.nullable(),
+  contractsProcessed: importCountSchema,
+  errorCount: importCountSchema,
+  counts: z.object({
+    contractsCreated: importCountSchema,
+    contractsUpdated: importCountSchema,
+    detailsInserted: importCountSchema,
+    detailsUpdated: importCountSchema,
+    paymentsMarked: importCountSchema,
+  }),
+});
+
+/** Mexican phone: 10 digits (spaces, dashes and a leading +52 are dropped). */
+export const MX_PHONE_PATTERN = /^\d{10}$/;
+
+/** Clave de promotoría (same rule as the `office_agency_code_check` constraint). */
+export const AGENCY_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,31}$/;
+
+/** Catalog codes (aseguradoras, ramos). */
+const CATALOG_CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,31}$/;
+
+export const mxPhoneSchema = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 12 && digits.startsWith("52") ? digits.slice(2) : digits;
+}, z.string().regex(MX_PHONE_PATTERN));
+
+const optionalText = (schema: z.ZodType<string>) =>
+  z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    schema.nullable().optional(),
+  );
+
+/** Onboarding step 1 / Perfil: the promotoría. */
+export const officeOnboardingProfileSchema = z.object({
+  officeName: entityNameSchema,
+  stateCode: z.string().regex(/^[A-Z]{3}$/, { message: "required" }),
+  agencyCode: optionalText(z.string().trim().max(32).regex(AGENCY_CODE_PATTERN)),
+});
+
+/** Onboarding step 2 / Perfil: who registers (+ the owner when it is someone else). */
+export const officeOnboardingContactsSchema = z
+  .object({
+    fullName: personNameSchema,
+    jobRole: z.enum(JOB_ROLES, { message: "required" }),
+    phone: mxPhoneSchema,
+    ownerName: optionalText(personNameSchema),
+    ownerPhone: optionalText(mxPhoneSchema),
+  })
+  .superRefine((value, ctx) => {
+    if (value.jobRole === "OWNER") return;
+    if (!value.ownerName) {
+      ctx.addIssue({ code: "custom", path: ["ownerName"], message: "required" });
+    }
+    if (!value.ownerPhone) {
+      ctx.addIssue({ code: "custom", path: ["ownerPhone"], message: "required" });
+    }
+  });
+
+/** Onboarding step 3 / Perfil: the operation. */
+export const officeOnboardingOperationSchema = z
+  .object({
+    insurerCodes: z
+      .array(z.string().regex(CATALOG_CODE_PATTERN))
+      .min(1, { message: "selectAtLeastOne" })
+      .max(20)
+      .transform((codes) => [...new Set(codes)]),
+    otherInsurer: optionalText(entityNameSchema.max(80)),
+    lineCodes: z
+      .array(z.string().regex(CATALOG_CODE_PATTERN))
+      .min(1, { message: "selectAtLeastOne" })
+      .max(20)
+      .transform((codes) => [...new Set(codes)]),
+    consultantCountRange: z.enum(CONSULTANT_COUNT_RANGES, { message: "required" }),
+    activePolicyRange: z.enum(ACTIVE_POLICY_RANGES, { message: "required" }),
+    primaryGoal: z.enum(PRIMARY_GOALS).nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.insurerCodes.includes(OTHER_CODE) && !value.otherInsurer) {
+      ctx.addIssue({ code: "custom", path: ["otherInsurer"], message: "required" });
+    }
+  });
+

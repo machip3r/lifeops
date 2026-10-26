@@ -9,6 +9,7 @@ Follow the full project standards in **`AGENTS.md`** (repo root) for every chang
 
 ## Non-negotiables
 
+- **No commits** — never `git commit` / push / PR; the user always commits
 - **pnpm only** — never npm/yarn
 - **Do not run `pnpm run build`** unless the user asks or the task is build/CI failure
 - **Read Next.js docs in `node_modules/next/dist/docs/`** before using Next APIs — this app’s Next version may differ from training data
@@ -16,7 +17,7 @@ Follow the full project standards in **`AGENTS.md`** (repo root) for every chang
 - **Spanish product UI** — user-visible copy may be Spanish; **routes, files, variables, types, comments, SQL, and API paths are English only** — no Spanish route segments or Spanish identifier names
 - **Human Spanish, few anglicisms** — natural Mexican Spanish in UI/toasts/errors; prefer `correo`, `iniciar sesión`, `enlace`, `archivo` over Spanglish; keep product terms (póliza, asesor, cobranza); see AGENTS.md “Spanish product copy”
 - **Folder structure** — `src/app`, `src/components/ui`, `src/lib`, `src/types`, `supabase/migrations`, `docs/`; colocate `actions.ts` with routes for new mutations; English route segments only (`/dashboard/contracts`, `/dashboard/projection`, …)
-- **Concentrate I/O adapters** — browser Auth → `src/lib/auth/client.ts`; Auth Admin → `src/lib/auth/admin.ts`; Storage → `src/lib/storage/admin.ts`; tables → `db.ts` / `db-admin.ts`. Do not call `supabase.auth.*` / `supabaseAdmin.auth.admin.*` / `supabaseAdmin.storage.*` from pages or routes
+- **Concentrate I/O adapters** — browser Auth → `src/lib/auth/client.ts`; Auth Admin → `src/lib/auth/admin.ts`; Storage → `src/lib/storage/admin.ts`; tables/RPCs → `src/lib/db/` / `src/lib/db-admin/` (one module per domain). **Every** `supabase.*` / `supabaseAdmin.*` request lives there — never in routes, actions, pages, components or domain helpers
 - **Product docs** — if business rules or general LifeOps behavior change, update `README.md` in the same change
 - **Database migrations** — every DB change is a **new** file in `supabase/migrations/`; never edit an already-created migration; update `docs/database.md` in the same change
 - **Verify Supabase project before push** — before `supabase db push` / remote migrations, confirm project ref/name matches the intended env and local `.env` URL; ask if unclear

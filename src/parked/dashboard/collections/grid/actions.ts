@@ -8,7 +8,7 @@ import {
   updatePaymentChannel,
   updateProjectName,
   upsertCollectionPayment,
-} from "@/lib/collections/service";
+} from "@/lib/db/collections-service";
 import { zodFieldErrors } from "@/lib/validation/field-errors";
 import {
   clearCollectionPaymentSchema,

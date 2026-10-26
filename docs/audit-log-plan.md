@@ -5,7 +5,7 @@
 Migración `017_audit_log.sql` **crea** `audit_log`, hace backfill desde `collection_audit_log` + `contract_reassignment_log`, y **elimina** esas dos tablas.  
 `018_audit_log_consultant_rls.sql` corrige RLS de asesores (`id` o `auth_user_id`).
 
-Escritura en app: `src/lib/audit/write.ts` (`writeAuditLog`).
+Escritura en app: `src/lib/db/audit-log.ts` (`writeAuditLog`).
 
 Instrumentado hoy:
 

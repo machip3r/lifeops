@@ -13,22 +13,6 @@ const MONTH_SHORT_ES = [
   "Dic",
 ] as const;
 
-/**
- * Format a date as DD/Mmm/YYYY (e.g. 05/Oct/2026).
- * Accepts ISO date strings, Date, or nullish → "—".
- */
-export function formatDateShortEs(
-  value: string | Date | null | undefined,
-): string {
-  if (value == null || value === "") return "—";
-  const d = typeof value === "string" ? parseDateInput(value) : value;
-  if (!d || Number.isNaN(d.getTime())) return "—";
-  const day = String(d.getUTCDate()).padStart(2, "0");
-  const month = MONTH_SHORT_ES[d.getUTCMonth()] ?? "—";
-  const year = d.getUTCFullYear();
-  return `${day}/${month}/${year}`;
-}
-
 /** Local calendar date (no UTC shift) for date-only UI values. */
 export function formatDateShortEsLocal(
   value: string | Date | null | undefined,

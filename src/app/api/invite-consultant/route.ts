@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeAuditLog } from '@/lib/audit/write';
 import {
   createInvitationTokenAdmin,
   findConsultantEmailConflicts,
   getAdminOfficeById,
   resetConsultantInviteRegistrationAdmin,
+  writeAuditLogAdmin,
 } from '@/lib/db-admin';
-import { supabaseAdmin } from '@/lib/supabase/admin';
 import { Resend } from 'resend';
 import {
   assertOfficeAccess,
@@ -144,7 +143,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await writeAuditLog(supabaseAdmin, {
+    await writeAuditLogAdmin({
       officeId,
       actorUserId: auth.ctx.user.id,
       actorRole: 'office',
