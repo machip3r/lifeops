@@ -34,14 +34,16 @@ type DataTableProps<T> = {
   rows: T[];
   getRowKey: (row: T) => string;
   onRowClick?: (row: T) => void;
+  /** Highlights the row with this key (e.g. the one shown in a side panel) */
+  selectedRowKey?: string | null;
   empty?: ReactNode;
   className?: string;
 };
 
 const headerCellClass =
-  'px-4 py-3 text-left text-xs font-medium uppercase tracking-wider whitespace-nowrap text-(--lifeops-muted)';
+  'px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide whitespace-nowrap text-(--lifeops-muted) first:pl-4 last:pr-4 sm:first:pl-5 sm:last:pr-5';
 
-const bodyCellClass = 'px-4 py-3 text-sm whitespace-nowrap';
+const bodyCellClass = 'px-3 py-2.5 text-[13px] whitespace-nowrap first:pl-4 last:pr-4 sm:first:pl-5 sm:last:pr-5';
 
 function toneClass(tone: DataTableColumn<unknown>['tone']) {
   if (tone === 'muted') return 'text-(--lifeops-muted)';
@@ -54,6 +56,7 @@ export function DataTable<T>({
   rows,
   getRowKey,
   onRowClick,
+  selectedRowKey,
   empty,
   className,
 }: DataTableProps<T>) {
@@ -105,7 +108,7 @@ export function DataTable<T>({
             <tr className="bg-(--lifeops-chrome)">
               <td
                 colSpan={columns.length}
-                className="px-4 py-12 text-center text-sm text-(--lifeops-muted)"
+                className="px-4 py-10 text-center text-sm text-(--lifeops-muted)"
               >
                 {empty}
               </td>
@@ -117,7 +120,11 @@ export function DataTable<T>({
                 className={cn(
                   'group bg-(--lifeops-chrome) hover:bg-(--lifeops-hover)/70',
                   onRowClick && 'cursor-pointer',
+                  selectedRowKey != null &&
+                    getRowKey(row) === selectedRowKey &&
+                    'bg-(--lifeops-hover) shadow-[inset_3px_0_0_var(--lifeops-accent)]',
                 )}
+                aria-selected={selectedRowKey != null ? getRowKey(row) === selectedRowKey : undefined}
                 onClick={onRowClick ? () => activateRow(row) : undefined}
                 onKeyDown={onRowClick ? (event) => onRowKeyDown(event, row) : undefined}
                 tabIndex={onRowClick ? 0 : undefined}
@@ -131,6 +138,10 @@ export function DataTable<T>({
                       column.align === 'right' && 'text-right',
                       column.sticky &&
                         'sticky right-0 z-10 bg-(--lifeops-chrome) font-medium group-hover:bg-(--lifeops-hover)/70',
+                      column.sticky &&
+                        selectedRowKey != null &&
+                        getRowKey(row) === selectedRowKey &&
+                        'bg-(--lifeops-hover)',
                       column.className,
                     )}
                     onClick={

@@ -35,22 +35,22 @@ export function TablePagination({
 
   return (
     <div
-      className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${className}`}
+      className={`flex flex-col gap-2 border-t border-(--lifeops-border) bg-(--lifeops-chrome) px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-5 ${className}`}
     >
-      <p className="text-sm text-gray-600 dark:text-gray-400">
+      <p className="text-xs text-(--lifeops-muted)">
         {total === 0
           ? "Sin resultados"
           : `Mostrando ${from.toLocaleString("es-MX")}–${to.toLocaleString("es-MX")} de ${total.toLocaleString("es-MX")}`}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {onPageSizeChange && (
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+          <label className="flex items-center gap-2 text-xs text-(--lifeops-muted)">
             <span className="sr-only">Filas por página</span>
             <select
               value={pageSize || DEFAULT_PAGE_SIZE}
               disabled={disabled}
               onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
+              className="h-8 rounded-md border border-(--lifeops-border) bg-(--lifeops-page) px-2 text-xs text-(--lifeops-fg) focus:outline-none focus:ring-2 focus:ring-[#FBDBAC]"
               aria-label="Filas por página"
             >
               {PAGE_SIZE_OPTIONS.map((size) => (
@@ -61,7 +61,7 @@ export function TablePagination({
             </select>
           </label>
         )}
-        <span className="text-sm text-gray-600 dark:text-gray-400 tabular-nums">
+        <span className="text-xs tabular-nums text-(--lifeops-muted)">
           Pág. {safePage} / {pages}
         </span>
         <Button

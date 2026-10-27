@@ -24,7 +24,7 @@ function buildAlerts(o: CollectionOverview): Alert[] {
     alerts.push({ severity: "warning", text: `${n(o.status.overdue)} póliza(s) con cobro vencido (hasta ${o.risk_days} días)`, href: "/dashboard/collections" });
   }
   if (o.status.no_payment > 0) {
-    alerts.push({ severity: "warning", text: `${n(o.status.no_payment)} póliza(s) sin pagos registrados: no se puede calcular su próximo cobro`, href: "/dashboard/contracts" });
+    alerts.push({ severity: "warning", text: `${n(o.status.no_payment)} póliza(s) sin fecha de emisión ni pagos: no se puede calcular su próximo cobro`, href: "/dashboard/contracts" });
   }
   if (o.missing_payment_method > 0) {
     alerts.push({ severity: "warning", text: `${n(o.missing_payment_method)} póliza(s) sin forma de pago: se calcula como mensual`, href: "/dashboard/contracts" });
@@ -45,12 +45,12 @@ export function OverviewAlerts({ overview, className }: { overview: CollectionOv
   const alerts = buildAlerts(overview);
   return (
     <section className={`flex min-w-0 flex-col rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) ${className ?? ""}`}>
-      <header className="flex items-center justify-between gap-2 px-5 pt-5 pb-3 sm:px-6">
-        <h3 className="text-base font-semibold text-(--lifeops-fg)">Avisos</h3>
+      <header className="flex items-center justify-between gap-2 px-4 pt-4 pb-2.5 sm:px-5">
+        <h3 className="text-[15px] font-semibold text-(--lifeops-fg)">Avisos</h3>
         <span className="text-sm text-(--lifeops-muted)">{alerts.length}</span>
       </header>
       {alerts.length === 0 ? (
-        <p className="flex items-center gap-2 px-5 pb-5 text-sm text-(--lifeops-fg) sm:px-6">
+        <p className="flex items-center gap-2 px-4 pb-5 text-sm text-(--lifeops-fg) sm:px-5">
           <CircleCheck className="h-4 w-4 shrink-0" style={{ color: "var(--viz-current)" }} aria-hidden />
           Todo en orden por ahora.
         </p>
@@ -62,7 +62,7 @@ export function OverviewAlerts({ overview, className }: { overview: CollectionOv
               <li key={alert.text}>
                 <Link
                   href={alert.href}
-                  className="flex items-start gap-3 px-5 py-3 text-sm text-(--lifeops-fg) hover:bg-(--lifeops-hover) focus-visible:bg-(--lifeops-hover) focus-visible:outline-none sm:px-6"
+                  className="flex items-start gap-3 px-4 py-3 text-sm text-(--lifeops-fg) hover:bg-(--lifeops-hover) focus-visible:bg-(--lifeops-hover) focus-visible:outline-none sm:px-5"
                 >
                   <Icon className="mt-0.5 h-4 w-4 shrink-0" style={{ color }} aria-label={label} />
                   <span>{alert.text}</span>

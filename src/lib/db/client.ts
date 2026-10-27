@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Client } from '@/lib/supabase';
+import type { AuditSource, Client, ClientPortfolio, ClientPortfolioFilter } from '@/lib/supabase';
 import { normalizeClientName } from '@/lib/clients/name-match';
+import { auditDiff, writeAuditLog, type AuditActor } from './audit-log';
+import type { EditResult } from './edit-result';
 import { IMPORT_BATCH_SIZE, chunkArray } from '@/lib/extractor/batch';
 import { emptyPageResult, normalizePageParams, toRange, type PageParams, type PageResult, type SortOrder } from '@/lib/pagination';
 
@@ -29,6 +31,33 @@ export function createClientDb(supabase: SupabaseClient) {
     }
 
     const clientDb = {
+        /** Clientes page with contact, pólizas activas and cartera status (`list_client_portfolio`). */
+        listPortfolio: async (opts: {
+            officeId?: string;
+            consultantId?: string;
+            search?: string;
+            status?: ClientPortfolioFilter | null;
+            sort?: SortOrder;
+            riskDays: number;
+            dueSoonDays: number;
+        } & Partial<PageParams>): Promise<ClientPortfolio> => {
+            const { page, pageSize } = normalizePageParams(opts);
+            const { data, error } = await supabase.rpc('list_client_portfolio', {
+                office_id_param: opts.officeId ?? null,
+                consultant_id_param: opts.consultantId ?? null,
+                search_text: opts.search?.trim() || null,
+                status_filter: opts.status ?? null,
+                sort_column: opts.sort?.column ?? 'name',
+                sort_ascending: opts.sort?.ascending ?? true,
+                page_limit: pageSize,
+                page_offset: (page - 1) * pageSize,
+                risk_days: opts.riskDays,
+                due_soon_days: opts.dueSoonDays,
+            });
+            if (error) throw error;
+            return data as ClientPortfolio;
+        },
+
         getAllClients: async (officeId?: string): Promise<Client[]> => {
             let query = supabase.from('client').select('*').order('created_at', { ascending: false });
             if (officeId) {
@@ -289,13 +318,55 @@ export function createClientDb(supabase: SupabaseClient) {
             return data;
         },
 
-        deleteClient: async (id: string): Promise<void> => {
-            const { error } = await supabase
+        /** Edit a client (RLS-scoped) and log only the changed fields as `client.update`. */
+        updateWithAudit: async (
+            id: string,
+            patch: Partial<Client>,
+            actor: AuditActor,
+            source: AuditSource = 'ui',
+        ): Promise<EditResult<Client>> => {
+            const { data: before, error: readError } = await supabase
                 .from('client')
-                .delete()
-                .eq('id', id);
+                .select('*')
+                .eq('id', id)
+                .maybeSingle();
+            if (readError) throw readError;
+            if (!before) return { ok: false, error: 'No encontramos al cliente.' };
 
-            if (error) throw error;
+            const { oldValues, newValues } = auditDiff(before, patch);
+            if (Object.keys(newValues).length === 0) return { ok: true, data: before as Client };
+
+            const { data, error } = await supabase
+                .from('client')
+                .update({ ...newValues, updated_at: new Date().toISOString() })
+                .eq('id', id)
+                .select()
+                .single();
+            if (error) {
+                if (error.code === '23505') {
+                    return {
+                        ok: false,
+                        error: 'Ya existe otro cliente con ese CURP o RFC.',
+                        fieldErrors: 'curp' in newValues
+                            ? { curp: 'Ya existe otro cliente con esa CURP.' }
+                            : { rfc: 'Ya existe otro cliente con ese RFC.' },
+                    };
+                }
+                throw error;
+            }
+
+            await writeAuditLog(supabase, {
+                officeId: actor.officeId,
+                actorUserId: actor.userId,
+                actorRole: actor.role,
+                action: 'client.update',
+                entityType: 'client',
+                entityId: id,
+                source,
+                oldValues: { ...oldValues, name: before.name },
+                newValues: { ...newValues, name: data.name },
+            });
+            return { ok: true, data: data as Client };
         },
 
         listClientNames: async (officeId: string): Promise<string[]> => {

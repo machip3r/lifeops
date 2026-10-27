@@ -1,7 +1,7 @@
 import { authFetch } from "@/lib/api-client";
 import type { File as LifeOpsFile } from "@/lib/supabase";
 
-/** @lintignore Only used by src/parked. */
+/** Short-lived signed URL of a document (tenancy checked by the API). */
 export async function getDocumentSignedUrl(fileId: string): Promise<string> {
   const res = await authFetch(`/api/documents/${fileId}/url`, { method: "GET" });
   const json = (await res.json().catch(() => ({}))) as { url?: string; error?: string };

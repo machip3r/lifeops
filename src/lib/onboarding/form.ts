@@ -71,8 +71,9 @@ export function profileFilled(v: OfficeProfileValues): boolean {
 }
 
 export function contactsFilled(v: OfficeContactsValues): boolean {
-  if (!v.fullName.trim() || !v.jobRole || !v.phone.trim()) return false;
-  return v.jobRole === "OWNER" || Boolean(v.ownerName.trim() && v.ownerPhone.trim());
+  const phoneOk = (phone: string) => phone.replace(/\D/g, "").length === 10;
+  if (!v.fullName.trim() || !v.jobRole || !phoneOk(v.phone)) return false;
+  return v.jobRole === "OWNER" || Boolean(v.ownerName.trim() && phoneOk(v.ownerPhone));
 }
 
 export function operationFilled(v: OfficeOperationValues): boolean {

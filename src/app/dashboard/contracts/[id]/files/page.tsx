@@ -6,6 +6,7 @@ import { Contract, File } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
+import { PageSkeleton } from '@/components/ui/skeleton';
 
 function ContractFilesPageContent() {
   const router = useRouter();
@@ -49,9 +50,7 @@ function ContractFilesPageContent() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
-      </div>
+      <PageSkeleton />
     );
   }
 

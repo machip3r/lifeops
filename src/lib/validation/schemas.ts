@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PAYMENT_METHOD_OPTIONS } from "@/lib/contracts/payment-methods";
+import { CURRENCY_OPTIONS } from "@/lib/contracts/currencies";
 import {
   ACTIVE_POLICY_RANGES,
   CONSULTANT_COUNT_RANGES,
@@ -27,9 +28,10 @@ export const LIMITS = {
   importRows: 20000,
   importColumns: 64,
   importCell: 1000,
-  importPriorKey: 200,
   importBatchRows: 1000,
   fileName: 255,
+  agencyCode: 32,
+  insurerName: 80,
 } as const;
 
 /** Lowercase email local+domain shape (after trim + lowercasing). */
@@ -188,67 +190,6 @@ export const notesSchema = z
   .trim()
   .max(LIMITS.notes)
   .regex(MESSAGE_PATTERN);
-
-export const commissionImportDatesSchema = z.object({
-  issueDate: z
-    .string()
-    .trim()
-    .regex(ISO_DATE_PATTERN, { message: "date" }),
-  priorPaymentDate: z
-    .string()
-    .trim()
-    .regex(ISO_DATE_PATTERN, { message: "date" })
-    .optional()
-    .nullable(),
-});
-
-/**
- * Import meta when the batch includes first-time policies.
- * `priorPaymentDate` is required if `requiresPriorPayment` is true.
- */
-export const commissionImportMetaSchema = z
-  .object({
-    issueDate: z
-      .string()
-      .trim()
-      .regex(ISO_DATE_PATTERN, { message: "date" }),
-    priorPaymentDate: z
-      .string()
-      .trim()
-      .regex(ISO_DATE_PATTERN, { message: "date" })
-      .nullable()
-      .optional(),
-    requiresPriorPayment: z.boolean().default(false),
-  })
-  .superRefine((val, ctx) => {
-    const today = new Date();
-    const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
-
-    if (val.issueDate > todayIso) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["issueDate"],
-        message: "date",
-      });
-    }
-
-    if (val.requiresPriorPayment && !val.priorPaymentDate) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["priorPaymentDate"],
-        message: "required",
-      });
-    }
-    // Last known payment may be after the commission file date (old files).
-    // Only reject future calendar dates.
-    if (val.priorPaymentDate && val.priorPaymentDate > todayIso) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["priorPaymentDate"],
-        message: "date",
-      });
-    }
-  });
 
 export const loginSchema = z.object({
   email: emailSchema,
@@ -470,8 +411,7 @@ export const createManualContractSchema = z.object({
   curp: optionalCurpSchema.optional(),
   rfc: optionalRfcSchema.optional(),
   issueDate: isoDateRequiredSchema,
-  collectionDay: collectionDaySchema,
-  lastPaymentDate: isoDateRequiredSchema,
+  collectionDay: collectionDaySchema.nullable().optional(),
   projectName: entityNameSchema,
   paymentMethod: paymentMethodSchema,
 });
@@ -483,12 +423,6 @@ const importCellSchema = z
 
 const commissionImportMetaInputSchema = z.object({
   fileIssueDate: z.string().trim().regex(ISO_DATE_PATTERN, { message: "date" }),
-  priorPaymentByContract: z
-    .record(
-      z.string().min(1).max(LIMITS.importPriorKey).regex(IMPORT_CELL_PATTERN),
-      z.string().trim().regex(ISO_DATE_PATTERN, { message: "date" }),
-    )
-    .optional(),
   fileName: z
     .string()
     .trim()
@@ -519,6 +453,29 @@ export const commissionImportBatchSchema = z.object({
     .min(1)
     .max(LIMITS.importBatchRows),
   importMeta: commissionImportMetaInputSchema,
+  /** Review picks per póliza number (see `importCommissionBatch`) */
+  decisions: z
+    .record(
+      z.string().trim().min(1).max(LIMITS.contractNumber).regex(IMPORT_CELL_PATTERN),
+      z
+        .array(z.string().regex(/^(consultantCode|clientName|paymentMethod|currency|receipt:[A-Z0-9][A-Z0-9\-/._]{0,63})$/))
+        .max(500),
+    )
+    .optional(),
+});
+
+/** Extractor import, step 2 review: rows of one batch to compare with LifeOps. */
+export const commissionPreviewSchema = z.object({
+  headers: z.array(importCellSchema).max(LIMITS.importColumns),
+  rows: z
+    .array(
+      z.object({
+        index: z.number().int().min(0).max(LIMITS.importRows),
+        cells: z.array(importCellSchema).max(LIMITS.importColumns),
+      }),
+    )
+    .min(1)
+    .max(LIMITS.importBatchRows),
 });
 
 const importCountSchema = z.number().int().min(0).max(1_000_000);
@@ -562,7 +519,7 @@ const optionalText = (schema: z.ZodType<string>) =>
 export const officeOnboardingProfileSchema = z.object({
   officeName: entityNameSchema,
   stateCode: z.string().regex(/^[A-Z]{3}$/, { message: "required" }),
-  agencyCode: optionalText(z.string().trim().max(32).regex(AGENCY_CODE_PATTERN)),
+  agencyCode: optionalText(z.string().trim().max(LIMITS.agencyCode).regex(AGENCY_CODE_PATTERN)),
 });
 
 /** Onboarding step 2 / Perfil: who registers (+ the owner when it is someone else). */
@@ -592,7 +549,7 @@ export const officeOnboardingOperationSchema = z
       .min(1, { message: "selectAtLeastOne" })
       .max(20)
       .transform((codes) => [...new Set(codes)]),
-    otherInsurer: optionalText(entityNameSchema.max(80)),
+    otherInsurer: optionalText(entityNameSchema.max(LIMITS.insurerName)),
     lineCodes: z
       .array(z.string().regex(CATALOG_CODE_PATTERN))
       .min(1, { message: "selectAtLeastOne" })
@@ -608,3 +565,133 @@ export const officeOnboardingOperationSchema = z
     }
   });
 
+
+/** Client contact (Clientes): optional phone / WhatsApp and email. */
+export const clientContactSchema = z.object({
+  phone: optionalText(mxPhoneSchema),
+  email: optionalText(emailSchema),
+});
+
+/** Free-text amounts kept as text on `contract` (prima anual, suma asegurada): digits, , . $ and spaces. */
+const AMOUNT_TEXT_PATTERN = /^[0-9$.,\s]{1,32}$/;
+
+/** Full póliza edit (expediente / Pólizas list). Asesor changes go through Reasignar. */
+export const updateContractSchema = z.object({
+  contractId: uuidSchema,
+  contractNumber: contractNumberSchema,
+  issueDate: optionalIsoDateSchema,
+  paymentMethod: optionalText(paymentMethodSchema),
+  collectionDay: collectionDaySchema.nullable().optional(),
+  currency: optionalText(z.enum(CURRENCY_OPTIONS)),
+  annualPremium: optionalText(z.string().trim().max(32).regex(AMOUNT_TEXT_PATTERN)),
+  insuredAmount: optionalText(z.string().trim().max(32).regex(AMOUNT_TEXT_PATTERN)),
+  projectName: optionalText(entityNameSchema),
+  status: z.enum(["ACTIVE", "INACTIVE", "PENDING"]),
+});
+
+/** "-1,234.50" / "$ 1 234" → number; empty → null. Commission receipts may be negative. */
+const signedAmountSchema = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+  z
+    .string()
+    .trim()
+    .max(32)
+    .regex(/^-?\s*\$?\s*\d[\d,\s]*(\.\d{1,6})?$/)
+    .transform((value) => Number(value.replace(/[$,\s]/g, "")))
+    .refine((value) => Number.isFinite(value) && Math.abs(value) < 1e13)
+    .nullable()
+    .optional(),
+);
+
+const LABEL_TEXT_PATTERN = /^[\p{L}\p{M}\p{N}\s.,:;'#&()/+%_-]+$/u;
+
+/** Edit one commission-file receipt (`contract_detail`) from the póliza expediente. */
+export const updateContractDetailSchema = z.object({
+  detailId: uuidSchema,
+  receiptNumber: optionalText(
+    z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z0-9][A-Z0-9\-/._]{0,63}$/),
+  ),
+  issueDate: optionalIsoDateSchema,
+  paymentDate: optionalIsoDateSchema,
+  paymentMethod: optionalText(z.string().trim().max(40).regex(LABEL_TEXT_PATTERN)),
+  premiumPayment: signedAmountSchema,
+  collectionPremium: signedAmountSchema,
+  targetPremium: signedAmountSchema,
+  commissionPremium: signedAmountSchema,
+  commissionHonoraries: signedAmountSchema,
+  commissionPercentage: signedAmountSchema,
+  seniority: optionalText(z.string().trim().max(40).regex(LABEL_TEXT_PATTERN)),
+  movement: optionalText(z.string().trim().max(80).regex(LABEL_TEXT_PATTERN)),
+});
+
+/** Full client edit (Clientes list / expediente). */
+export const updateClientSchema = z.object({
+  clientId: uuidSchema,
+  name: personNameSchema,
+  birthDate: optionalIsoDateSchema,
+  curp: optionalCurpSchema.optional(),
+  rfc: optionalRfcSchema.optional(),
+  phone: optionalText(mxPhoneSchema),
+  email: optionalText(emailSchema),
+});
+
+export const deleteClientSchema = z.object({ clientId: uuidSchema });
+
+export const deleteContractSchema = z.object({ contractId: uuidSchema });
+
+/** Perfil (asesor): its own display name. */
+export const updateOwnNameSchema = z.object({ name: consultantDisplayNameSchema });
+
+const registryText = (max: number) =>
+  z.string().trim().max(max).regex(IMPORT_CELL_PATTERN).nullable();
+const isoDateOrNull = z.string().regex(ISO_DATE_PATTERN).nullable();
+const amountOrNull = z.number().nonnegative().max(1e13).nullable();
+
+/** One póliza row of a Mina de Oro / plantilla import (already normalized by the browser parser). */
+export const registryRowSchema = z.object({
+  index: z.number().int().min(1).max(LIMITS.importRows + 20),
+  contractNumber: contractNumberSchema,
+  clientName: personNameSchema.or(entityNameSchema),
+  consultantCode: consultantCodeSchema,
+  consultantName: registryText(LIMITS.personName),
+  issueDate: isoDateOrNull,
+  paymentMethod: paymentMethodSchema.nullable(),
+  paymentChannel: registryText(60),
+  projectName: registryText(120),
+  lineCode: z.enum(["LIFE", "HEALTH"]).nullable(),
+  planClassification: registryText(40),
+  insuredName: registryText(120),
+  status: z.enum(["ACTIVE", "INACTIVE"]),
+  currency: z.enum(CURRENCY_OPTIONS).nullable(),
+  annualPremium: z.string().regex(/^\d{1,13}(\.\d{1,6})?$/).nullable(),
+  insuredAmount: z.string().regex(/^\d{1,13}(\.\d{1,6})?$/).nullable(),
+  annualPremiumMxn: amountOrNull,
+  insuredAmountMxn: amountOrNull,
+  deductibleMxn: amountOrNull,
+  endDate: isoDateOrNull,
+  collectionDay: z.number().int().min(1).max(31).nullable(),
+  clientEmail: emailSchema.nullable(),
+  clientPhone: z.string().regex(MX_PHONE_PATTERN).nullable(),
+  clientBirthDate: isoDateOrNull,
+  clientMaritalStatus: registryText(40),
+  clientRfc: rfcSchema.nullable(),
+  clientCurp: curpSchema.nullable(),
+});
+
+const REGISTRY_FIELD_KEYS = [
+  "consultantCode", "clientName", "issueDate", "paymentMethod", "paymentChannel", "projectName", "lineCode",
+  "planClassification", "insuredName", "status", "currency", "annualPremium", "insuredAmount", "annualPremiumMxn",
+  "insuredAmountMxn", "deductibleMxn", "endDate", "collectionDay", "clientEmail", "clientPhone", "clientBirthDate",
+  "clientMaritalStatus", "clientRfc", "clientCurp",
+] as const;
+
+/** Registry import batch: rows + which differing fields to overwrite, per póliza number. */
+export const registryImportBatchSchema = z.object({
+  source: z.enum(["mina_de_oro", "template"]),
+  rows: z.array(registryRowSchema).min(1).max(250),
+  updates: z.record(contractNumberSchema, z.array(z.enum(REGISTRY_FIELD_KEYS)).max(REGISTRY_FIELD_KEYS.length)).optional(),
+});

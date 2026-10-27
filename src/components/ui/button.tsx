@@ -14,7 +14,10 @@ const buttonVariants = cva(
         brand:
           "bg-[#FBDBAC] text-[#1a1d24] font-semibold hover:bg-[#f5c98a] focus-visible:border-[#FBDBAC] focus-visible:ring-[#FBDBAC]/40",
         outline:
-          "border-2 border-(--lifeops-border) bg-transparent text-(--lifeops-fg) hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg) aria-expanded:bg-(--lifeops-hover) dark:border-(--lifeops-border) dark:bg-transparent dark:text-(--lifeops-fg) dark:hover:bg-(--lifeops-hover)",
+          "border border-(--lifeops-field-border) bg-(--lifeops-field) text-(--lifeops-fg) hover:border-(--lifeops-field-border-hover) hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg) aria-expanded:bg-(--lifeops-hover)",
+        /** Destructive action that should not shout (Eliminar in expedientes). */
+        danger:
+          "border border-red-500/40 bg-transparent text-red-600 hover:border-red-500/70 hover:bg-red-500/10 dark:text-red-400",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
         ghost:
@@ -25,15 +28,15 @@ const buttonVariants = cva(
       },
       size: {
         default:
-          "h-12 gap-1.5 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
+          "h-10 gap-1.5 px-3 text-sm has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
         xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-9 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-12 gap-1.5 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
-        icon: "size-12",
+        sm: "h-8 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-12 gap-1.5 px-5 text-sm has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+        icon: "size-10",
         "icon-xs":
           "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
         "icon-sm":
-          "size-9 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+          "size-8 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-12",
       },
     },

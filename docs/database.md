@@ -32,6 +32,12 @@ English reference for the Postgres schema (Supabase). Source of truth: migration
 | `026_contract_detail_receipt_number.sql` | `contract_detail.receipt_number` (RECIBO) unique per contract; removes exact copies left by re-uploading the same file |
 | `027_office_onboarding.sql` | Promotoría onboarding: catalogs (`mx_state`, `insurer`, `line_of_business`), onboarding columns on `office` (`name` now nullable), `office_contact`, `office_insurer`, `office_line_of_business`, save RPCs, clave lock trigger |
 | `028_collection_overview.sql` | `get_collection_overview` — Vista general in one call (status buckets, aging, payments per month, per asesor) |
+| `029_next_due_from_issue_date.sql` | `next_collection_due` + `collection_receipt_due`: next due from FECHA EMISION + forma de pago (receipt calendar); at-risk / pending lists and `get_collection_overview` use it |
+| `030_contract_portfolio_list.sql` | `list_contract_portfolio` — Pólizas list page with cartera status, next due, chip counts and counters in one call |
+| `033_policy_registry_fields.sql` | Mina de Oro / plantilla data: `contract.insured_name`, `line_code` (FK `line_of_business`), `plan_classification`, `end_date`, `annual_premium_mxn`, `insured_amount_mxn`, `deductible_mxn`; `client.marital_status` |
+| `032_collection_board.sql` | `list_collection_board` — Cobranza board: active pólizas with next receipt, status, client phone, asesor and amount hint, plus payments this month |
+| `034_office_update_contract_details.sql` | Missing office UPDATE policy on `contract_detail` (re-imports that change a receipt, **Editar recibo**) |
+| `031_client_contact_and_portfolios.sql` | `client.phone` / `client.email`; internal `contract_cartera_rows`; `list_contract_portfolio` gains `client_id_param` and a fuller summary; `list_client_portfolio` and `list_consultant_portfolio` |
 
 **Rule:** never edit an applied migration. Append `002_…`, `003_…`, etc.
 
@@ -142,6 +148,9 @@ Indexes: PKs cover lookups by office; `idx_office_insurer_insurer_code`, `idx_of
 | `birth_date` | Optional |
 | `curp` | Optional; unique globally (case-insensitive) when set |
 | `rfc` | Optional; unique globally (case-insensitive) when set |
+| `phone` | Optional contact / WhatsApp, 10 digits (`client_phone_check`) — owned by the promotoría |
+| `email` | Optional contact, lowercase, ≤254 (`client_email_check`) |
+| `marital_status` | Estado civil from the insurer report; ≤40 |
 
 **Identity rule:** `CHECK (office_id IS NOT NULL OR curp IS NOT NULL OR rfc IS NOT NULL)`. Dedupe order: CURP → RFC → name+office. See [`product-decisions.md`](product-decisions.md).
 
@@ -172,7 +181,12 @@ Invitation and similar one-time tokens.
 | `collection_status` | Cobranza estatus: `AMPARADO`, `CORRIENTE`, `FLEXIBLE`, `FLEXIBLE_REVISAR`, `MES`, `PERIODO_GRACIA`, `ATRASADO` (nullable) |
 | `collection_day` | Day of month (1–31) for DIA DE COBRO (agreed cobro day); nullable |
 | `metadata` | JSONB |
-| Premium / project fields | `project_name`, `insured_amount`, `annual_premium`, `payment_method`, `payment_channel`, etc. |
+| Premium / project fields | `project_name` (plan), `insured_amount`, `annual_premium` (text, póliza currency), `payment_method`, `payment_channel` (conducto de cobro) |
+| `insured_name` | Persona asegurada principal (may differ from the contratante); ≤120 |
+| `line_code` | Ramo, FK → `line_of_business.code` (`LIFE` vida, `HEALTH` gastos médicos) |
+| `plan_classification` | Insurer classification (TRADICIONAL, FLEXIBLE, GMM…); ≤40 |
+| `end_date` | Fin de vigencia (fecha de terminación del contrato); partial index |
+| `annual_premium_mxn`, `insured_amount_mxn`, `deductible_mxn` | Amounts converted to pesos by the insurer (Mina de Oro «Convertido»); ≥0 — allow totals across currencies |
 
 ### `commission_import`
 
@@ -183,7 +197,7 @@ Batch metadata for one commission file upload.
 | `office_id` | Tenancy |
 | `uploaded_by` | Auth user |
 | `issue_date` | Required emission date of the file |
-| `prior_payment_date` | Prompted when creating first-time policies |
+| `prior_payment_date` | Legacy (no longer asked since `029`) |
 | `status` | `pending` \| `preview` \| `imported` \| `failed` |
 | `file_name` / `file_path` / counts | Traceability |
 
@@ -201,6 +215,8 @@ One payment receipt from a commission file (the file lists which receipts were p
 | `commission_premium`, `commission_honoraries`, `commission_percentage` | PRIMA COMISION, COMISION/HONORARIOS, % COMISION |
 | `collection_premium`, `target_premium` | PRIMA COBRO, PRIMA META |
 | `movement`, `seniority` | MOVIMIENTO, ANTIGÜEDAD |
+
+**Edit:** the promotoría can edit one receipt from the expediente (`contractDetail.updateWithAudit`, audit `contract_detail.update` on the póliza); the cobranza import mark is resynced (`syncEditedDetailPayment`).
 
 **No duplicates:** importing a receipt that already exists updates its values instead of adding a row. Rows saved before `026` have no `receipt_number`; an incoming receipt with identical values adopts that row. Files without a RECIBO column fall back to skipping rows identical in every value. Logic: `src/lib/extractor/receipt.ts`.
 
@@ -226,7 +242,7 @@ Append-only office activity (migration `017`). Replaces `collection_audit_log` a
 | `office_id` | Tenancy |
 | `actor_user_id` | Who performed the action (`auth.users`) |
 | `actor_role` | `office` \| `consultant` \| `system` (optional; UI copy: promotoría / asesor) |
-| `action` | Namespaced string, e.g. `collection.payment_upsert`, `contract.reassign`, `consultant.invite` |
+| `action` | Namespaced string, e.g. `collection.payment_upsert`, `contract.reassign`, `consultant.invite`. UI edits: `contract.update`, `client.update`, `consultant.update` — `old_values` / `new_values` hold only the changed fields plus a label (`contract_number` or `name`). Receipts: `contract_detail.update` (entity = the póliza; label `receipt_number` + `contract_number`). Deletes: `contract.delete`, `client.delete`, `consultant.delete`. Moves: `contract.reassign` (asesor), `contract.reassign_client` (cliente). Imports: `collection.import_sync`, `import.registry` (Mina de Oro / plantilla totals; `contract.update` / `client.update` with source `import` per changed row) — `old_values` = snapshot, `new_values.deleted_contracts` = pólizas removed with it |
 | `entity_type` | `contract`, `consultant`, `client`, `office`, … |
 | `entity_id` | UUID nullable (bulk / invite without row id) |
 | `source` | `ui` \| `import` \| `api` \| `system` |
@@ -278,11 +294,17 @@ Collections helper (see `002_collections_control.sql`):
 Risk / reminders (see `011_commission_import_risk_evidence.sql`, `012_at_risk_days_30.sql`, `023_at_risk_from_last_payment.sql`):
 
 - `payment_method_step_months(text)` — Mensual=1, Trimestral=3, Semestral=6, Anual=12.
-- `next_due_from_last_payment(last_paid, payment_method, collection_day)` — same next-due rule as Cobranza (`src/lib/collections/next-due.ts`).
+- `next_collection_due(issue_date, last_paid, payment_method, collection_day)` (`029`) — next receipt from the calendar FECHA EMISION + forma de pago; the last payment covers the latest receipt due ≤ payment date + 15 days. Without `issue_date` falls back to `next_due_from_last_payment(last_paid, payment_method, collection_day)`. Mirrors `nextCollectionDue` in `src/lib/collections/next-due.ts`.
+- `collection_receipt_due(issue_date, step_months, k)` — due date of receipt k (day clamped to month length).
 - `contract_last_known_payment(contract_id)` — latest `contract_collection_payment.paid_at`, else latest `contract_detail.payment_date`.
 - `list_contracts_at_risk(office_id, consultant_id, risk_days=30, lookback_months=12)` — SECURITY DEFINER + `caller_can_access_*`; next due from last known payment more than `risk_days` overdue (`lookback_months` unused, kept for API compat).
 - `list_contracts_pending_payment(office_id, consultant_id, within_days=15)` — next due within horizon (or overdue ≤ 30 days); excludes at-risk.
 - `get_collection_overview(office_id, consultant_id, risk_days=30, due_soon_days=15)` — SECURITY DEFINER + `caller_can_access_*`; returns JSONB for Vista general: active pólizas by bucket (`current`, `due_soon`, `overdue`, `at_risk`, `no_payment`) using the same next-due rule (so `at_risk` = the at-risk list and `overdue + due_soon` = the pending list), cobros de hoy / próximos 7 días, pólizas sin forma de pago, aging buckets, payments month-to-date vs the same elapsed days of last month, payment counts per month (this + last year, by `paid_at`, inactive pólizas included), per-asesor breakdown, and invite counts (office scope). Counts only.
+- `list_contract_portfolio(office_id, consultant_id, client_id, search_text, status_filter, sort_column='next_due', sort_ascending=true, page_limit=25, page_offset=0, risk_days=30, due_soon_days=15)` — SECURITY DEFINER + `caller_can_access_*` (office or asesor required; `client_id` only narrows). JSONB `{ total, counts, summary, rows }` for the Pólizas list and the client / asesor expedientes. Each row carries `next_due`, `days_past_due` and `cartera_status` (same buckets as `get_collection_overview`, plus `inactive` for `status = 'INACTIVE'`). Search (≤100 chars) matches póliza, cliente or asesor; `status_filter` must be a bucket or NULL; `sort_column` is whitelisted (`contract_number`, `client_name`, `consultant_name`, `issue_date`, `next_due`, `payment_method`); page size clamped to 1–100. `counts` follow the search but not the status filter; `summary` (active, clients, consultants, current, due_soon, overdue, at_risk, no_payment, missing_payment_method, due_next_30_days, payments_last_30_days) covers the whole scope. (Signature since `031`; `030` had no `client_id`.)
+- `contract_cartera_rows(office_id, consultant_id, risk_days, due_soon_days)` — internal (no EXECUTE for `authenticated`): one row per póliza in scope with `next_due`, `days_past_due`, `cartera_status`. Used by the list RPCs after they authorize.
+- `list_client_portfolio(office_id, consultant_id, search_text, status_filter, sort_column='name', sort_ascending=true, page_limit, page_offset, risk_days, due_soon_days)` — SECURITY DEFINER + `caller_can_access_*`. Scope: asesor → clients of its pólizas; promotoría → `client.office_id` = office or any client with a póliza in the office. Rows: contact, `active_contracts`, `total_contracts`, earliest `next_due`, `consultant_names`, `cartera_status` = most critical bucket of its active pólizas (`none` without active pólizas) and its `days_past_due`. `status_filter`: `with_active`, `late`, `at_risk`, `no_active`. Sort: `name`, `next_due`, `active_contracts`, `birth_date`, `created_at`, `status`. `summary`: clients, with_active, late, at_risk, birthdays_this_month, missing_contact.
+- `list_consultant_portfolio(office_id, search_text, status_filter, sort_column='name', sort_ascending=true, page_limit, page_offset, risk_days, due_soon_days)` — SECURITY DEFINER; promotoría only (`auth.uid() = office_id`). Per asesor: `active_contracts`, `clients`, bucket counts, `healthy_share` ((al corriente + por vencer) / with next due), `payments_last_30_days`. `status_filter` = consultant status. Sort: `name`, `consultant_code`, `created_at`, `active_contracts`, `healthy_share`, `late`. `counts` by status; `summary`: consultants, active, pending_invites, active_contracts, healthy_share, with_at_risk, at_risk_names (top 4).
+- `list_collection_board(office_id, consultant_id, risk_days=30, due_soon_days=15)` — SECURITY DEFINER + `caller_can_access_*`. JSONB `{ today, payments_month_to_date, rows }`: every active póliza (from `contract_cartera_rows`) with `next_due`, `days_past_due`, `cartera_status`, client name / phone, asesor name / code, forma de pago, moneda, `issue_date`, `collection_day`, `last_paid_at` and `amount` (sum of primas of the latest FECHA PAGO). `payments_month_to_date` counts paid marks this month for every póliza in scope (same as `get_collection_overview`).
 - `month_due_date(y, m, day)` — clamps day-of-month to calendar month length.
 
 Prefer **extending RPCs** over client-side heavy aggregation. Any signature change ships as a **new migration** and an update to this doc.
@@ -296,6 +318,7 @@ Prefer **extending RPCs** over client-side heavy aggregation. Any signature chan
 - Offices manage their own profile and their consultants’ data.
 - Consultants read/update their own profile and own contracts.
 - `commission_import`: office ALL; consultants SELECT same office.
+- `contract_detail`: office SELECT / INSERT / UPDATE (`034`) through `contract.office_id`; consultants SELECT / INSERT / UPDATE for their own pólizas (`020`; editing receipts in the UI is promotoría only).
 - `contract_collection_payment`: same office/consultant contract tenancy (SELECT/INSERT/UPDATE/DELETE).
 - `audit_log`: append-only (SELECT/INSERT). Office sees all for `office_id`; consultants see rows they authored or for their contracts (membership via `consultant.id` **or** `consultant.auth_user_id`).
 - `client` mutations are office-scoped (or via own contracts); no always-true INSERT/UPDATE/DELETE policies. Hybrid CURP/RFC uniqueness is global.

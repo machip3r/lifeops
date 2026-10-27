@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CARTERA_STATUS } from "@/lib/collections/status";
 import type { CarteraStatusCounts } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import {
@@ -13,12 +14,10 @@ import {
 } from "./chart-parts";
 
 /** Cartera states in reading order (healthy → critical). `no_payment` is shown apart. */
-export const CARTERA_STATES = [
-  { key: "current", label: "Al corriente", color: "var(--viz-current)" },
-  { key: "due_soon", label: "Por vencer", color: "var(--viz-due-soon)" },
-  { key: "overdue", label: "Vencida", color: "var(--viz-overdue)" },
-  { key: "at_risk", label: "En peligro", color: "var(--viz-at-risk)" },
-] as const;
+export const CARTERA_STATES = (["current", "due_soon", "overdue", "at_risk"] as const).map((key) => ({
+  key,
+  ...CARTERA_STATUS[key],
+}));
 
 export function carteraWithData(status: CarteraStatusCounts): number {
   return status.current + status.due_soon + status.overdue + status.at_risk;
@@ -102,7 +101,7 @@ export function CarteraStatusCard({ status, className }: { status: CarteraStatus
           head={["Estado", "Pólizas"]}
           rows={[
             ...CARTERA_STATES.map((s) => [s.label, status[s.key]] as [string, number]),
-            ["Sin pagos registrados", status.no_payment],
+            [CARTERA_STATUS.no_payment.label, status.no_payment],
           ]}
         />
       }
@@ -114,7 +113,7 @@ export function CarteraStatusCard({ status, className }: { status: CarteraStatus
       ) : (
         <>
           <p className="flex items-baseline gap-2">
-            <span className="text-5xl font-semibold text-(--lifeops-fg)">{percentEs.format(healthy / total)}</span>
+            <span className="text-4xl font-semibold tracking-tight text-(--lifeops-fg)">{percentEs.format(healthy / total)}</span>
             <span className="text-sm text-(--lifeops-muted)">al día (al corriente o por vencer)</span>
           </p>
           <div className="relative mt-2">
@@ -125,7 +124,7 @@ export function CarteraStatusCard({ status, className }: { status: CarteraStatus
       )}
       {status.no_payment > 0 ? (
         <p className="text-xs text-(--lifeops-muted)">
-          {numberEs.format(status.no_payment)} póliza(s) sin pagos registrados no aparecen en la barra porque no se puede calcular su próximo cobro.
+          {numberEs.format(status.no_payment)} póliza(s) sin fecha de emisión ni pagos no aparecen en la barra porque no se puede calcular su próximo cobro.
         </p>
       ) : null}
     </ChartCard>

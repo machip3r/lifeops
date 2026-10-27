@@ -9,18 +9,18 @@ export function StatTile({
   icon: Icon,
 }: {
   label: string;
-  value: string;
+  value: ReactNode;
   detail?: ReactNode;
   icon: LucideIcon;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) p-4">
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) px-4 py-3.5">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-(--lifeops-muted)">{label}</p>
-        <Icon className="h-4 w-4 shrink-0 text-(--lifeops-muted)" aria-hidden />
+        <p className="text-xs leading-tight text-(--lifeops-muted)">{label}</p>
+        <Icon className="h-3.5 w-3.5 shrink-0 text-(--lifeops-muted)" aria-hidden />
       </div>
-      <p className="text-3xl font-semibold text-(--lifeops-fg)">{value}</p>
-      {detail ? <div className="text-xs text-(--lifeops-muted)">{detail}</div> : null}
+      <div className="text-2xl font-semibold tracking-tight tabular-nums text-(--lifeops-fg)">{value}</div>
+      {detail ? <div className="truncate text-[11px] leading-tight text-(--lifeops-muted)">{detail}</div> : null}
     </div>
   );
 }

@@ -1,17 +1,19 @@
 import type { ReactNode } from 'react';
+import { cn } from '@/lib/utils';
 
 type CardProps = {
   title: string;
   actions?: ReactNode;
   children: ReactNode;
+  className?: string;
 };
 
 /** Compact facts panel for entity detail pages. */
-export function DetailCard({ title, actions, children }: CardProps) {
+export function DetailCard({ title, actions, children, className }: CardProps) {
   return (
-    <section className="mb-6 rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) p-5 sm:p-6">
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-lg font-semibold text-(--lifeops-fg)">{title}</h2>
+    <section className={cn("mb-6 rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) p-4 sm:p-5", className)}>
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-[15px] font-semibold text-(--lifeops-fg)">{title}</h2>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
       </div>
       {children}
@@ -19,23 +21,16 @@ export function DetailCard({ title, actions, children }: CardProps) {
   );
 }
 
-export function DetailGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">{children}</div>;
+/** Label / value rows (one fact per line), e.g. the póliza side panel. */
+export function DetailRows({ children }: { children: ReactNode }) {
+  return <dl className="divide-y divide-(--lifeops-border)">{children}</dl>;
 }
 
-export function DetailField({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
+export function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="min-w-0">
-      <p className="text-xs font-medium uppercase tracking-wide text-(--lifeops-muted)">
-        {label}
-      </p>
-      <div className="mt-1 break-words text-sm text-(--lifeops-fg)">{children}</div>
+    <div className="flex items-baseline justify-between gap-4 py-2 first:pt-0 last:pb-0">
+      <dt className="shrink-0 text-[13px] text-(--lifeops-muted)">{label}</dt>
+      <dd className="min-w-0 text-right text-[13px] break-words text-(--lifeops-fg)">{children}</dd>
     </div>
   );
 }

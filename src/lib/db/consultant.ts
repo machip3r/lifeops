@@ -1,10 +1,36 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Consultant } from '@/lib/supabase';
+import type { Consultant, ConsultantPortfolio } from '@/lib/supabase';
+import { auditDiff, writeAuditLog, type AuditActor } from './audit-log';
 import { normalizePageParams, toRange, type PageParams, type PageResult, type SortOrder } from '@/lib/pagination';
 
 /** `consultant` table access (RLS-scoped client: browser session or user JWT). */
 export function createConsultantDb(supabase: SupabaseClient) {
     const consultantDb = {
+        /** Asesores page with cartera per asesor (`list_consultant_portfolio`, promotoría only). */
+        listPortfolio: async (opts: {
+            officeId: string;
+            search?: string;
+            status?: Consultant['status'] | null;
+            sort?: SortOrder;
+            riskDays: number;
+            dueSoonDays: number;
+        } & Partial<PageParams>): Promise<ConsultantPortfolio> => {
+            const { page, pageSize } = normalizePageParams(opts);
+            const { data, error } = await supabase.rpc('list_consultant_portfolio', {
+                office_id_param: opts.officeId,
+                search_text: opts.search?.trim() || null,
+                status_filter: opts.status ?? null,
+                sort_column: opts.sort?.column ?? 'name',
+                sort_ascending: opts.sort?.ascending ?? true,
+                page_limit: pageSize,
+                page_offset: (page - 1) * pageSize,
+                risk_days: opts.riskDays,
+                due_soon_days: opts.dueSoonDays,
+            });
+            if (error) throw error;
+            return data as ConsultantPortfolio;
+        },
+
         getConsultantById: async (id: string): Promise<Consultant | null> => {
             // Search by both id and auth_user_id
             const { data, error } = await supabase
@@ -71,6 +97,36 @@ export function createConsultantDb(supabase: SupabaseClient) {
                 page,
                 pageSize,
             };
+        },
+
+        /** Asesor edits its own display name (RLS) and logs `consultant.update`. */
+        updateOwnNameWithAudit: async (id: string, name: string, actor: AuditActor): Promise<void> => {
+            const { data: before, error: readError } = await supabase
+                .from('consultant')
+                .select('name')
+                .eq('id', id)
+                .maybeSingle();
+            if (readError) throw readError;
+            const { oldValues, newValues } = auditDiff(before ?? {}, { name });
+            if (Object.keys(newValues).length === 0) return;
+
+            const { error } = await supabase
+                .from('consultant')
+                .update({ name, updated_at: new Date().toISOString() })
+                .eq('id', id);
+            if (error) throw error;
+
+            await writeAuditLog(supabase, {
+                officeId: actor.officeId,
+                actorUserId: actor.userId,
+                actorRole: actor.role,
+                action: 'consultant.update',
+                entityType: 'consultant',
+                entityId: id,
+                source: 'ui',
+                oldValues,
+                newValues,
+            });
         },
 
         updateConsultant: async (id: string, updates: Partial<Consultant>): Promise<void> => {

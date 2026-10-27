@@ -7,6 +7,7 @@ import { AppDialog } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
+import { FileDropzone } from '@/components/ui/file-dropzone';
 import { Textarea } from '@/components/ui/textarea';
 import { uploadPaymentEvidence } from '@/lib/documents/upload';
 import { formatDateShortEsLocal } from '@/lib/format/date';
@@ -196,6 +197,16 @@ export function RegisterPaymentDialog({
       onClose={onClose}
       busy={submitting}
       size="md"
+      footer={
+        <>
+          <Button type="button" variant="outline" size="lg" onClick={onClose} disabled={submitting}>
+            Cancelar
+          </Button>
+          <Button type="button" variant="brand" size="lg" disabled={!canSubmit} onClick={() => void handleSave()}>
+            {submitting ? 'Guardando…' : 'Guardar pago'}
+          </Button>
+        </>
+      }
     >
       <div className="space-y-4">
         {dueHint ? (
@@ -265,23 +276,24 @@ export function RegisterPaymentDialog({
             maxLength={LIMITS.notes}
             rows={3}
             onChange={(e) => setNotes(e.target.value)}
-            className="max-h-32 resize-y overflow-y-auto bg-(--lifeops-page)"
+            className="max-h-32 resize-y overflow-y-auto"
           />
         </FormField>
 
         <FormField
-          label="Evidencia de pago *"
+          label="Evidencia de pago"
           htmlFor="register-evidence"
           variant="auth"
           error={fieldErrors.evidence}
-          hint="Imagen o PDF (máx. 20 MB). Obligatoria al registrar el pago."
+          hint="Obligatoria: la foto o el PDF del comprobante."
         >
-          <Input
+          <FileDropzone
             id="register-evidence"
-            type="file"
-            accept={DOCUMENT_ALLOWED_MIME_TYPES.join(',')}
-            onChange={(e) => {
-              const file = e.target.files?.[0] ?? null;
+            file={evidenceFile}
+            accept={DOCUMENT_ALLOWED_MIME_TYPES}
+            maxBytes={LIMITS.documentFileBytes}
+            disabled={submitting}
+            onChange={(file) => {
               setEvidenceFile(file);
               if (file) {
                 setFieldErrors((prev) => {
@@ -293,27 +305,6 @@ export function RegisterPaymentDialog({
             }}
           />
         </FormField>
-
-        <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            onClick={onClose}
-            disabled={submitting}
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            variant="brand"
-            size="lg"
-            disabled={!canSubmit}
-            onClick={() => void handleSave()}
-          >
-            {submitting ? 'Guardando…' : 'Guardar pago'}
-          </Button>
-        </div>
       </div>
     </AppDialog>
   );

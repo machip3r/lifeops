@@ -18,6 +18,9 @@ export type ValidationMessages = {
   phone: string;
   agencyCode: string;
   selectAtLeastOne: string;
+  curp: string;
+  rfc: string;
+  amount: string;
   invalid: string;
 };
 
@@ -38,6 +41,9 @@ export const VALIDATION_MESSAGES: ValidationMessages = {
   phone: "Ingresa un teléfono de 10 dígitos.",
   agencyCode: "Usa solo letras, números y . _ / - (máximo 32).",
   selectAtLeastOne: "Elige al menos una opción.",
+  curp: "La CURP debe tener 18 caracteres.",
+  rfc: "El RFC debe tener 12 o 13 caracteres.",
+  amount: "Usa solo números, comas y punto.",
   invalid: "El valor no es válido.",
 };
 
@@ -65,8 +71,6 @@ const FIELD_KIND: Record<string, keyof ValidationMessages> = {
   otherChangeType: "entityName",
   contractId: "required",
   issueDate: "date",
-  priorPaymentDate: "date",
-  lastPaymentDate: "date",
   collectionDay: "required",
   paymentMethod: "required",
   consultantId: "required",
@@ -81,6 +85,10 @@ const FIELD_KIND: Record<string, keyof ValidationMessages> = {
   ownerPhone: "phone",
   otherInsurer: "entityName",
   consultantCountRange: "required",
+  curp: "curp",
+  rfc: "rfc",
+  annualPremium: "amount",
+  insuredAmount: "amount",
   activePolicyRange: "required",
 };
 

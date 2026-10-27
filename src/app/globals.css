@@ -20,17 +20,22 @@
   --lifeops-page: #f0f0f2;
   --lifeops-border: #a1a1aa;
   --lifeops-hover: #e4e4e7;
+  /* Form fields: own surface + border so they read on cards and dialogs */
+  --lifeops-field: #ffffff;
+  --lifeops-field-border: #d9d9de;
+  --lifeops-field-border-hover: #b4b4bc;
   --lifeops-fg: #1a1d24;
   --lifeops-muted: #52525b;
   --lifeops-accent: #c9a86c;
   --lifeops-on-accent: #1a1d24;
   --lifeops-watermark-stroke: #a78b5a;
   /* Vista general charts — validated (dataviz validator) on --lifeops-chrome per mode */
-  --viz-current: #0ca30c;
-  --viz-due-soon: #2a78d6;
-  --viz-overdue: #ec835a;
-  --viz-at-risk: #d03b3b;
-  --viz-this-year: #a8823f;
+  /* LifeOps palette: gold = healthy / current year, steel blue, terracotta, dark red (at risk) */
+  --viz-current: #b38122;
+  --viz-due-soon: #4f86c6;
+  --viz-overdue: #df7f45;
+  --viz-at-risk: #a8242c;
+  --viz-this-year: #b38122;
   --viz-last-year: #c4c4ca;
   --viz-grid: #d4d4d8;
   --background: oklch(1 0 0);
@@ -164,16 +169,19 @@ h6 {
   --lifeops-page: #1a1d24;
   --lifeops-border: #2a2f38;
   --lifeops-hover: #2f3540;
+  --lifeops-field: #1f2229;
+  --lifeops-field-border: #343a45;
+  --lifeops-field-border-hover: #4a515e;
   --lifeops-fg: #ffffff;
   --lifeops-muted: #9ba5b3;
   --lifeops-accent: #fbdbac;
   --lifeops-on-accent: #1a1d24;
   --lifeops-watermark-stroke: #fbdbac;
-  --viz-current: #0ca30c;
-  --viz-due-soon: #3987e5;
-  --viz-overdue: #c98500;
-  --viz-at-risk: #d03b3b;
-  --viz-this-year: #b48c48;
+  --viz-current: #ba8c30;
+  --viz-due-soon: #6a8ee0;
+  --viz-overdue: #d77440;
+  --viz-at-risk: #b8283c;
+  --viz-this-year: #ba8c30;
   --viz-last-year: #4b5260;
   --viz-grid: #2f3540;
   --background: oklch(0.145 0 0);
@@ -227,7 +235,7 @@ h6 {
 /* Large page watermark — soft solid text only (no stroke / shadow border) */
 .dashboard-page-watermark {
   font-family: var(--font-lexend), Arial, Helvetica, sans-serif;
-  font-size: clamp(6rem, 20vw, 11.5rem);
+  font-size: clamp(4.5rem, 14vw, 8.5rem);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 0.8;

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { assets } from '@/app/theme/assets';
 import { PasswordInput } from '@/components/ui/password-input';
 import { LIMITS } from '@/lib/validation/schemas';
+import { AuthCardSkeleton } from '@/components/ui/skeleton';
 
 export default function InvitePage() {
     const params = useParams();
@@ -130,9 +131,7 @@ export default function InvitePage() {
     if (loading) {
         return (
             <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-                <div className="text-center">
-                    <p className="text-gray-600 dark:text-gray-400">Cargando invitación...</p>
-                </div>
+                <AuthCardSkeleton />
             </div>
         );
     }

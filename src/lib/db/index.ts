@@ -20,8 +20,11 @@ import { createDashboardDb } from './dashboard';
 import { createCommissionImportDb } from './commission-import';
 import { createSearchDb } from './search';
 import { createCollectionsDb } from './collections';
+import { createAuditLogDb } from './audit-log';
+import { createFileDb } from './files';
 
 export type { Token } from './token';
+export type { ContractFile } from './files';
 export type { OfficeOnboarding, OnboardingCatalogs } from './office-onboarding';
 
 export function createDb(client: SupabaseClient) {
@@ -38,6 +41,8 @@ export function createDb(client: SupabaseClient) {
         commissionImport: createCommissionImportDb(client),
         search: createSearchDb(client),
         collections: createCollectionsDb(client),
+        auditLog: createAuditLogDb(client),
+        files: createFileDb(client),
     };
 }
 

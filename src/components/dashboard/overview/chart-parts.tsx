@@ -26,18 +26,18 @@ export function ChartCard({
   return (
     <section
       className={cn(
-        "flex min-w-0 flex-col gap-4 rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) p-5 sm:p-6",
+        "flex min-w-0 flex-col gap-3 rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) p-4 sm:p-5",
         className,
       )}
     >
       <header>
-        <h3 className="text-base font-semibold text-(--lifeops-fg)">{title}</h3>
-        {subtitle ? <p className="mt-0.5 text-sm text-(--lifeops-muted)">{subtitle}</p> : null}
+        <h3 className="text-[15px] font-semibold text-(--lifeops-fg)">{title}</h3>
+        {subtitle ? <p className="mt-0.5 text-xs text-(--lifeops-muted)">{subtitle}</p> : null}
       </header>
       {children}
       {legend}
       {table ? (
-        <details className="text-sm">
+        <details className="text-xs">
           <summary className="w-fit cursor-pointer rounded text-(--lifeops-muted) hover:text-(--lifeops-fg) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]">
             Ver datos
           </summary>
@@ -53,7 +53,7 @@ export type LegendItem = { label: string; color: string; value?: string };
 /** Legend: swatch + label (+ value in muted ink). Identity never relies on color alone. */
 export function ChartLegend({ items }: { items: LegendItem[] }) {
   return (
-    <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+    <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
       {items.map((item) => (
         <li key={item.label} className="flex items-center gap-2">
           <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: item.color }} aria-hidden />

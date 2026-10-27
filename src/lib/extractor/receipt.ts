@@ -11,7 +11,7 @@ export function normalizeReceiptNumber(raw: string | null | undefined): string |
   return RECEIPT_NUMBER_PATTERN.test(value) ? value : null;
 }
 
-const DETAIL_VALUE_FIELDS = [
+export const DETAIL_VALUE_FIELDS = [
   "issue_date",
   "payment_date",
   "premium_payment",
@@ -29,7 +29,7 @@ type DetailValues = Pick<ContractDetail, (typeof DETAIL_VALUE_FIELDS)[number]> &
   receipt_number?: string | null;
 };
 
-function sameValue(a: unknown, b: unknown): boolean {
+export function sameValue(a: unknown, b: unknown): boolean {
   const left = a === "" || a === undefined ? null : a;
   const right = b === "" || b === undefined ? null : b;
   if (left === null || right === null) return left === right;
@@ -74,15 +74,19 @@ export function collapseRepeatedReceipts<T extends DetailValues>(
  * - stored row without receipt and identical values → adopt it (fills `receipt_number`)
  * - row without receipt identical to a stored one → skip as duplicate
  * - anything else → insert
+ * `allowUpdate(receipt)` false keeps a stored receipt whose values differ (the user chose LifeOps).
  */
 export function planDetailWrites<T extends DetailValues>(
   existing: Array<DetailValues & { id: string }>,
   incoming: T[],
+  allowUpdate: (receipt: string) => boolean = () => true,
 ): {
   inserts: T[];
   updates: Array<{ id: string; record: T }>;
   unchanged: number;
   skipped: number;
+  /** Stored receipts with different values left as they were */
+  kept: number;
 } {
   const byReceipt = new Map(
     existing
@@ -105,6 +109,7 @@ export function planDetailWrites<T extends DetailValues>(
   const updates: Array<{ id: string; record: T }> = [];
   let unchanged = 0;
   let skipped = 0;
+  let kept = 0;
 
   for (const record of incoming) {
     const receipt = record.receipt_number;
@@ -118,7 +123,8 @@ export function planDetailWrites<T extends DetailValues>(
     if (stored) {
       claimed.add(stored.id);
       if (sameDetailValues(stored, record)) unchanged++;
-      else updates.push({ id: stored.id, record });
+      else if (allowUpdate(receipt)) updates.push({ id: stored.id, record });
+      else kept++;
       continue;
     }
 
@@ -127,5 +133,5 @@ export function planDetailWrites<T extends DetailValues>(
     else inserts.push(record);
   }
 
-  return { inserts, updates, unchanged, skipped };
+  return { inserts, updates, unchanged, skipped, kept };
 }

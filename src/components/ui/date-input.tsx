@@ -132,7 +132,7 @@ export function DateInput({
         aria-label={ariaLabel}
         aria-invalid={ariaInvalid}
         maxLength={10}
-        className="h-10 pr-10 font-mono text-sm tabular-nums"
+        className="pr-10 font-mono tabular-nums"
         onFocus={() => {
           setFocused(true);
           // Refocus after a tab switch must not replace "12/21" with the empty committed value.

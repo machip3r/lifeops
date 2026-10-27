@@ -1,6 +1,7 @@
 import {
   finishCommissionImportAction,
   importCommissionBatchAction,
+  previewCommissionChangesAction,
   startCommissionImportAction,
 } from "@/app/dashboard/extractor/actions";
 import { getSession } from "@/lib/auth/client";
@@ -10,6 +11,7 @@ import {
 } from "@/lib/extractor/import-progress";
 import { planImportBatches, type IndexedRow } from "./columns";
 import type {
+  CommissionChangeItem,
   CommissionImportBatchResult,
   CommissionImportCounts,
   CommissionImportMeta,
@@ -31,6 +33,7 @@ async function sendBatch(
   headers: string[],
   rows: IndexedRow[],
   importMeta: CommissionImportMeta,
+  decisions: Record<string, string[]>,
 ): Promise<CommissionImportBatchResult> {
   let lastError = "No se pudo importar este lote.";
   for (let attempt = 1; attempt <= BATCH_ATTEMPTS; attempt++) {
@@ -40,6 +43,7 @@ async function sendBatch(
         headers,
         rows,
         importMeta,
+        decisions,
       });
       if (res.ok) return res;
       lastError = res.error;
@@ -69,6 +73,8 @@ export async function runCommissionImport(input: {
   rows: string[][];
   headers: string[];
   importMeta: CommissionImportMeta;
+  /** Review picks per póliza number (step 2); not listed = keep LifeOps */
+  decisions?: Record<string, string[]>;
   onProgress?: (progress: ImportProgress) => void;
 }): Promise<CommissionImportResult> {
   const report = (
@@ -121,6 +127,7 @@ export async function runCommissionImport(input: {
       input.headers,
       batch,
       input.importMeta,
+      input.decisions ?? {},
     );
     result.success += batchResult.success;
     result.errors.push(...batchResult.errors);
@@ -164,4 +171,19 @@ export async function runCommissionImport(input: {
     `Listo: ${result.success} póliza(s), ${counts.detailsInserted} detalle(s) nuevo(s), ${counts.detailsUpdated} actualizado(s)`,
   );
   return result;
+}
+
+/** Step 2 review: compares the file with LifeOps batch by batch (same batches as the import). */
+export async function previewCommissionChanges(input: {
+  rows: string[][];
+  headers: string[];
+}): Promise<{ items: CommissionChangeItem[]; error: string | null }> {
+  const { batches } = planImportBatches(input.rows, input.headers);
+  const items: CommissionChangeItem[] = [];
+  for (const batch of batches) {
+    const res = await previewCommissionChangesAction(await accessToken(), { headers: input.headers, rows: batch });
+    if (!res.ok) return { items, error: res.error };
+    items.push(...res.items);
+  }
+  return { items, error: null };
 }

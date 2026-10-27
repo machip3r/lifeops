@@ -54,7 +54,7 @@ export function cellAt(row: string[], index: number): string {
 }
 
 /** Póliza number as used for lookups and the prior-payment map. */
-export function normalizeContractNumber(raw: string): string {
+function normalizeContractNumber(raw: string): string {
   return raw.trim().replace(/,/g, "").replace(/\s+/g, "");
 }
 

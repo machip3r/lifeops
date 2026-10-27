@@ -5,19 +5,24 @@ import {
   assertPromotory,
   requireOfficeContext,
 } from "@/lib/auth/api";
-import { reassignContractAdmin } from "@/lib/db-admin";
+import { reassignContractAdmin, reassignContractClientAdmin } from "@/lib/db-admin";
 import { zodFieldErrors } from "@/lib/validation/field-errors";
 
-const bodySchema = z.object({
-  officeId: z.string().uuid(),
-  contractId: z.string().uuid(),
-  toConsultantId: z.string().uuid(),
-  notes: z.string().trim().max(500).optional().nullable(),
-});
+const bodySchema = z
+  .object({
+    officeId: z.string().uuid(),
+    contractId: z.string().uuid(),
+    /** Move to another asesor… */
+    toConsultantId: z.string().uuid().optional(),
+    /** …or to another client (duplicate clients) */
+    toClientId: z.string().uuid().optional(),
+    notes: z.string().trim().max(500).optional().nullable(),
+  })
+  .refine((v) => Boolean(v.toConsultantId) !== Boolean(v.toClientId), { message: "required" });
 
 /**
- * Promotory-only: move a contract to another consultant in the same office.
- * Keeps client, policy number, details, cobranza, and files.
+ * Promotory-only: move a contract to another consultant — or another client — of the same office.
+ * Keeps policy number, details, cobranza, and files.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireOfficeContext(request);
@@ -47,10 +52,28 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (parsed.data.toClientId) {
+      const moved = await reassignContractClientAdmin({
+        officeId: parsed.data.officeId,
+        contractId: parsed.data.contractId,
+        toClientId: parsed.data.toClientId,
+        actorUserId: auth.ctx.user.id,
+        notes: parsed.data.notes,
+      });
+      if (!moved.ok) {
+        const status = moved.code === "not_found" ? 404 : 400;
+        return NextResponse.json(
+          { error: moved.error, fieldErrors: { toClientId: moved.error } },
+          { status },
+        );
+      }
+      return NextResponse.json({ success: true, ...moved.data });
+    }
+
     const result = await reassignContractAdmin({
       officeId: parsed.data.officeId,
       contractId: parsed.data.contractId,
-      toConsultantId: parsed.data.toConsultantId,
+      toConsultantId: parsed.data.toConsultantId as string,
       actorUserId: auth.ctx.user.id,
       notes: parsed.data.notes,
     });

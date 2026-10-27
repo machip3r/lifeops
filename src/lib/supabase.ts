@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/supabase/env';
+import type { PortfolioStatus } from '@/lib/collections/status';
 
 const supabaseUrl = getSupabaseUrl();
 const supabaseAnonKey = getSupabaseAnonKey();
@@ -68,6 +69,11 @@ export interface Client {
     curp?: string | null;
     /** Mexican RFC when known — unique globally. */
     rfc?: string | null;
+    /** Contact phone / WhatsApp, 10 digits */
+    phone?: string | null;
+    /** Contact email, lowercase */
+    email?: string | null;
+    marital_status?: string | null;
     created_at?: string;
     updated_at?: string;
 }
@@ -166,6 +172,16 @@ export interface Contract {
     status: string; // Default 'PENDING' — lifecycle, not cobranza
     collection_status?: CollectionStatus | null;
     collection_day?: number | null;
+    /** Persona asegurada principal (may differ from the contratante) */
+    insured_name?: string | null;
+    /** Ramo: LIFE (vida) / HEALTH (gastos médicos) */
+    line_code?: string | null;
+    plan_classification?: string | null;
+    /** Fin de vigencia */
+    end_date?: string | null;
+    annual_premium_mxn?: number | null;
+    insured_amount_mxn?: number | null;
+    deductible_mxn?: number | null;
     metadata?: { [key: string]: any };
     created_at?: string;
     updated_at?: string;
@@ -189,6 +205,17 @@ export interface ContractCollectionPayment {
 }
 
 export type AuditSource = 'ui' | 'import' | 'api' | 'system';
+
+/** One `audit_log` row as read by detail pages. */
+export interface AuditLogEntry {
+    id: string;
+    action: string;
+    actor_role: AuditActorRole | null;
+    source: AuditSource | null;
+    old_values: Record<string, unknown> | null;
+    new_values: Record<string, unknown> | null;
+    created_at: string;
+}
 /** Stored in audit_log; UI copy uses "promotoría" / "promotora", never this slug. */
 export type AuditActorRole = 'office' | 'consultant' | 'system';
 
@@ -227,6 +254,142 @@ export interface CollectionOverview {
     /** Office view only (null for an asesor) */
     consultants_not_invited: number | null;
     consultants_pending_invite: number | null;
+}
+
+/** One póliza row of `list_contract_portfolio` (cartera status from the receipt calendar). */
+export interface ContractPortfolioRow {
+    id: string;
+    contract_number: string | null;
+    client_id: string | null;
+    client_name: string | null;
+    consultant_id: string;
+    consultant_name: string | null;
+    currency: string | null;
+    payment_method: string | null;
+    issue_date: string | null;
+    status: string;
+    next_due: string | null;
+    /** Positive = days late; null without next due */
+    days_past_due: number | null;
+    cartera_status: PortfolioStatus;
+}
+
+export interface ContractPortfolio {
+    /** Rows matching search + status filter */
+    total: number;
+    /** Per-status counts after search (chips) */
+    counts: Record<PortfolioStatus | 'all', number>;
+    /** Active pólizas in scope (counters) */
+    summary: {
+        active: number;
+        clients: number;
+        consultants: number;
+        current: number;
+        due_soon: number;
+        overdue: number;
+        at_risk: number;
+        no_payment: number;
+        missing_payment_method: number;
+        due_next_30_days: number;
+        payments_last_30_days: number;
+    };
+    rows: ContractPortfolioRow[];
+}
+
+/** One active póliza on the Cobranza board (`list_collection_board`). */
+export interface CollectionBoardRow {
+    contract_id: string;
+    contract_number: string | null;
+    client_id: string | null;
+    client_name: string | null;
+    client_phone: string | null;
+    consultant_id: string;
+    consultant_name: string | null;
+    consultant_code: string | null;
+    payment_method: string | null;
+    currency: string | null;
+    issue_date: string | null;
+    collection_day: number | null;
+    next_due: string | null;
+    /** Positive = days late */
+    days_past_due: number | null;
+    cartera_status: Exclude<PortfolioStatus, 'inactive'>;
+    last_paid_at: string | null;
+    /** Primas of the latest FECHA PAGO (suggested amount); null without commission lines */
+    amount: number | null;
+}
+
+export interface CollectionBoard {
+    today: string;
+    payments_month_to_date: number;
+    rows: CollectionBoardRow[];
+}
+
+/** Most critical cartera status among a client's active pólizas (`none` = no active póliza). */
+export type ClientCarteraStatus = Exclude<PortfolioStatus, 'inactive'> | 'none';
+export type ClientPortfolioFilter = 'with_active' | 'late' | 'at_risk' | 'no_active';
+
+/** One row of `list_client_portfolio`. */
+export interface ClientPortfolioRow {
+    id: string;
+    name: string;
+    curp: string | null;
+    rfc: string | null;
+    phone: string | null;
+    email: string | null;
+    birth_date: string | null;
+    created_at: string | null;
+    active_contracts: number;
+    total_contracts: number;
+    next_due: string | null;
+    consultant_names: string | null;
+    cartera_status: ClientCarteraStatus;
+    /** Days late of the most critical póliza (overdue / at risk only) */
+    days_past_due: number | null;
+}
+
+export interface ClientPortfolio {
+    total: number;
+    counts: Record<ClientPortfolioFilter | 'all', number>;
+    summary: {
+        clients: number;
+        with_active: number;
+        late: number;
+        at_risk: number;
+        birthdays_this_month: number;
+        missing_contact: number;
+    };
+    rows: ClientPortfolioRow[];
+}
+
+/** One row of `list_consultant_portfolio`. */
+export interface ConsultantPortfolioRow extends CarteraStatusCounts {
+    id: string;
+    name: string;
+    email: string | null;
+    consultant_code: string | null;
+    status: Consultant['status'];
+    created_at: string | null;
+    active_contracts: number;
+    clients: number;
+    payments_last_30_days: number;
+    /** (al corriente + por vencer) / pólizas with next due; null without data */
+    healthy_share: number | null;
+}
+
+export interface ConsultantPortfolio {
+    total: number;
+    counts: Record<Consultant['status'] | 'all', number>;
+    summary: {
+        consultants: number;
+        active: number;
+        pending_invites: number;
+        active_contracts: number;
+        healthy_share: number | null;
+        with_at_risk: number;
+        at_risk_names: string[];
+    };
+    rows: ConsultantPortfolioRow[];
 }
 
 export interface ContractChangeRequest {

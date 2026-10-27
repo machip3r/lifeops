@@ -117,6 +117,7 @@ When writing **user-visible Spanish** (UI, toasts, empty states, validation, ema
   - Examples: email → lowercase + email regex + max 254; names → letters/spaces/safe punctuation + max length; passwords → min/max + no control characters; OTP → digits with fixed length; contract/poliza numbers → bounded alphanumeric + safe punctuation.
   - Prefer reusing helpers from `src/lib/validation/schemas.ts` (`emailSchema`, `personNameSchema`, `entityNameSchema`, etc.) instead of ad-hoc `z.string()`.
   - Mirror limits on the client with `maxLength` / `pattern` / `inputMode` / `autoCapitalize` where it improves UX — server schema remains authoritative.
+  - **No unbounded or free-form inputs:** every input has `maxLength` (from `LIMITS`) and drops disallowed characters while typing with the helpers in `src/lib/validation/input-filters.ts` (`filterPersonName`, `filterEntityName`, `filterCode`, `filterDigits`). Phones use the shared `PhoneInput` (`+52`, digits only, `333 123 4567`). Add a helper there when a new field type appears.
 - **Show validation errors to the user** — never fail silently or with only a generic banner when a specific field is wrong.
   - Map Zod issues to per-field messages via `src/lib/validation/field-errors.ts` (`zodFieldErrors`) and Spanish `VALIDATION_MESSAGES` in that module (or shared copy helpers).
   - Return `{ fieldErrors?: Record<string, string>; error?: string }` from actions/handlers; render each message under the matching control with `FormField`’s `error` prop (`aria-invalid` / `role="alert"`).

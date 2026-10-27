@@ -3,6 +3,7 @@
 import type { FormEvent, ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { LIMITS } from '@/lib/validation/schemas';
 
 type Props = {
   /** Draft search text (not applied until Buscar). */
@@ -13,7 +14,7 @@ type Props = {
   placeholder?: string;
   id?: string;
   className?: string;
-  /** Primary create action (Nuevo cliente / Invitar asesor), rendered after Buscar. */
+  /** Primary create action (Nuevo cliente / Crear asesor), rendered after Buscar. */
   actions?: ReactNode;
   searchLabel?: string;
   /** Extra controls in the filter bar (e.g. range select). */
@@ -55,8 +56,8 @@ export function ListSearchFilters({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
+          maxLength={LIMITS.search}
           aria-label={placeholder || 'Buscar'}
-          className="bg-(--lifeops-page)"
         />
       </div>
       {extras}

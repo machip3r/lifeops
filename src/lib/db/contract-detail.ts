@@ -3,6 +3,8 @@ import type { ContractDetail } from '@/lib/supabase';
 import { chunkArray, IMPORT_BATCH_SIZE } from '@/lib/extractor/batch';
 import { planDetailWrites } from '@/lib/extractor/receipt';
 import { normalizePageParams, toRange, type PageParams, type PageResult, type SortOrder } from '@/lib/pagination';
+import { auditDiff, writeAuditLog, type AuditActor } from './audit-log';
+import type { EditResult } from './edit-result';
 
 /** One commission row ready to store (`contract_detail` without generated columns). */
 export type ImportedDetail = Omit<ContractDetail, 'id' | 'created_at' | 'updated_at'>;
@@ -10,6 +12,17 @@ export type ImportedDetail = Omit<ContractDetail, 'id' | 'created_at' | 'updated
 /** `contractDetail` table access (RLS-scoped client: browser session or user JWT). */
 export function createContractDetailDb(supabase: SupabaseClient) {
     const contractDetailDb = {
+        /** Stored receipts of several pólizas (import review). */
+        listByContracts: async (contractIds: string[]): Promise<ContractDetail[]> => {
+            const out: ContractDetail[] = [];
+            for (const chunk of chunkArray([...new Set(contractIds)], IMPORT_BATCH_SIZE)) {
+                const { data, error } = await supabase.from('contract_detail').select('*').in('contract_id', chunk);
+                if (error) throw error;
+                out.push(...((data ?? []) as ContractDetail[]));
+            }
+            return out;
+        },
+
         getDetailsByContract: async (contractId: string): Promise<ContractDetail[]> => {
             const { data, error } = await supabase
                 .from('contract_detail')
@@ -162,8 +175,10 @@ export function createContractDetailDb(supabase: SupabaseClient) {
          */
         writeImportedDetails: async (
             detailsByContract: Map<string, ImportedDetail[]>,
-        ): Promise<Map<string, { inserted: ImportedDetail[]; updated: ImportedDetail[]; skipped: number }>> => {
-            const results = new Map<string, { inserted: ImportedDetail[]; updated: ImportedDetail[]; skipped: number }>();
+            /** false keeps a stored receipt whose values differ (review: "conservar LifeOps") */
+            allowUpdate: (contractId: string, receipt: string) => boolean = () => true,
+        ): Promise<Map<string, { inserted: ImportedDetail[]; updated: ImportedDetail[]; skipped: number; kept: number }>> => {
+            const results = new Map<string, { inserted: ImportedDetail[]; updated: ImportedDetail[]; skipped: number; kept: number }>();
             const contractIds = [...detailsByContract.keys()].filter(
                 (id) => (detailsByContract.get(id)?.length ?? 0) > 0,
             );
@@ -189,6 +204,7 @@ export function createContractDetailDb(supabase: SupabaseClient) {
                 const plan = planDetailWrites(
                     existingByContract.get(contractId) ?? [],
                     detailsByContract.get(contractId) ?? [],
+                    (receipt) => allowUpdate(contractId, receipt),
                 );
                 inserts.push(...plan.inserts);
                 updates.push(...plan.updates.map(({ id, record }) => ({ ...record, id })));
@@ -196,6 +212,7 @@ export function createContractDetailDb(supabase: SupabaseClient) {
                     inserted: plan.inserts,
                     updated: plan.updates.map(({ record }) => record),
                     skipped: plan.skipped,
+                    kept: plan.kept,
                 });
             }
 
@@ -211,6 +228,60 @@ export function createContractDetailDb(supabase: SupabaseClient) {
             }
 
             return results;
+        },
+
+        /**
+         * Edit one receipt (RLS: the office of its póliza) and log the changed fields as
+         * `contract_detail.update` on the póliza history. `before` feeds the cobranza resync.
+         */
+        updateWithAudit: async (
+            id: string,
+            patch: Partial<ImportedDetail>,
+            actor: AuditActor,
+        ): Promise<EditResult<{ before: ContractDetail; after: ContractDetail }>> => {
+            const { data: before, error: readError } = await supabase
+                .from('contract_detail')
+                .select('*, contract:contract_id(office_id, contract_number)')
+                .eq('id', id)
+                .maybeSingle();
+            if (readError) throw readError;
+            if (!before) return { ok: false, error: 'No encontramos el recibo.' };
+            const { contract, ...current } = before as ContractDetail & {
+                contract: { office_id: string | null; contract_number: string | null } | null;
+            };
+
+            const { oldValues, newValues } = auditDiff(current, patch);
+            if (Object.keys(newValues).length === 0) return { ok: true, data: { before: current, after: current } };
+
+            const { data, error } = await supabase
+                .from('contract_detail')
+                .update({ ...newValues, updated_at: new Date().toISOString() })
+                .eq('id', id)
+                .select()
+                .maybeSingle();
+            if (error) {
+                if (error.code === '23505') {
+                    const message = 'Ese número de recibo ya existe en la póliza.';
+                    return { ok: false, error: message, fieldErrors: { receiptNumber: message } };
+                }
+                throw error;
+            }
+            // RLS hides the row when this user may read but not edit it
+            if (!data) return { ok: false, error: 'No tienes permiso para editar este recibo.' };
+
+            const label = { receipt_number: current.receipt_number ?? null, contract_number: contract?.contract_number ?? null };
+            await writeAuditLog(supabase, {
+                officeId: contract?.office_id ?? actor.officeId,
+                actorUserId: actor.userId,
+                actorRole: actor.role,
+                action: 'contract_detail.update',
+                entityType: 'contract',
+                entityId: current.contract_id,
+                source: 'ui',
+                oldValues: { ...oldValues, ...label },
+                newValues: { ...newValues, ...label, receipt_number: (data as ContractDetail).receipt_number ?? null },
+            });
+            return { ok: true, data: { before: current, after: data as ContractDetail } };
         },
     };
 

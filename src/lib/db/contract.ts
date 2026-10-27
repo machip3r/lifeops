@@ -1,7 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Client, Consultant, Contract, ContractSource } from '@/lib/supabase';
+import type { AuditSource, Client, Consultant, Contract, ContractPortfolio, ContractSource } from '@/lib/supabase';
+import type { PortfolioStatus } from '@/lib/collections/status';
+import { auditDiff, writeAuditLog, type AuditActor } from './audit-log';
+import type { EditResult } from './edit-result';
 import { emptyPageResult, normalizePageParams, toRange, type PageParams, type PageResult, type SortOrder } from '@/lib/pagination';
 import { createConsultantDb } from './consultant';
+import { IMPORT_BATCH_SIZE, chunkArray } from '@/lib/extractor/batch';
 
 /** `contract` table access (RLS-scoped client: browser session or user JWT). */
 export function createContractDb(supabase: SupabaseClient) {
@@ -110,6 +114,35 @@ export function createContractDb(supabase: SupabaseClient) {
             });
         },
 
+        /** Pólizas page with cartera status, chip counts and counters (`list_contract_portfolio`). */
+        listPortfolio: async (opts: {
+            officeId?: string;
+            consultantId?: string;
+            clientId?: string;
+            search?: string;
+            status?: PortfolioStatus | null;
+            sort?: SortOrder;
+            riskDays: number;
+            dueSoonDays: number;
+        } & Partial<PageParams>): Promise<ContractPortfolio> => {
+            const { page, pageSize } = normalizePageParams(opts);
+            const { data, error } = await supabase.rpc('list_contract_portfolio', {
+                office_id_param: opts.officeId ?? null,
+                consultant_id_param: opts.consultantId ?? null,
+                client_id_param: opts.clientId ?? null,
+                search_text: opts.search?.trim() || null,
+                status_filter: opts.status ?? null,
+                sort_column: opts.sort?.column ?? 'next_due',
+                sort_ascending: opts.sort?.ascending ?? true,
+                page_limit: pageSize,
+                page_offset: (page - 1) * pageSize,
+                risk_days: opts.riskDays,
+                due_soon_days: opts.dueSoonDays,
+            });
+            if (error) throw error;
+            return data as ContractPortfolio;
+        },
+
         getContractsWithClientsPage: async (
             opts: {
                 consultantId?: string;
@@ -203,6 +236,24 @@ export function createContractDb(supabase: SupabaseClient) {
         },
 
         /** Pólizas by number, limited to the given asesores (office import) or one asesor. */
+        /** Pólizas of the office by number, with their client and asesor (registry import review). */
+        findWithPartiesByNumbers: async (
+            contractNumbers: string[],
+            officeId: string,
+        ): Promise<Array<Contract & { client: Client | null; consultant: Pick<Consultant, 'id' | 'consultant_code' | 'name'> | null }>> => {
+            const out: Array<Contract & { client: Client | null; consultant: Pick<Consultant, 'id' | 'consultant_code' | 'name'> | null }> = [];
+            for (const chunk of chunkArray([...new Set(contractNumbers)], IMPORT_BATCH_SIZE)) {
+                const { data, error } = await supabase
+                    .from('contract')
+                    .select('*, client:client_id(*), consultant:consultant_id(id, consultant_code, name)')
+                    .eq('office_id', officeId)
+                    .in('contract_number', chunk);
+                if (error) throw error;
+                out.push(...((data ?? []) as typeof out));
+            }
+            return out;
+        },
+
         findByNumbers: async (
             contractNumbers: string[],
             scope: { consultantIds?: string[]; consultantId?: string },
@@ -293,6 +344,55 @@ export function createContractDb(supabase: SupabaseClient) {
 
             if (error) throw error;
             return data;
+        },
+
+        /** Edit a póliza (RLS-scoped) and log only the changed fields as `contract.update`. */
+        updateWithAudit: async (
+            id: string,
+            patch: Partial<Contract>,
+            actor: AuditActor,
+            source: AuditSource = 'ui',
+        ): Promise<EditResult<Contract>> => {
+            const { data: before, error: readError } = await supabase
+                .from('contract')
+                .select('*')
+                .eq('id', id)
+                .maybeSingle();
+            if (readError) throw readError;
+            if (!before) return { ok: false, error: 'No encontramos la póliza.' };
+
+            const { oldValues, newValues } = auditDiff(before, patch);
+            if (Object.keys(newValues).length === 0) return { ok: true, data: before as Contract };
+
+            const { data, error } = await supabase
+                .from('contract')
+                .update({ ...newValues, updated_at: new Date().toISOString() })
+                .eq('id', id)
+                .select()
+                .single();
+            if (error) {
+                if (error.code === '23505') {
+                    return {
+                        ok: false,
+                        error: 'Ya existe otra póliza con ese número.',
+                        fieldErrors: { contractNumber: 'Ya existe otra póliza con ese número.' },
+                    };
+                }
+                throw error;
+            }
+
+            await writeAuditLog(supabase, {
+                officeId: (before.office_id as string) ?? actor.officeId,
+                actorUserId: actor.userId,
+                actorRole: actor.role,
+                action: 'contract.update',
+                entityType: 'contract',
+                entityId: id,
+                source,
+                oldValues: { ...oldValues, contract_number: before.contract_number ?? null },
+                newValues: { ...newValues, contract_number: data.contract_number ?? null },
+            });
+            return { ok: true, data: data as Contract };
         },
     };
 

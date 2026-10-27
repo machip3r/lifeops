@@ -66,3 +66,31 @@ export function isoToDdMmYyyy(iso: string): string {
   if (!y || !m || !d) return iso;
   return `${d}/${m}/${y}`;
 }
+
+/** Whole years from a birth date (YYYY-MM-DD) to today; null when missing or invalid. */
+export function ageFromBirthDate(value: string | null | undefined, now = new Date()): number | null {
+  if (!value) return null;
+  const birth = parseDateInput(value.slice(0, 10));
+  if (!birth || Number.isNaN(birth.getTime())) return null;
+  let age = now.getFullYear() - birth.getFullYear();
+  const monthDiff = now.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && now.getDate() < birth.getDate())) age -= 1;
+  return age >= 0 ? age : null;
+}
+
+/** `YYYY-MM-DD` (or ISO timestamp) as a local calendar date; null when missing / invalid. */
+export function isoToLocalDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = parseDateInput(value.slice(0, 10));
+  return d && !Number.isNaN(d.getTime()) ? d : null;
+}
+
+const MONTH_LONG_ES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+
+/** "20 de septiembre" — for messages to clients. */
+export function formatDayMonthLongEs(date: Date): string {
+  return `${date.getDate()} de ${MONTH_LONG_ES[date.getMonth()]}`;
+}

@@ -764,59 +764,53 @@ export async function syncPaymentsFromImportedDetailsBatch(
 }
 
 /**
- * Marks the "último pago conocido" month as paid for first-time pólizas (`source=import`).
- * `collection_day` / `collection_status` are set when the póliza is created.
+ * After editing a receipt: refresh its import mark (month of FECHA PAGO, PRIMA COBRO) and, when
+ * FECHA PAGO moved to another month, drop the old month's import mark unless another receipt
+ * still pays it. Manual marks are never touched.
  */
-export async function seedPriorPayments(
+export async function syncEditedDetailPayment(
   client: SupabaseClient,
   input: {
+    officeId: string;
     actorUserId: string | null;
-    /** contract_id → ISO date (YYYY-MM-DD) of last payment before this file */
-    priorByContractId: Record<string, string>;
-    commissionImportId?: string | null;
+    before: { contract_id: string; payment_date?: string | null; collection_premium?: number | null };
+    after: { id: string; contract_id: string; payment_date?: string | null; collection_premium?: number | null };
   },
-): Promise<number> {
-  const rows = Object.entries(input.priorByContractId)
-    .map(([contractId, raw]) => [contractId, raw.trim()] as const)
-    .filter(([, paidAt]) => /^\d{4}-\d{2}-\d{2}$/.test(paidAt))
-    .map(([contractId, paidAt]) => ({
-      contract_id: contractId,
-      year: Number.parseInt(paidAt.slice(0, 4), 10),
-      month: Number.parseInt(paidAt.slice(5, 7), 10),
-      scheduled_day: Number.parseInt(paidAt.slice(8, 10), 10),
-      paid_at: paidAt,
-      amount: null as number | null,
-      notes: "Último pago previo al archivo de comisiones (alta inicial)",
-      source: "import" as const,
-      commission_import_id: input.commissionImportId ?? null,
-      updated_by: input.actorUserId,
-      created_by: input.actorUserId,
-    }));
+): Promise<void> {
+  const { before, after } = input;
+  if (before.payment_date === after.payment_date && before.collection_premium === after.collection_premium) return;
 
-  for (const chunk of chunkArray(rows, IMPORT_BATCH_SIZE)) {
-    const { error } = await client.from("contract_collection_payment").upsert(chunk, {
-      onConflict: "contract_id,year,month",
+  if (after.payment_date) {
+    await syncPaymentsFromImportedDetailsBatch(client, {
+      officeId: input.officeId,
+      actorUserId: input.actorUserId,
+      items: [{ contractId: after.contract_id, details: [after] }],
     });
-    if (error) throw error;
   }
-  return rows.length;
-}
 
-/** Pólizas (of the given ids) that already have at least one cobranza mark. */
-export async function listContractIdsWithPayments(
-  client: SupabaseClient,
-  contractIds: string[],
-): Promise<Set<string>> {
-  const found = new Set<string>();
-  for (const chunk of chunkArray(contractIds, IMPORT_BATCH_SIZE)) {
-    const { data, error } = await client
-      .from("contract_collection_payment")
-      .select("contract_id")
-      .in("contract_id", chunk);
-    if (error) throw error;
-    for (const row of data || []) found.add(row.contract_id as string);
-  }
-  return found;
+  const oldMonth = before.payment_date?.slice(0, 7);
+  if (!oldMonth || oldMonth === after.payment_date?.slice(0, 7)) return;
+  const [year, month] = oldMonth.split("-").map(Number);
+  const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  const { data: others, error: othersError } = await client
+    .from("contract_detail")
+    .select("id")
+    .eq("contract_id", after.contract_id)
+    .neq("id", after.id)
+    .gte("payment_date", `${oldMonth}-01`)
+    .lte("payment_date", monthEnd)
+    .limit(1);
+  if (othersError) throw othersError;
+  if ((others ?? []).length > 0) return;
+
+  const { error } = await client
+    .from("contract_collection_payment")
+    .delete()
+    .eq("contract_id", after.contract_id)
+    .eq("year", year)
+    .eq("month", month)
+    .eq("source", "import");
+  if (error) throw error;
 }
 
 export async function writeImportSyncAudit(

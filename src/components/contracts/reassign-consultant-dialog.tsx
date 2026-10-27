@@ -1,33 +1,45 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { ArrowLeftRight } from 'lucide-react';
 import { authFetch } from '@/lib/api-client';
 import { db } from '@/lib/db';
-import type { Consultant } from '@/lib/supabase';
+import type { Client, Consultant } from '@/lib/supabase';
 import { useToast } from '@/components/toast';
 import { AppDialog } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
+import { Combobox } from '@/components/ui/combobox';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
-import { Select } from '@/components/ui/select';
+import { SegmentedControl } from '@/components/ui/segmented-control';
+import { Skeleton } from '@/components/ui/skeleton';
+import { filterEntityName } from '@/lib/validation/input-filters';
+
+type Target = 'consultant' | 'client';
 
 type Props = {
   officeId: string;
   contractId: string;
   currentConsultantId: string;
+  currentClientId?: string | null;
   onReassigned: () => void;
 };
 
+/** Reasignar (promotoría): move the póliza to another asesor, or to another client (duplicates). */
 export function ReassignConsultantDialog({
   officeId,
   contractId,
   currentConsultantId,
+  currentClientId,
   onReassigned,
 }: Props) {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
+  const [target, setTarget] = useState<Target>('consultant');
   const [consultants, setConsultants] = useState<Consultant[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
   const [toConsultantId, setToConsultantId] = useState('');
+  const [toClientId, setToClientId] = useState('');
   const [notes, setNotes] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [loadingList, setLoadingList] = useState(false);
@@ -39,18 +51,16 @@ export function ReassignConsultantDialog({
     (async () => {
       setLoadingList(true);
       try {
-        const list = await db.consultant.getConsultantsByOffice(officeId);
+        const [consultantList, clientList] = await Promise.all([
+          db.consultant.getConsultantsByOffice(officeId),
+          db.client.getAllClients(officeId),
+        ]);
         if (cancelled) return;
-        setConsultants(
-          list.filter(
-            (c) =>
-              c.id !== currentConsultantId &&
-              c.status !== 'INACTIVE',
-          ),
-        );
+        setConsultants(consultantList.filter((c) => c.id !== currentConsultantId && c.status !== 'INACTIVE'));
+        setClients(clientList.filter((c) => c.id !== currentClientId));
       } catch (e) {
         console.error(e);
-        toast.error('No se pudieron cargar los asesores.');
+        toast.error('No se pudieron cargar asesores y clientes.');
       } finally {
         if (!cancelled) setLoadingList(false);
       }
@@ -58,20 +68,24 @@ export function ReassignConsultantDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, officeId, currentConsultantId, toast]);
+  }, [open, officeId, currentConsultantId, currentClientId, toast]);
 
   const close = () => {
     if (submitting) return;
     setOpen(false);
+    setTarget('consultant');
     setToConsultantId('');
+    setToClientId('');
     setNotes('');
     setFieldErrors({});
   };
 
+  const selected = target === 'consultant' ? toConsultantId : toClientId;
+
   const handleSubmit = async () => {
     setFieldErrors({});
-    if (!toConsultantId) {
-      setFieldErrors({ toConsultantId: 'Selecciona un asesor.' });
+    if (!selected) {
+      setFieldErrors(target === 'consultant' ? { toConsultantId: 'Elige un asesor.' } : { toClientId: 'Elige un cliente.' });
       return;
     }
     setSubmitting(true);
@@ -81,20 +95,29 @@ export function ReassignConsultantDialog({
         body: JSON.stringify({
           officeId,
           contractId,
-          toConsultantId,
+          ...(target === 'consultant' ? { toConsultantId } : { toClientId }),
           notes: notes.trim() || undefined,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (data.fieldErrors) setFieldErrors(data.fieldErrors);
         throw new Error(data.error || 'No se pudo reasignar.');
       }
-      toast.success('Asesor reasignado.');
+      if (target === 'client') {
+        toast.success(
+          data.fromClientRemaining === 0
+            ? `Póliza movida a ${data.toClientName}. El cliente anterior ya no tiene pólizas; puedes eliminarlo desde su expediente.`
+            : `Póliza movida a ${data.toClientName}.`,
+        );
+      } else {
+        toast.success('Asesor reasignado.');
+      }
       close();
       onReassigned();
     } catch (e) {
       console.error(e);
-      toast.error(e instanceof Error ? e.message : 'Error al reasignar.');
+      toast.error(e instanceof Error ? e.message : 'No se pudo reasignar.');
     } finally {
       setSubmitting(false);
     }
@@ -102,73 +125,104 @@ export function ReassignConsultantDialog({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => setOpen(true)}
-      >
+      <Button type="button" variant="outline" size="default" className="h-10 gap-2 px-3.5" onClick={() => setOpen(true)}>
+        <ArrowLeftRight className="h-4 w-4" aria-hidden />
         Reasignar
       </Button>
 
       <AppDialog
         open={open}
-        title="Reasignar asesor"
-        description="La póliza, el cliente y la cobranza se conservan. Solo cambia el asesor responsable (misma promotoría)."
+        title="Reasignar póliza"
+        description={
+          target === 'consultant'
+            ? 'Cambia el asesor responsable. Cliente, recibos y cobranza se conservan.'
+            : 'Pásala a otro cliente, por ejemplo si el mismo cliente quedó registrado dos veces. Recibos y cobranza se conservan.'
+        }
         onClose={close}
         busy={submitting}
         size="md"
+        footer={
+          <>
+            <Button type="button" variant="outline" size="lg" onClick={close} disabled={submitting}>
+              Cancelar
+            </Button>
+            <Button type="button" variant="brand" size="lg" disabled={submitting || !selected} onClick={() => void handleSubmit()}>
+              {submitting ? 'Guardando…' : 'Reasignar'}
+            </Button>
+          </>
+        }
       >
-        <div className="space-y-4">
-          <FormField
-            label="Nuevo asesor"
-            htmlFor="to-consultant"
-            variant="auth"
-            error={fieldErrors.toConsultantId}
-          >
-            <Select
-              id="to-consultant"
-              value={toConsultantId}
-              disabled={loadingList || submitting}
-              onChange={(e) => setToConsultantId(e.target.value)}
-            >
-              <option value="">
-                {loadingList ? 'Cargando…' : 'Selecciona un asesor'}
-              </option>
-              {consultants.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                  {c.consultant_code ? ` (${c.consultant_code})` : ''}
-                </option>
-              ))}
-            </Select>
-          </FormField>
+        <div className="space-y-5">
+          <SegmentedControl
+            label="Qué quieres reasignar"
+            value={target}
+            onChange={(next) => {
+              setTarget(next);
+              setFieldErrors({});
+            }}
+            options={[
+              { value: 'consultant', label: 'Asesor' },
+              { value: 'client', label: 'Cliente' },
+            ]}
+          />
 
-          <FormField label="Nota (opcional)" htmlFor="reassign-notes" variant="auth">
+          {target === 'consultant' ? (
+            <FormField label="Nuevo asesor" htmlFor="to-consultant" variant="auth" error={fieldErrors.toConsultantId}>
+              {loadingList ? (
+                <Skeleton className="h-12 w-full" />
+              ) : (
+                <Combobox
+                  id="to-consultant"
+                  value={toConsultantId}
+                  disabled={submitting}
+                  onChange={setToConsultantId}
+                  options={consultants.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    description: c.consultant_code ? `Clave ${c.consultant_code}` : undefined,
+                  }))}
+                  placeholder="Busca por nombre o clave…"
+                  emptyText="No encontramos ese asesor."
+                />
+              )}
+            </FormField>
+          ) : (
+            <FormField
+              label="Nuevo cliente"
+              htmlFor="to-client"
+              variant="auth"
+              hint="Si el cliente anterior se queda sin pólizas, podrás eliminarlo desde su expediente."
+              error={fieldErrors.toClientId}
+            >
+              {loadingList ? (
+                <Skeleton className="h-12 w-full" />
+              ) : (
+                <Combobox
+                  id="to-client"
+                  value={toClientId}
+                  disabled={submitting}
+                  onChange={setToClientId}
+                  options={clients.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    description: c.rfc || c.curp || undefined,
+                  }))}
+                  placeholder="Busca por nombre, RFC o CURP…"
+                  emptyText="No encontramos ese cliente."
+                />
+              )}
+            </FormField>
+          )}
+
+          <FormField label="Nota" htmlFor="reassign-notes" variant="auth" hint="Opcional. Queda en el historial.">
             <Input
               id="reassign-notes"
               value={notes}
               maxLength={500}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => setNotes(filterEntityName(e.target.value))}
               placeholder="Motivo del cambio"
-             
             />
           </FormField>
-
-          <div className="flex justify-end gap-3 pt-1">
-            <Button type="button" variant="outline" size="lg" onClick={close} disabled={submitting}>
-              Cancelar
-            </Button>
-            <Button
-              type="button"
-              variant="brand"
-              size="lg"
-              disabled={submitting || !toConsultantId}
-              onClick={() => void handleSubmit()}
-            >
-              {submitting ? 'Guardando…' : 'Confirmar'}
-            </Button>
-          </div>
         </div>
       </AppDialog>
     </>

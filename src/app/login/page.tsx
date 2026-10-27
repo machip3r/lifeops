@@ -17,6 +17,7 @@ import {
 } from '@/lib/validation/schemas';
 import { VALIDATION_MESSAGES, zodFieldErrors } from '@/lib/validation/field-errors';
 import { homePathFor } from '@/lib/onboarding/routes';
+import { AuthCardSkeleton } from '@/components/ui/skeleton';
 
 export default function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -144,9 +145,7 @@ export default function LoginPage() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg">Cargando...</p>
-        </div>
+        <AuthCardSkeleton />
       </div>
     );
   }

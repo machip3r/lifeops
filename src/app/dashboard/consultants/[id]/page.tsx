@@ -1,131 +1,85 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
-import { Consultant, Contract } from '@/lib/supabase';
+import { FileText, Gauge, HandCoins, Pencil, Send, Siren, Trash2 } from 'lucide-react';
+import type { AuditLogEntry, Consultant, ContractPortfolio } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { authFetch } from '@/lib/api-client';
 import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
-import { DataTable, dataTablePanelClass } from '@/components/data-table';
-import { TablePagination } from '@/components/table-pagination';
-import { ListSearchFilters } from '@/components/list-search-filters';
-import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
-import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { PageHeader } from '@/components/dashboard/page-header';
-import {
-  DetailCard,
-  DetailField,
-  DetailGrid,
-} from '@/components/dashboard/detail-card';
+import { DetailCard, DetailRow, DetailRows } from '@/components/dashboard/detail-card';
+import { StatTile } from '@/components/dashboard/overview/stat-tile';
+import { numberEs } from '@/components/dashboard/overview/chart-parts';
+import { CarteraStatusCard } from '@/components/dashboard/overview/cartera-status';
 import { EditConsultantDialog } from '@/components/consultants/edit-consultant-dialog';
+import { ActivityCard } from '@/components/dashboard/activity-card';
+import { EntityActionButton } from '@/components/dashboard/entity-action-button';
+import { DeleteConsultantDialog } from '@/components/delete-dialogs';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { ContractPortfolioPanel } from '@/components/contracts/contract-portfolio-panel';
+import { useToast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
-import {
-  CONSULTANT_STATUS_LABEL,
-  consultantStatusClass,
-} from '@/lib/consultants/status';
-import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
+import { DotBadge } from '@/components/ui/dot-badge';
+import { CONSULTANT_STATUS } from '@/lib/consultants/status';
+import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
+import { formatDateShortEsLocal } from '@/lib/format/date';
+import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
+import { ChartSkeleton, DetailPageSkeleton, StatTilesSkeleton } from '@/components/ui/skeleton';
 
-type ContractRow = Contract & { client_name?: string };
-type SortKey = 'contract_number' | 'client_name' | 'payment_method';
+const percentEs = new Intl.NumberFormat('es-MX', { style: 'percent', maximumFractionDigits: 0 });
+
+const ACCESS_HINT: Record<Consultant['status'], string> = {
+  ACTIVE: 'Ya entra a LifeOps y ve su propia cartera.',
+  PENDING: 'Se le envió la invitación; aún no la acepta.',
+  NOT_INVITED: 'Todavía no tiene acceso. Invítalo para que vea su cartera.',
+  INACTIVE: 'Sin acceso a LifeOps.',
+};
 
 function ConsultantDetailsPageContent() {
   const router = useRouter();
   const params = useParams();
   const consultantId = params.id as string;
   const { profile } = useAuth();
+  const { toast } = useToast();
   const [consultant, setConsultant] = useState<Consultant | null>(null);
-  const [contracts, setContracts] = useState<ContractRow[]>([]);
-  const [contractsTotal, setContractsTotal] = useState(0);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [activity, setActivity] = useState<AuditLogEntry[]>([]);
+  const [portfolio, setPortfolio] = useState<ContractPortfolio | null>(null);
   const [loading, setLoading] = useQueryLoading(consultantId);
   const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [isSendingInvite, setIsSendingInvite] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [searchDraft, setSearchDraft] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useResetPage(`${pageSize}\0${search}`);
-  const [contractsLoading, setContractsLoading] = useQueryLoading(
-    `${consultantId}\0${page}\0${pageSize}\0${search}`,
-  );
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [inviteConfirmOpen, setInviteConfirmOpen] = useState(false);
 
-  const sortedContracts = useMemo(
-    () =>
-      sortRows(
-        contracts,
-        sortKey,
-        sortDir,
-        {
-          contract_number: (c) => c.contract_number,
-          client_name: (c) => c.client_name,
-          payment_method: (c) => c.payment_method,
-        },
-      ),
-    [contracts, sortKey, sortDir],
-  );
-
-  const toggleSort = (key: SortKey) => {
-    const next = nextSortState(sortKey, sortDir, key);
-    setSortKey(next.key);
-    setSortDir(next.dir);
-  };
-
-  const loadContractsPage = useCallback(async () => {
+  const loadConsultant = useCallback(async () => {
     try {
-      const result = await db.contract.getContractsWithClientsPage({
-        consultantId,
-        search: search || undefined,
-        page,
-        pageSize,
-      });
-      setContracts(result.rows);
-      setContractsTotal(result.total);
-    } catch (err: unknown) {
-      console.error('Error loading consultant contracts page:', err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Error al cargar las pólizas del asesor',
-      );
-    } finally {
-      setContractsLoading(false);
-    }
-  }, [consultantId, page, pageSize, search, setContractsLoading]);
-
-  const loadConsultantData = useCallback(async () => {
-    try {
-      const consultantData = await db.consultant.getConsultantById(consultantId);
-      if (!consultantData) {
-        throw new Error('Asesor no encontrado');
-      }
-      setConsultant(consultantData);
-    } catch (err: unknown) {
+      const [data, entries] = await Promise.all([
+        db.consultant.getConsultantById(consultantId),
+        db.auditLog.listByEntity('consultant', consultantId).catch((error) => {
+          console.error('Error loading consultant activity:', error);
+          return [] as AuditLogEntry[];
+        }),
+      ]);
+      setConsultant(data);
+      setActivity(entries);
+    } catch (err) {
       console.error('Error loading consultant data:', err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Error al cargar los datos del asesor',
-      );
     } finally {
       setLoading(false);
     }
   }, [consultantId, setLoading]);
 
-  useQueryEffect(Boolean(consultantId), loadConsultantData);
-  useQueryEffect(Boolean(consultantId), loadContractsPage);
+  useQueryEffect(Boolean(consultantId), loadConsultant);
 
   const handleSendInvitation = async () => {
     if (!consultant || !profile?.id) return;
     if (!consultant.email?.trim()) {
-      setError('El correo es requerido para enviar la invitación');
+      toast.error('Agrega el correo del asesor para enviarle la invitación.');
       return;
     }
     setIsSendingInvite(true);
-    setError('');
-    setSuccess('');
     try {
       const response = await authFetch('/api/invite-consultant', {
         method: 'POST',
@@ -144,248 +98,187 @@ function ConsultantDetailsPageContent() {
           data.fieldErrors?.consultantName ||
           data.fieldErrors?.consultantCode ||
           data.fieldErrors?.consultantId;
-        throw new Error(fieldMsg || data.error || 'Error al enviar la invitación');
+        throw new Error(fieldMsg || data.error || 'No se pudo enviar la invitación.');
       }
       setConsultant({
         ...consultant,
         email: consultant.email.trim().toLowerCase(),
-        name: consultant.name,
         status: 'PENDING',
         auth_user_id: null,
       });
-      setSuccess(
-        `Invitación enviada a ${consultant.email}. El registro se reinició para que pueda aceptar el enlace.`,
-      );
-      setTimeout(() => setSuccess(''), 4000);
+      toast.success(`Invitación enviada a ${consultant.email}.`);
     } catch (err: unknown) {
       console.error('Error sending invitation:', err);
-      setError(
-        err instanceof Error ? err.message : 'Error al enviar la invitación',
-      );
+      toast.error(err instanceof Error ? err.message : 'No se pudo enviar la invitación.');
     } finally {
       setIsSendingInvite(false);
     }
   };
 
-  if (loading) {
+  if (loading && !consultant) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
+      <DetailPageSkeleton />
+    );
+  }
+
+  if (!consultant || !profile) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 text-center">
+        <p className="text-lg text-(--lifeops-muted)">No encontramos este asesor.</p>
+        <Button type="button" variant="brand" onClick={() => router.push('/dashboard/consultants')}>
+          Volver a asesores
+        </Button>
       </div>
     );
   }
 
-  if (!consultant) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
-            Asesor no encontrado
-          </p>
-          <button
-            type="button"
-            onClick={() => router.push('/dashboard/consultants')}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Volver a Asesores
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Imported asesores get an internal placeholder correo; it cannot receive the invitation
+  const hasRealEmail = Boolean(consultant.email?.trim()) && !/@lifeops\.com$/i.test(consultant.email ?? '');
+  const resend = consultant.status === 'PENDING';
+
+  const summary = portfolio?.summary;
+  const withDue = summary ? summary.current + summary.due_soon + summary.overdue + summary.at_risk : 0;
+  const healthy = summary && withDue > 0 ? (summary.current + summary.due_soon) / withDue : null;
+  const late = summary ? summary.overdue + summary.at_risk : 0;
 
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title={consultant.name}
         watermark="Asesor"
         eyebrow={
-          <button
-            type="button"
-            onClick={() => router.push('/dashboard/consultants')}
-            className="inline-flex items-center text-[#FBDBAC] hover:underline"
-          >
+          <Link href="/dashboard/consultants" className="inline-flex items-center text-[#FBDBAC] hover:underline">
             ← Volver a asesores
-          </button>
+          </Link>
         }
-        description="Detalles del asesor"
+        description={[consultant.consultant_code, consultant.email].filter(Boolean).join(' · ') || 'Expediente del asesor'}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <EntityActionButton icon={Pencil} label="Editar" onClick={() => setEditOpen(true)} />
+            {consultant.status !== 'ACTIVE' && consultant.status !== 'INACTIVE' ? (
+              <EntityActionButton
+                icon={Send}
+                variant="brand"
+                label={isSendingInvite ? 'Enviando…' : consultant.status === 'PENDING' ? 'Reenviar invitación' : 'Invitar'}
+                onClick={() => {
+                  if (!hasRealEmail) {
+                    toast.error('Agrega su correo con «Editar» para poder invitarlo.');
+                    return;
+                  }
+                  setInviteConfirmOpen(true);
+                }}
+                disabled={isSendingInvite}
+              />
+            ) : null}
+            <EntityActionButton icon={Trash2} label="Eliminar" variant="danger" disabled={!portfolio} onClick={() => setDeleteOpen(true)} />
+          </div>
+        }
       />
 
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
-          <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
-        </div>
-      )}
-
-      {success && (
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4 mb-4">
-          <p className="text-sm text-green-800 dark:text-green-200">{success}</p>
-        </div>
-      )}
-
-      <DetailCard
-        title="Información"
-        actions={
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setEditOpen(true)}
-            >
-              Editar
-            </Button>
-            {consultant.status !== 'ACTIVE' ? (
-              <Button
-                type="button"
-                variant="brand"
-                size="sm"
-                onClick={() => void handleSendInvitation()}
-                disabled={isSendingInvite || !consultant.email?.trim()}
-              >
-                {isSendingInvite
-                  ? 'Enviando…'
-                  : consultant.status === 'PENDING'
-                    ? 'Reenviar invitación'
-                    : 'Invitar'}
-              </Button>
-            ) : null}
-          </>
-        }
-      >
-        <DetailGrid>
-          <DetailField label="Código">
-            <span className="font-mono">
-              {consultant.consultant_code || '—'}
-            </span>
-          </DetailField>
-          <DetailField label="Correo">
-            {consultant.email || 'Sin correo'}
-          </DetailField>
-          <DetailField label="Estado">
-            <span
-              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${consultantStatusClass(consultant.status)}`}
-            >
-              {CONSULTANT_STATUS_LABEL[consultant.status] ?? consultant.status}
-            </span>
-          </DetailField>
-          <DetailField label="Pólizas">{contractsTotal}</DetailField>
-        </DetailGrid>
-      </DetailCard>
-
-      {profile?.id ? (
-        <EditConsultantDialog
-          open={editOpen}
-          consultant={consultant}
-          officeId={profile.id}
-          onClose={() => setEditOpen(false)}
-          onSaved={(next) => {
-            setConsultant({ ...consultant, ...next });
-            setSuccess('Información actualizada');
-            setTimeout(() => setSuccess(''), 3000);
-          }}
-        />
-      ) : null}
-
-      <div className={dataTablePanelClass}>
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-            Pólizas ({contractsTotal})
-          </h2>
-          <ListSearchFilters
-            value={searchDraft}
-            onChange={setSearchDraft}
-            onSubmit={() => {
-              setSearch(searchDraft);
-              setPage(1);
-            }}
-            placeholder="Número de póliza o cliente…"
-            id="consultant-contracts-search"
-            className="flex flex-wrap gap-3 items-end p-0 border-0"
+      {summary ? (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <StatTile
+            label="Pólizas activas"
+            icon={FileText}
+            value={summary ? numberEs.format(summary.active) : '—'}
+            detail={summary ? `${numberEs.format(summary.clients)} clientes` : undefined}
+          />
+          <StatTile
+            label="Cartera al día"
+            icon={Gauge}
+            value={healthy != null ? percentEs.format(healthy) : '—'}
+            detail="Al corriente o por vencer"
+          />
+          <StatTile
+            label="Con atraso"
+            icon={Siren}
+            value={summary ? numberEs.format(late) : '—'}
+            detail={summary ? `${numberEs.format(summary.at_risk)} en peligro (más de ${POLICY_AT_RISK_DAYS} días)` : undefined}
+          />
+          <StatTile
+            label="Pagos en 30 días"
+            icon={HandCoins}
+            value={summary ? numberEs.format(summary.payments_last_30_days) : '—'}
+            detail="Registrados en cobranza o en archivos"
           />
         </div>
-        {contractsTotal > 0 || contracts.length > 0 ? (
-          <>
-            <DataTable
-              rows={sortedContracts}
-              getRowKey={(contract) => contract.id}
-              onRowClick={(contract) => router.push(`/dashboard/contracts/${contract.id}`)}
-              columns={[
-                {
-                  id: 'contract_number',
-                  header: 'Número de póliza',
-                  tone: 'accent',
-                  sort: {
-                    label: 'Número de póliza',
-                    active: sortKey === 'contract_number',
-                    dir: sortDir,
-                    onSort: () => toggleSort('contract_number'),
-                  },
-                  cell: (contract) => contract.contract_number || '—',
-                },
-                {
-                  id: 'client_name',
-                  header: 'Cliente',
-                  tone: 'muted',
-                  sort: {
-                    label: 'Cliente',
-                    active: sortKey === 'client_name',
-                    dir: sortDir,
-                    onSort: () => toggleSort('client_name'),
-                  },
-                  cell: (contract) => contract.client_name || '—',
-                },
-                {
-                  id: 'payment_method',
-                  header: 'Forma de pago',
-                  tone: 'muted',
-                  sort: {
-                    label: 'Forma de pago',
-                    active: sortKey === 'payment_method',
-                    dir: sortDir,
-                    onSort: () => toggleSort('payment_method'),
-                  },
-                  cell: (contract) => contract.payment_method || '—',
-                },
-                {
-                  id: 'actions',
-                  header: 'Acciones',
-                  align: 'right',
-                  sticky: true,
-                  cell: (contract) => (
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
-                      className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                    >
-                      Ver
-                    </button>
-                  ),
-                },
-              ]}
-            />
-            <TablePagination
-              page={page}
-              pageSize={pageSize}
-              total={contractsTotal}
-              disabled={contractsLoading}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
-            />
-          </>
+      ) : (
+        <StatTilesSkeleton />
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="flex min-w-0 flex-col gap-4">
+          <DetailCard className="mb-0" title="Datos del asesor">
+            <DetailRows>
+              <DetailRow label="Clave">
+                <span className="font-mono">{consultant.consultant_code || '—'}</span>
+              </DetailRow>
+              <DetailRow label="Correo">{consultant.email || 'Sin correo'}</DetailRow>
+              <DetailRow label="Alta">{formatDateShortEsLocal(consultant.created_at?.slice(0, 10))}</DetailRow>
+              <DetailRow label="Acceso">
+                <DotBadge {...CONSULTANT_STATUS[consultant.status]} />
+              </DetailRow>
+            </DetailRows>
+            <p className="mt-4 text-xs text-(--lifeops-muted)">{ACCESS_HINT[consultant.status]}</p>
+          </DetailCard>
+          <ActivityCard entries={activity} />
+        </div>
+
+        {summary ? (
+          <CarteraStatusCard status={summary} className="lg:col-span-2 lg:self-start" />
         ) : (
-          <div className="p-12 text-center">
-            <p className="text-gray-600 dark:text-gray-400 text-lg">
-              {search.trim()
-                ? 'No hay pólizas que coincidan con la búsqueda.'
-                : 'No hay pólizas registradas para este asesor'}
-            </p>
-          </div>
+          <ChartSkeleton className="lg:col-span-2" bars={4} />
         )}
       </div>
+
+      <ContractPortfolioPanel
+        scope={{ consultantId: consultant.id }}
+        title="Cartera del asesor"
+        description="Sus pólizas con estado de cobro y próximo recibo."
+        searchPlaceholder="Póliza o cliente…"
+        emptyText="Este asesor aún no tiene pólizas."
+        onLoaded={setPortfolio}
+      />
+
+      <ConfirmDialog
+        open={inviteConfirmOpen}
+        title={resend ? `¿Reenviar la invitación a ${consultant.name}?` : `¿Invitar a ${consultant.name} a LifeOps?`}
+        description={`Le llegará un correo a ${consultant.email ?? ''} con un enlace para crear su contraseña e iniciar sesión.\n\nYa dentro verá sus pólizas, sus clientes y su cobranza; no verá la cartera de otros asesores. El enlace vence en 7 días.${
+          resend ? '\n\nEl enlace que le mandamos antes dejará de funcionar.' : ''
+        }`}
+        confirmVariant="brand"
+        confirmLabel={resend ? 'Reenviar invitación' : 'Enviar invitación'}
+        loadingLabel="Enviando…"
+        loading={isSendingInvite}
+        onCancel={() => (isSendingInvite ? undefined : setInviteConfirmOpen(false))}
+        onConfirm={() => {
+          void (async () => {
+            await handleSendInvitation();
+            setInviteConfirmOpen(false);
+          })();
+        }}
+      />
+
+      <DeleteConsultantDialog
+        consultant={
+          deleteOpen ? { id: consultant.id, name: consultant.name, contractCount: portfolio?.counts.all ?? 0 } : null
+        }
+        officeId={profile.id}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => router.push('/dashboard/consultants')}
+      />
+
+      <EditConsultantDialog
+        open={editOpen}
+        consultant={consultant}
+        officeId={profile.id}
+        onClose={() => setEditOpen(false)}
+        onSaved={(next) => {
+          setConsultant({ ...consultant, ...next });
+          toast.success('Asesor actualizado.');
+          void loadConsultant();
+        }}
+      />
     </div>
   );
 }

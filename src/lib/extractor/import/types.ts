@@ -1,10 +1,7 @@
 export type CommissionImportMeta = {
   /** Emission date of the commission file (YYYY-MM-DD). */
   fileIssueDate: string;
-  /** Contract number (normalized) → ISO last known payment, for first-time pólizas. */
-  priorPaymentByContract?: Record<string, string>;
   fileName?: string | null;
-  requirePriorForNew?: boolean;
 };
 
 export type CommissionImportResult = {
@@ -24,4 +21,16 @@ export type CommissionImportCounts = {
 /** What one server batch returns; the browser adds them up. */
 export type CommissionImportBatchResult = CommissionImportResult & {
   counts: CommissionImportCounts;
+};
+
+/** Re-import review: one change the file would make to a póliza already in LifeOps. */
+type CommissionChange = { field: string; label: string; current: string; incoming: string };
+
+export type CommissionChangeItem = {
+  contractNumber: string;
+  clientName: string;
+  /** Empty in LifeOps: filled automatically */
+  fills: CommissionChange[];
+  /** Different from LifeOps: applied only when picked */
+  diffs: CommissionChange[];
 };

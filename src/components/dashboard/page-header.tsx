@@ -23,10 +23,10 @@ export function PageHeader({
   const mark = (watermark ?? title).toUpperCase();
 
   return (
-    <header className={cn('mb-8 text-left', className)}>
-      {eyebrow ? <div className="relative z-20 mb-3">{eyebrow}</div> : null}
+    <header className={cn('mb-5 text-left', className)}>
+      {eyebrow ? <div className="relative z-20 mb-2 text-sm">{eyebrow}</div> : null}
 
-      <div className="relative min-h-[5.75rem] overflow-visible sm:min-h-[7rem]">
+      <div className="relative min-h-[4.25rem] overflow-x-clip sm:min-h-[5.25rem]">
         <div
           className="dashboard-page-watermark pointer-events-none absolute -left-1 top-0 select-none"
           aria-hidden
@@ -34,12 +34,12 @@ export function PageHeader({
           {mark}
         </div>
 
-        <div className="relative z-10 pt-8 sm:pt-11">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="relative z-10 pt-5 sm:pt-7">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <h1 className="dashboard-page-title text-4xl font-bold">{title}</h1>
+              <h1 className="dashboard-page-title text-[1.75rem] leading-tight font-bold sm:text-3xl">{title}</h1>
               {description ? (
-                <div className="mt-2 max-w-2xl text-sm text-(--lifeops-muted) sm:text-base">
+                <div className="mt-1 max-w-3xl text-sm text-(--lifeops-muted)">
                   {description}
                 </div>
               ) : null}

@@ -20,5 +20,7 @@ export * from "./tenancy";
 export * from "./consultants";
 export * from "./invites";
 export * from "./contracts";
+export * from "./contract-cascade";
+export * from "./clients";
 export * from "./documents";
 export * from "./office-cleanup";

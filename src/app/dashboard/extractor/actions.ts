@@ -7,12 +7,14 @@ import {
   importCommissionBatch,
   startCommissionImport,
 } from "@/lib/extractor/import/import-contracts";
-import type { CommissionImportBatchResult } from "@/lib/extractor/import/types";
+import type { CommissionChangeItem, CommissionImportBatchResult } from "@/lib/extractor/import/types";
+import { previewCommissionChanges } from "@/lib/extractor/import/preview-changes";
 import { createUserClient } from "@/lib/supabase/user-client";
 import {
   commissionImportBatchSchema,
   commissionImportFinishSchema,
   commissionImportStartSchema,
+  commissionPreviewSchema,
 } from "@/lib/validation/schemas";
 
 type ActionFailure = { ok: false; error: string };
@@ -76,6 +78,7 @@ export async function importCommissionBatchAction(
     headers: parsed.data.headers,
     rows: parsed.data.rows,
     importMeta: parsed.data.importMeta,
+    decisions: parsed.data.decisions,
   });
   return { ok: true, ...result };
 }
@@ -99,4 +102,26 @@ export async function finishCommissionImportAction(
     ...parsed.data,
   });
   return { ok: true };
+}
+
+/** Step 2 review: pólizas of this batch already in LifeOps and what the file would change. */
+export async function previewCommissionChangesAction(
+  accessToken: string,
+  input: unknown,
+): Promise<{ ok: true; items: CommissionChangeItem[] } | ActionFailure> {
+  const session = await importSession(accessToken);
+  if (!session.ok) return session;
+  const parsed = commissionPreviewSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: INVALID_FILE_DATA };
+  try {
+    const items = await previewCommissionChanges(session.db, {
+      officeId: session.ctx.officeId,
+      headers: parsed.data.headers,
+      rows: parsed.data.rows,
+    });
+    return { ok: true, items };
+  } catch (error) {
+    console.error("previewCommissionChangesAction:", error);
+    return { ok: false, error: "No se pudo comparar el archivo con LifeOps." };
+  }
 }

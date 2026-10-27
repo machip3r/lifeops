@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { writeAuditLog } from "@/lib/db/audit-log";
-import { upsertCollectionPayment } from "@/lib/db/collections-service";
+import { initialCollectionStatus, nextCollectionDue } from "@/lib/collections/next-due";
 import type { Contract } from "@/lib/supabase";
 
 export type ManualContractInput = {
@@ -12,8 +12,8 @@ export type ManualContractInput = {
   curp?: string | null;
   rfc?: string | null;
   issueDate: string;
-  collectionDay: number;
-  lastPaymentDate: string;
+  /** Agreed day of the month; only used when the receipt calendar cannot be built */
+  collectionDay?: number | null;
   projectName: string;
   paymentMethod: string;
 };
@@ -215,7 +215,11 @@ export async function createManualContract(
       capture_date: input.issueDate,
       project_name: input.projectName,
       payment_method: input.paymentMethod,
-      collection_day: input.collectionDay,
+      collection_day: input.collectionDay ?? null,
+      // Same as the import: next due from FECHA EMISION + forma de pago until payments are registered
+      collection_status: initialCollectionStatus(
+        nextCollectionDue({ issueDate: input.issueDate, paymentMethod: input.paymentMethod }),
+      ),
       status: "ACTIVE",
       source: "manual",
     })
@@ -225,27 +229,6 @@ export async function createManualContract(
   if (contractError || !contract) {
     console.error(contractError);
     return { ok: false, error: "No se pudo registrar la póliza." };
-  }
-
-  {
-    const paidAt = input.lastPaymentDate;
-    const year = Number.parseInt(paidAt.slice(0, 4), 10);
-    const month = Number.parseInt(paidAt.slice(5, 7), 10);
-    const paymentResult = await upsertCollectionPayment(client, {
-      contractId: contract.id,
-      year,
-      month,
-      paidAt,
-      scheduledDay: input.collectionDay,
-    });
-    if (!paymentResult.ok) {
-      return {
-        ok: false,
-        error:
-          paymentResult.error ||
-          "La póliza se creó, pero no se pudo registrar el último pago.",
-      };
-    }
   }
 
   await writeAuditLog(client, {

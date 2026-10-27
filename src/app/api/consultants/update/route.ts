@@ -60,6 +60,7 @@ export async function POST(request: NextRequest) {
     const result = await updateConsultantAdmin({
       consultantId: parsed.data.consultantId,
       officeId: parsed.data.officeId,
+      actorUserId: auth.ctx.user.id,
       updates: parsed.data.updates,
     });
 

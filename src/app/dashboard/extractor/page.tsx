@@ -18,7 +18,7 @@ import { useAuth } from '@/contexts/auth-context';
 import { useToast } from '@/components/toast';
 import { authFetch } from '@/lib/api-client';
 import { db } from '@/lib/db';
-import { runCommissionImport } from '@/lib/extractor/import/client';
+import { previewCommissionChanges, runCommissionImport } from '@/lib/extractor/import/client';
 import {
   chunkArray,
   IMPORT_BATCH_SIZE,
@@ -34,6 +34,12 @@ import {
   RECEIPT_HEADER,
 } from '@/lib/extractor/receipt';
 import { EditableClientName } from '@/components/extractor/editable-client-name';
+import { OrDivider, RegistrySources, SourceHeader } from '@/components/extractor/registry-sources';
+import { ImportDropzone } from '@/components/extractor/import-dropzone';
+import { RegistryImport } from '@/components/extractor/registry-import';
+import { CommissionReview } from '@/components/extractor/commission-review';
+import type { CommissionChangeItem } from '@/lib/extractor/import/types';
+import type { RegistrySource } from '@/lib/extractor/registry/fields';
 import { bestClientNameMatch, normalizeClientName } from '@/lib/clients/name-match';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { Button } from '@/components/ui/button';
@@ -71,10 +77,8 @@ type ImportDateRow = {
   rowIndexes: number[];
   /** ISO YYYY-MM-DD from extract or user */
   issueDate: string;
-  /** True when HTML had no emission date (input shown by default). */
+  /** True when no row of the póliza had FECHA EMISION: the user must capture it. */
   issueMissing: boolean;
-  needsPriorPayment: boolean;
-  priorPaymentDate: string;
 };
 
 function normalizeHeaderKey(h?: string | null): string {
@@ -181,7 +185,6 @@ function ExtractorPageContent() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [tables, setTables] = useState<TableData[]>([]);
   const [fileName, setFileName] = useState<string>('');
-  const [isDragging, setIsDragging] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
@@ -195,14 +198,12 @@ function ExtractorPageContent() {
   const [missingConsultants, setMissingConsultants] = useState<
     MissingConsultantDraft[]
   >([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const continueLockRef = useRef(false);
   const [showImportDatesDialog, setShowImportDatesDialog] = useState(false);
   const [dialogFileIssueDate, setDialogFileIssueDate] = useState('');
   const [importDateRows, setImportDateRows] = useState<ImportDateRow[]>([]);
   const [importDateErrors, setImportDateErrors] = useState<Record<string, string>>({});
   /** Keys where extracted emission date is being edited inline. */
-  const [editingIssueKeys, setEditingIssueKeys] = useState<Record<string, boolean>>({});
   /** Missing asesor codes previewed on step 3 (manual create on import). */
   const [summaryMissingConsultants, setSummaryMissingConsultants] = useState<
     Array<{ code: string; name?: string }>
@@ -213,10 +214,16 @@ function ExtractorPageContent() {
   const [pendingImportTable, setPendingImportTable] = useState<TableData | null>(null);
   const [confirmedImportMeta, setConfirmedImportMeta] = useState<{
     fileIssueDate: string;
-    priorPaymentByContract: Record<string, string>;
   } | null>(null);
+  /** Step 2 review: pólizas already in LifeOps that the file would change */
+  const [commissionChanges, setCommissionChanges] = useState<CommissionChangeItem[] | null>(null);
+  const [commissionChangesError, setCommissionChangesError] = useState('');
+  const [commissionPicks, setCommissionPicks] = useState<Record<string, string[]>>({});
+  /** Mina de Oro / plantilla chosen: the registry review replaces the commission steps */
+  const [registry, setRegistry] = useState<{ source: RegistrySource; file: File } | null>(null);
 
   const importInProgress =
+    registry != null ||
     step > 1 ||
     uploadedFiles.length > 0 ||
     isExtracting ||
@@ -708,7 +715,6 @@ function ExtractorPageContent() {
       setTables([]);
       setImportResult(null);
       setImportDateRows([]);
-      setEditingIssueKeys({});
       setSummaryMissingConsultants([]);
       setStep(1);
       setPendingImportTable(null);
@@ -719,26 +725,11 @@ function ExtractorPageContent() {
     }
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = e.dataTransfer.files;
-    if (files?.length) addFiles(files);
-    else toast.error('Arrastra uno o más archivos HTML o MHTML');
-  };
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files?.length) addFiles(files);
-    e.target.value = '';
-  };
-
   const removeUploadedFile = (index: number) => {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
     setTables([]);
     setImportResult(null);
     setImportDateRows([]);
-    setEditingIssueKeys({});
     setSummaryMissingConsultants([]);
     setStep(1);
     setPendingImportTable(null);
@@ -750,7 +741,6 @@ function ExtractorPageContent() {
     setTables([]);
     setImportResult(null);
     setImportDateRows([]);
-    setEditingIssueKeys({});
     setSummaryMissingConsultants([]);
     setFileName('');
     setStep(1);
@@ -1169,8 +1159,10 @@ function ExtractorPageContent() {
         const existing = dateRowMap.get(key);
         if (existing) {
           existing.rowIndexes.push(rowIndex);
-          if (!issueIso) existing.issueMissing = true;
-          else if (!existing.issueDate) existing.issueDate = issueIso;
+          if (issueIso && !existing.issueDate) {
+            existing.issueDate = issueIso;
+            existing.issueMissing = false;
+          }
           if (!existing.consultantCode && consultantCode) {
             existing.consultantCode = consultantCode;
           }
@@ -1184,8 +1176,6 @@ function ExtractorPageContent() {
           rowIndexes: [rowIndex],
           issueDate: issueIso ?? '',
           issueMissing: !issueIso,
-          needsPriorPayment: true,
-          priorPaymentDate: '',
         });
       });
 
@@ -1199,10 +1189,23 @@ function ExtractorPageContent() {
       const suggested = suggestFileIssueDateFromPaymentColumn(headers, rowsForImport);
       setDialogFileIssueDate(suggested);
       setImportDateRows([...dateRowMap.values()]);
-      setEditingIssueKeys({});
       setSummaryMissingConsultants([]);
       setShowImportDatesDialog(false);
+      setCommissionChanges(null);
+      setCommissionChangesError('');
+      setCommissionPicks({});
       setStep(2);
+      // Compare with LifeOps in the background; the dates can be filled meanwhile
+      void previewCommissionChanges({ rows: rowsForImport, headers })
+        .then(({ items, error }) => {
+          setCommissionChanges(items);
+          if (error) setCommissionChangesError(error);
+        })
+        .catch((error: unknown) => {
+          console.error('commission review failed', error);
+          setCommissionChanges([]);
+          setCommissionChangesError('No se pudo comparar el archivo con LifeOps; se conservarán los datos que ya tienes.');
+        });
     } catch (error: unknown) {
       setImportResult({
         success: 0,
@@ -1236,7 +1239,7 @@ function ExtractorPageContent() {
       errors.issueDate = 'No puede ser una fecha futura.';
     }
 
-    for (const row of importDateRows) {
+    for (const row of importDateRows.filter((r) => r.issueMissing)) {
       const issue = row.issueDate.trim();
       if (!/^\d{4}-\d{2}-\d{2}$/.test(issue)) {
         errors[`issue:${row.key}`] = 'Obligatoria para importar.';
@@ -1247,14 +1250,6 @@ function ExtractorPageContent() {
           'Debe ser anterior a la fecha del archivo de comisiones.';
       }
 
-      if (row.needsPriorPayment) {
-        const prior = row.priorPaymentDate.trim();
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(prior)) {
-          errors[`prior:${row.key}`] = 'Obligatoria para pólizas nuevas.';
-        } else if (prior > todayIso) {
-          errors[`prior:${row.key}`] = 'No puede ser una fecha futura.';
-        }
-      }
     }
 
     if (Object.keys(errors).length > 0) {
@@ -1287,17 +1282,7 @@ function ExtractorPageContent() {
       prev.length === 0 ? prev : [tableForImport, ...prev.slice(1)],
     );
 
-    const priorPaymentByContract: Record<string, string> = {};
-    for (const row of importDateRows) {
-      if (row.needsPriorPayment) {
-        priorPaymentByContract[row.key] = row.priorPaymentDate.trim();
-      }
-    }
-
-    const meta = {
-      fileIssueDate: fileIso,
-      priorPaymentByContract,
-    };
+    const meta = { fileIssueDate: fileIso };
     setConfirmedImportMeta(meta);
     setPendingImportTable(tableForImport);
     setShowImportDatesDialog(false);
@@ -1383,7 +1368,7 @@ function ExtractorPageContent() {
   const continueImportAfterDates = async (
     officeId: string,
     table: TableData,
-    meta: { fileIssueDate: string; priorPaymentByContract: Record<string, string> },
+    meta: { fileIssueDate: string },
   ) => {
     setIsImporting(true);
 
@@ -1591,7 +1576,7 @@ function ExtractorPageContent() {
   const performImport = async (
     officeId: string,
     table: TableData,
-    meta: { fileIssueDate: string; priorPaymentByContract: Record<string, string> },
+    meta: { fileIssueDate: string },
   ) => {
     setIsImporting(true);
     setShowImportOutcomeDialog(false);
@@ -1611,10 +1596,9 @@ function ExtractorPageContent() {
         headers: table.headers,
         importMeta: {
           fileIssueDate: meta.fileIssueDate.trim(),
-          priorPaymentByContract: meta.priorPaymentByContract,
           fileName: fileName || uploadedFiles[0]?.name || null,
-          requirePriorForNew: true,
         },
+        decisions: commissionPicks,
         onProgress: setImportProgress,
       });
       setImportResult(result);
@@ -1641,22 +1625,15 @@ function ExtractorPageContent() {
   };
 
   const isIsoDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value.trim());
+  /** New pólizas whose file had no FECHA EMISION (the only dates captured per póliza). */
+  const issueRows = importDateRows.filter((row) => row.issueMissing);
   const canContinueImportDates =
-    isIsoDate(dialogFileIssueDate) &&
-    importDateRows.every(
-      (row) =>
-        isIsoDate(row.issueDate) &&
-        (!row.needsPriorPayment || isIsoDate(row.priorPaymentDate)),
-    );
+    isIsoDate(dialogFileIssueDate) && issueRows.every((row) => isIsoDate(row.issueDate));
 
-  const priorNeeded = importDateRows.filter((row) => row.needsPriorPayment).length;
-  const dateTasksTotal = 1 + importDateRows.length + priorNeeded;
+  const dateTasksTotal = 1 + issueRows.length;
   const dateTasksReady =
     (isIsoDate(dialogFileIssueDate) ? 1 : 0) +
-    importDateRows.filter((row) => isIsoDate(row.issueDate)).length +
-    importDateRows.filter(
-      (row) => row.needsPriorPayment && isIsoDate(row.priorPaymentDate),
-    ).length;
+    issueRows.filter((row) => isIsoDate(row.issueDate)).length;
   const dateProgressPct =
     dateTasksTotal > 0
       ? Math.round((dateTasksReady / dateTasksTotal) * 100)
@@ -1746,10 +1723,7 @@ function ExtractorPageContent() {
   /** Ordered date fields for Tab/Enter navigation on step 2. */
   const getImportDateFieldIds = (): string[] => {
     const ids = ['import-file-issue-date'];
-    importDateRows.forEach((row, index) => {
-      ids.push(`issue-date-${index}`);
-      if (row.needsPriorPayment) ids.push(`prior-payment-${index}`);
-    });
+    issueRows.forEach((_, index) => ids.push(`issue-date-${index}`));
     return ids;
   };
 
@@ -1759,27 +1733,13 @@ function ExtractorPageContent() {
     }
     const issueMatch = fieldId.match(/^issue-date-(\d+)$/);
     if (issueMatch) {
-      const row = importDateRows[Number(issueMatch[1])];
+      const row = issueRows[Number(issueMatch[1])];
       return Boolean(row && isIsoDate(row.issueDate));
-    }
-    const priorMatch = fieldId.match(/^prior-payment-(\d+)$/);
-    if (priorMatch) {
-      const row = importDateRows[Number(priorMatch[1])];
-      return Boolean(row && isIsoDate(row.priorPaymentDate));
     }
     return false;
   };
 
   const focusImportDateField = (fieldId: string) => {
-    const issueMatch = fieldId.match(/^issue-date-(\d+)$/);
-    if (issueMatch) {
-      const row = importDateRows[Number(issueMatch[1])];
-      if (row && !row.issueMissing && !editingIssueKeys[row.key]) {
-        setEditingIssueKeys((prev) => ({ ...prev, [row.key]: true }));
-        window.setTimeout(() => focusDateInput(fieldId), 0);
-        return;
-      }
-    }
     window.setTimeout(() => focusDateInput(fieldId), 0);
   };
 
@@ -1805,6 +1765,24 @@ function ExtractorPageContent() {
       return;
     }
   };
+
+  if (registry) {
+    return (
+      <div className="pb-4">
+        <PageHeader
+          title="Importar cartera"
+          watermark="Importar"
+          description="Revisa qué pólizas son nuevas y qué datos cambian antes de guardarlos en LifeOps."
+        />
+        <RegistryImport
+          source={registry.source}
+          file={registry.file}
+          onExit={() => setRegistry(null)}
+          onUploadCommissions={() => setRegistry(null)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="pb-4">
@@ -1855,71 +1833,31 @@ function ExtractorPageContent() {
       </nav>
 
       {step === 1 && (
-        <div className={stepSurface}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex gap-3">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-(--lifeops-hover) text-(--lifeops-accent)">
-                <Upload className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-              </span>
-              <div>
-                <h2 className="text-lg font-semibold text-(--lifeops-fg)">
-                  Sube el reporte HTML
-                </h2>
-                <p className="mt-1 text-sm text-(--lifeops-muted)">
-                  Arrastra o selecciona uno o más archivos del portal de comisiones.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowInfoDialog(true)}
-              className="inline-flex cursor-pointer items-center gap-1.5 self-start text-sm font-medium text-(--lifeops-accent) hover:underline"
-            >
-              <HelpCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
-              ¿Cómo obtener el HTML?
-            </button>
-          </div>
+        // Same card as the Mina de Oro / plantilla sources below
+        <div className={cn(stepSurface, 'space-y-4 rounded-xl p-4 sm:p-5')}>
+          <SourceHeader
+            icon={<Upload className="h-5 w-5" strokeWidth={1.75} aria-hidden />}
+            title="Sube el archivo de comisiones en formato HTML"
+            description="Arrastra o selecciona uno o más archivos del portal de comisiones."
+            actions={
+              <button
+                type="button"
+                onClick={() => setShowInfoDialog(true)}
+                className="inline-flex cursor-pointer items-center gap-1.5 self-start text-sm font-medium text-(--lifeops-accent) hover:underline"
+              >
+                <HelpCircle className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden />
+                ¿Cómo obtener el HTML?
+              </button>
+            }
+          />
 
-          <div
-            role="button"
-            tabIndex={0}
-            className={cn(
-              'cursor-pointer rounded-lg border-2 border-dashed px-6 py-12 text-center transition-colors',
-              isDragging
-                ? 'border-[#FBDBAC] bg-[#FBDBAC]/10'
-                : 'border-(--lifeops-border) bg-(--lifeops-page) hover:border-[#FBDBAC]/60',
-            )}
-            onDrop={handleDrop}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onClick={() => fileInputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
-            }}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".html,.htm,.mhtml,.mht"
-              multiple
-              onChange={handleFileInput}
-              className="hidden"
-            />
-            <FileUp
-              className="mx-auto h-12 w-12 text-(--lifeops-muted)"
-              strokeWidth={1.5}
-              aria-hidden
-            />
-            <p className="mt-4 text-base font-medium text-(--lifeops-fg) sm:text-lg">
-              Arrastra archivos HTML aquí, o haz clic para elegirlos
-            </p>
-            <p className="mt-2 text-sm text-(--lifeops-muted)">
-              .html, .htm, .mhtml y .mht — puedes subir varios a la vez
-            </p>
-          </div>
+          <ImportDropzone
+            label="Elige los archivos HTML"
+            hint=".html, .htm, .mhtml o .mht — puedes subir varios a la vez"
+            accept=".html,.htm,.mhtml,.mht"
+            multiple
+            onFiles={(files) => void addFiles(files)}
+          />
 
           {uploadedFiles.length > 0 && (
             <div className="rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
@@ -1961,6 +1899,13 @@ function ExtractorPageContent() {
           )}
         </div>
       )}
+
+      {step === 1 && profile?.role === 'promotory' && uploadedFiles.length === 0 ? (
+        <div className="mt-4 space-y-4">
+          <OrDivider />
+          <RegistrySources onPick={(source, file) => setRegistry({ source, file })} />
+        </div>
+      ) : null}
 
       {step === 2 && (
         <div className={stepSurface}>
@@ -2036,7 +1981,7 @@ function ExtractorPageContent() {
             </div>
           </section>
 
-          {importDateRows.length === 0 ? (
+          {issueRows.length === 0 ? (
             <div className="flex gap-3 rounded-lg border border-(--lifeops-border) bg-(--lifeops-page) p-4">
               <CheckCircle2
                 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-500"
@@ -2048,7 +1993,7 @@ function ExtractorPageContent() {
                   No hace falta nada más por póliza
                 </p>
                 <p className="mt-1 text-sm text-(--lifeops-muted)">
-                  Todas ya tienen fecha de emisión y ninguna es nueva. Continúa cuando la
+                  Todas las pólizas nuevas traen fecha de emisión. Continúa cuando la
                   fecha del archivo esté bien.
                 </p>
               </div>
@@ -2061,21 +2006,15 @@ function ExtractorPageContent() {
                 </span>
                 <div className="min-w-0">
                   <p className="text-base font-semibold text-(--lifeops-fg)">
-                    Fechas por póliza
+                    Fechas de emisión faltantes
                     <span className="ml-2 text-sm font-normal text-(--lifeops-muted)">
-                      ({importDateRows.filter((r) => isIsoDate(r.issueDate)).length +
-                        importDateRows.filter(
-                          (r) => r.needsPriorPayment && isIsoDate(r.priorPaymentDate),
-                        ).length}
-                      /
-                      {importDateRows.length + priorNeeded})
+                      ({issueRows.filter((r) => isIsoDate(r.issueDate)).length}/{issueRows.length})
                     </span>
                   </p>
                   <p className="mt-0.5 text-sm text-(--lifeops-muted)">
-                    Emisión faltante se captura aquí. Si ya viene en el archivo, clic para
-                    corregirla. Último pago solo en pólizas nuevas. El nombre del cliente
-                    va en mayúsculas; si se parece a uno que ya existe, usamos ese. Clic
-                    para cambiarlo.
+                    Estas pólizas nuevas no traen fecha de emisión en el archivo. Con ella y la
+                    forma de pago calculamos sus fechas de cobro. El nombre del cliente va en
+                    mayúsculas; si se parece a uno que ya existe, usamos ese. Clic para cambiarlo.
                   </p>
                 </div>
               </div>
@@ -2092,28 +2031,20 @@ function ExtractorPageContent() {
                       <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Fecha de emisión
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
-                        Último pago
-                      </th>
                       <th className="w-10 px-3 py-2.5">
                         <span className="sr-only">Estado</span>
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-(--lifeops-border)">
-                    {importDateRows.map((row, index) => {
+                    {issueRows.map((row, index) => {
                       const todayIso = todayIsoDate();
                       const dayBeforeFile = dayBeforeIso(dialogFileIssueDate.trim());
                       const issueMax = dayBeforeFile
                         ? minIsoDate(todayIso, dayBeforeFile)
                         : todayIso;
                       const issueInputId = `issue-date-${index}`;
-                      const priorInputId = `prior-payment-${index}`;
-                      const showIssueInput =
-                        row.issueMissing || Boolean(editingIssueKeys[row.key]);
-                      const rowComplete =
-                        isIsoDate(row.issueDate) &&
-                        (!row.needsPriorPayment || isIsoDate(row.priorPaymentDate));
+                      const rowComplete = isIsoDate(row.issueDate);
                       return (
                         <tr
                           key={row.key}
@@ -2123,10 +2054,7 @@ function ExtractorPageContent() {
                               ? 'bg-emerald-500/10 hover:bg-emerald-500/15'
                               : 'hover:bg-(--lifeops-hover)/50',
                           )}
-                          onClick={() => {
-                            if (showIssueInput) focusDateInput(issueInputId);
-                            else if (row.needsPriorPayment) focusDateInput(priorInputId);
-                          }}
+                          onClick={() => focusDateInput(issueInputId)}
                         >
                           <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-(--lifeops-fg)">
                             {row.contractNumber}
@@ -2140,20 +2068,7 @@ function ExtractorPageContent() {
                               onCommit={(next) => applyClientRename(row.clientName, next)}
                             />
                           </td>
-                          <td
-                            className="px-3 py-2"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!showIssueInput) {
-                                setEditingIssueKeys((prev) => ({
-                                  ...prev,
-                                  [row.key]: true,
-                                }));
-                                window.setTimeout(() => focusDateInput(issueInputId), 0);
-                              }
-                            }}
-                          >
-                            {showIssueInput ? (
+                          <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                               <>
                                 <DateInput
                                   id={issueInputId}
@@ -2184,56 +2099,6 @@ function ExtractorPageContent() {
                                   </p>
                                 ) : null}
                               </>
-                            ) : (
-                              <button
-                                type="button"
-                                className="rounded-md px-1 py-1 text-left font-mono text-sm text-(--lifeops-fg) underline-offset-2 hover:bg-(--lifeops-hover) hover:underline"
-                                title="Clic para editar"
-                              >
-                                {isoToDdMmYyyy(row.issueDate)}
-                              </button>
-                            )}
-                          </td>
-                          <td
-                            className="px-3 py-2"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {row.needsPriorPayment ? (
-                              <>
-                                <DateInput
-                                  id={priorInputId}
-                                  value={row.priorPaymentDate}
-                                  max={todayIso}
-                                  aria-label={`Último pago de ${row.contractNumber}`}
-                                  aria-invalid={Boolean(importDateErrors[`prior:${row.key}`])}
-                                  onAdvance={(dir) =>
-                                    advanceImportDateField(priorInputId, dir)
-                                  }
-                                  onChange={(iso) => {
-                                    setImportDateRows((prev) =>
-                                      prev.map((r) =>
-                                        r.key === row.key
-                                          ? { ...r, priorPaymentDate: iso }
-                                          : r,
-                                      ),
-                                    );
-                                    setImportDateErrors((prev) => {
-                                      const next = { ...prev };
-                                      delete next[`prior:${row.key}`];
-                                      return next;
-                                    });
-                                  }}
-                                  required
-                                />
-                                {importDateErrors[`prior:${row.key}`] ? (
-                                  <p className="mt-1 text-xs text-red-500" role="alert">
-                                    {importDateErrors[`prior:${row.key}`]}
-                                  </p>
-                                ) : null}
-                              </>
-                            ) : (
-                              <span className="text-sm text-(--lifeops-muted)">—</span>
-                            )}
                           </td>
                           <td className="px-3 py-2 text-right">
                             {rowComplete ? (
@@ -2252,6 +2117,13 @@ function ExtractorPageContent() {
               </div>
             </section>
           )}
+
+          <CommissionReview
+            items={commissionChanges}
+            error={commissionChangesError}
+            picks={commissionPicks}
+            onChange={setCommissionPicks}
+          />
         </div>
       )}
 
@@ -2482,9 +2354,6 @@ function ExtractorPageContent() {
                       <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
                         Fecha de emisión
                       </th>
-                      <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-(--lifeops-muted)">
-                        Último pago
-                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-(--lifeops-border)">
@@ -2542,11 +2411,6 @@ function ExtractorPageContent() {
                               ? isoToDdMmYyyy(row.issueDate)
                               : '—'}
                           </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 font-mono text-sm text-(--lifeops-fg)">
-                            {row.needsPriorPayment && isIsoDate(row.priorPaymentDate)
-                              ? isoToDdMmYyyy(row.priorPaymentDate)
-                              : '—'}
-                          </td>
                         </tr>
                       );
                     })}
@@ -2561,7 +2425,7 @@ function ExtractorPageContent() {
       {showBottomBar ? (
       <div className="fixed bottom-0 left-0 right-0 z-30 border-t border-(--lifeops-border) bg-(--lifeops-chrome)/95 backdrop-blur-sm lg:left-[260px]">
         {step === 2 ? (
-          <div className="mx-auto max-w-7xl px-4 pt-2.5 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-[1600px] px-4 pt-2.5 sm:px-6 lg:px-8">
             <div className="mb-1.5 flex items-center justify-between gap-3 text-xs text-(--lifeops-muted)">
               <span>Fechas listas</span>
               <span className="tabular-nums text-(--lifeops-fg)">
@@ -2586,7 +2450,7 @@ function ExtractorPageContent() {
             </div>
           </div>
         ) : null}
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           {step > 1 ? (
             <Button
               type="button"

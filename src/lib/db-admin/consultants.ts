@@ -2,10 +2,11 @@
 import "server-only";
 
 import { createAuthUser, deleteAuthUser, findAuthUserIdByEmail, listAuthUserIdsByEmails, updateAuthUserEmail } from "@/lib/auth/admin";
-import { writeAuditLog } from "@/lib/db/audit-log";
+import { auditDiff, writeAuditLog } from "@/lib/db/audit-log";
 import type { Consultant } from "@/lib/supabase";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { LIMITS } from "@/lib/validation/schemas";
+import { deleteContractsCascadeAdmin } from "./contract-cascade";
 import { syncInvitationTokenEmailsAdmin } from "./invites";
 import { type AdminResult } from "./result";
 import { getAdminOfficeById } from "./tenancy";
@@ -430,19 +431,21 @@ async function countContractsForConsultant(consultantId: string): Promise<number
 }
 
 /**
- * Soft-deactivate (INACTIVE) by default; hard-delete only when forceDelete
- * and the asesor has zero contracts.
+ * Soft-deactivate (INACTIVE) by default. `forceDelete` hard-deletes the asesor (and its
+ * LifeOps access); with pólizas it also needs `withContracts`, which deletes them first.
  */
 export async function deactivateOrDeleteConsultantAdmin(input: {
   consultantId: string;
   officeId: string;
   forceDelete?: boolean;
+  /** Delete the asesor's pólizas too (confirmed in the UI) */
+  withContracts?: boolean;
   actorUserId?: string;
 }): Promise<
   AdminResult<
     | {
         action: "deleted";
-        deletedContracts: 0;
+        deletedContracts: number;
         name: string | null;
         consultantCode: string | null;
       }
@@ -465,13 +468,24 @@ export async function deactivateOrDeleteConsultantAdmin(input: {
   const contracts = await countContractsForConsultant(input.consultantId);
 
   if (input.forceDelete) {
-    if (contracts > 0) {
+    if (contracts > 0 && !input.withContracts) {
       return {
         ok: false,
         code: "conflict",
         error:
           "No se puede eliminar: el asesor tiene pólizas. Desactívalo en su lugar.",
       };
+    }
+
+    let deletedContracts = 0;
+    if (contracts > 0) {
+      const { data: rows, error: rowsError } = await supabaseAdmin
+        .from("contract")
+        .select("id")
+        .eq("consultant_id", input.consultantId)
+        .eq("office_id", input.officeId);
+      if (rowsError) throw rowsError;
+      deletedContracts = await deleteContractsCascadeAdmin((rows ?? []).map((r: { id: string }) => r.id));
     }
 
     const { error: deleteError } = await supabaseAdmin
@@ -500,17 +514,19 @@ export async function deactivateOrDeleteConsultantAdmin(input: {
       entityType: "consultant",
       entityId: input.consultantId,
       source: "api",
-      newValues: {
+      oldValues: {
         name: consultant.name,
         consultant_code: consultant.consultant_code,
+        email: consultant.email,
       },
+      newValues: { deleted_contracts: deletedContracts },
     });
 
     return {
       ok: true,
       data: {
         action: "deleted",
-        deletedContracts: 0,
+        deletedContracts,
         name: consultant.name,
         consultantCode: consultant.consultant_code,
       },
@@ -555,6 +571,8 @@ export async function deactivateOrDeleteConsultantAdmin(input: {
 export async function updateConsultantAdmin(input: {
   consultantId: string;
   officeId: string;
+  /** Who edits (audit `consultant.update`) */
+  actorUserId?: string | null;
   updates: {
     name?: string;
     email?: string | null;
@@ -664,6 +682,24 @@ export async function updateConsultantAdmin(input: {
       };
     }
     throw error;
+  }
+
+  const { oldValues, newValues } = auditDiff(
+    consultant as unknown as Record<string, unknown>,
+    { ...input.updates, ...(nextEmail !== undefined ? { email: nextEmail } : {}) },
+  );
+  if (Object.keys(newValues).length > 0) {
+    await writeAuditLog(supabaseAdmin, {
+      officeId: input.officeId,
+      actorUserId: input.actorUserId ?? null,
+      actorRole: "office",
+      action: "consultant.update",
+      entityType: "consultant",
+      entityId: input.consultantId,
+      source: "ui",
+      oldValues: { ...oldValues, name: consultant.name },
+      newValues: { ...newValues, name: input.updates.name ?? consultant.name },
+    });
   }
 
   return { ok: true, data: { success: true } };

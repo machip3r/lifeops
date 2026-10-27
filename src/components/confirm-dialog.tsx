@@ -57,33 +57,20 @@ export function ConfirmDialog({
       busy={loading}
       elevated={elevated}
       size="md"
+      footer={
+        <>
+          <Button type="button" variant="outline" size="lg" disabled={loading} onClick={onCancel}>
+            {cancelLabel}
+          </Button>
+          <Button type="button" variant={confirmVariant} size="lg" disabled={loading} onClick={onConfirm}>
+            {loading ? loadingLabel : confirmLabel}
+          </Button>
+        </>
+      }
     >
-      <p
-        id={descriptionId}
-        className="text-sm text-(--lifeops-muted) whitespace-pre-line"
-      >
+      <p id={descriptionId} className="whitespace-pre-line text-sm text-(--lifeops-muted)">
         {description}
       </p>
-      <div className="flex justify-end gap-3 pt-1">
-        <Button
-          type="button"
-          variant="outline"
-          size="lg"
-          disabled={loading}
-          onClick={onCancel}
-        >
-          {cancelLabel}
-        </Button>
-        <Button
-          type="button"
-          variant={confirmVariant}
-          size="lg"
-          disabled={loading}
-          onClick={onConfirm}
-        >
-          {loading ? loadingLabel : confirmLabel}
-        </Button>
-      </div>
     </AppDialog>
   );
 }

@@ -11,8 +11,8 @@ type Props = {
   variant?: "auth" | "app";
   className?: string;
   error?: string;
-  /** Short clarification under the label */
-  hint?: string;
+  /** Short clarification under the control (text or a small inline action) */
+  hint?: ReactNode;
 };
 
 function withA11y(
@@ -61,13 +61,13 @@ export function FormField({
 
   const hintNode =
     hint && !error ? (
-      <p id={hintId} className="text-xs leading-snug text-muted-foreground">
+      <p id={hintId} className="text-xs leading-snug text-(--lifeops-muted)">
         {hint}
       </p>
     ) : null;
 
   const errorNode = error ? (
-    <p id={errorId} className="text-sm font-medium text-destructive" role="alert">
+    <p id={errorId} className="text-xs font-medium text-destructive" role="alert">
       {error}
     </p>
   ) : null;
@@ -75,7 +75,7 @@ export function FormField({
   if (variant === "auth") {
     return (
       <div className={`flex flex-col gap-1.5 ${className}`.trim()}>
-        <label htmlFor={htmlFor} className="text-sm font-medium text-foreground">
+        <label htmlFor={htmlFor} className="text-[13px] font-medium text-(--lifeops-fg)">
           {label}
         </label>
         {control}

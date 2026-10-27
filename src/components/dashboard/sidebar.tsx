@@ -101,14 +101,14 @@ export function DashboardSidebar({
           railTransition,
           'right-0 left-auto border-l max-lg:shadow-2xl',
           open ? 'max-lg:translate-x-0 max-lg:opacity-100' : 'max-lg:translate-x-full max-lg:opacity-0',
-          'lg:left-0 lg:right-auto lg:w-[260px] lg:border-l-0 lg:border-r lg:translate-x-0 lg:opacity-100'
+          'lg:left-0 lg:right-auto lg:w-[232px] lg:border-l-0 lg:border-r lg:translate-x-0 lg:opacity-100'
         )}
       >
-        <div className="flex h-20 items-center border-b border-(--lifeops-border) px-4 sm:h-24 lg:h-[4.75rem]">
+        <div className="flex h-14 items-center border-b border-(--lifeops-border) px-4 lg:h-16">
           <Link
             href="/dashboard"
             onClick={onClose}
-            className="min-w-0 flex-1 truncate text-2xl font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] lg:text-[1.65rem]"
+            className="min-w-0 flex-1 truncate text-2xl font-medium outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] lg:text-[1.4rem]"
           >
             Life
             <strong>Ops</strong>
@@ -123,8 +123,8 @@ export function DashboardSidebar({
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4" aria-label="Principal">
-          <ul className="flex flex-col gap-1.5">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2.5 py-3" aria-label="Principal">
+          <ul className="flex flex-col gap-0.5">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -137,7 +137,7 @@ export function DashboardSidebar({
                     href={item.href}
                     onClick={onClose}
                     className={cn(
-                      'flex min-h-12 items-center gap-3.5 px-3 py-3 text-base font-medium transition-colors',
+                      'flex min-h-10 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                       isActive
                         ? 'bg-[#FBDBAC] text-[#1a1d24]'
                         : 'text-(--lifeops-muted) hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg)'
@@ -146,7 +146,7 @@ export function DashboardSidebar({
                   >
                     <Icon
                       className={cn(
-                        'h-6 w-6 shrink-0',
+                        'h-[18px] w-[18px] shrink-0',
                         isActive ? 'text-[#1a1d24]' : 'text-(--lifeops-muted)'
                       )}
                       strokeWidth={1.75}
@@ -168,19 +168,19 @@ export function DashboardSidebar({
             className="flex min-w-0 items-center gap-3 rounded-sm px-1 py-1 outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
           >
             <span
-              className="flex h-11 w-11 shrink-0 items-center justify-center border border-[#FBDBAC]/40 bg-(--lifeops-hover) text-xs font-semibold text-(--lifeops-accent)"
+              className="flex h-9 w-9 shrink-0 items-center justify-center border border-[#FBDBAC]/40 bg-(--lifeops-hover) text-xs font-semibold text-(--lifeops-accent)"
               aria-hidden
             >
               {initials}
             </span>
             <span className="min-w-0 flex-1 text-left">
-              <span className="block truncate text-base font-medium text-(--lifeops-fg)">
+              <span className="block truncate text-sm font-medium text-(--lifeops-fg)">
                 {profile.name}
               </span>
-              <span className="mt-0.5 block truncate text-sm text-(--lifeops-muted)">
+              <span className="mt-0.5 block truncate text-xs text-(--lifeops-muted)">
                 {roleLabel}
               </span>
-              <span className="mt-0.5 block truncate text-sm text-(--lifeops-muted) opacity-80">
+              <span className="mt-0.5 block truncate text-xs text-(--lifeops-muted) opacity-80">
                 {profile.email}
               </span>
             </span>
@@ -189,17 +189,17 @@ export function DashboardSidebar({
           <div className="mt-3 flex w-full gap-1.5">
             <ThemeToggle
               showLabel
-              className="h-11 w-1/2 cursor-pointer gap-1.5 rounded-md text-sm hover:bg-(--lifeops-hover)"
+              className="h-9 w-1/2 cursor-pointer gap-1.5 rounded-md text-sm hover:bg-(--lifeops-hover)"
             />
             <button
               type="button"
               data-nav-guard="sign-out"
               onClick={onSignOut}
-              className="inline-flex h-11 w-1/2 cursor-pointer items-center justify-center gap-1.5 rounded-md text-sm text-red-500 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
+              className="inline-flex h-9 w-1/2 cursor-pointer items-center justify-center gap-1.5 rounded-md text-sm text-red-500 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
               aria-label="Cerrar sesión"
               title="Cerrar sesión"
             >
-              <LogOut className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+              <LogOut className="h-4 w-4 shrink-0" strokeWidth={1.75} />
               <span className="truncate">Salir</span>
             </button>
           </div>

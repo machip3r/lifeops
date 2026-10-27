@@ -10,11 +10,18 @@ import { Button } from '@/components/ui/button';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { Combobox } from '@/components/ui/combobox';
+import { DateInput } from '@/components/ui/date-input';
+import { FormSection } from '@/components/ui/form-section';
+import { SegmentedControl } from '@/components/ui/segmented-control';
+import { formatDateShortEsLocal } from '@/lib/format/date';
+import { filterCode, filterDigits, filterPersonName, filterTaxId } from '@/lib/validation/input-filters';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/contracts/payment-methods';
 import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
 import { db } from '@/lib/db';
 import type { Client, Consultant } from '@/lib/supabase';
 import { LIMITS } from '@/lib/validation/schemas';
+import { Skeleton } from '@/components/ui/skeleton';
 
 type Props = {
   open: boolean;
@@ -51,18 +58,17 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
   const [clientRfc, setClientRfc] = useState('');
   const [issueDate, setIssueDate] = useState('');
   const [collectionDay, setCollectionDay] = useState('');
-  const [lastPaymentDate, setLastPaymentDate] = useState('');
   const [projectName, setProjectName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
 
   const isPromotory = profile?.role === 'promotory';
   const maxDate = todayIsoDate();
 
-  const sortedClients = useMemo(
+  const clientOptions = useMemo(
     () =>
-      [...clients].sort((a, b) =>
-        (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }),
-      ),
+      [...clients]
+        .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }))
+        .map((c) => ({ value: c.id, label: c.name, description: c.rfc || c.curp || undefined })),
     [clients],
   );
 
@@ -119,7 +125,6 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
     setClientRfc('');
     setIssueDate('');
     setCollectionDay('');
-    setLastPaymentDate('');
     setProjectName('');
     setPaymentMethod('');
     setFieldErrors({});
@@ -162,8 +167,6 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
   const canSubmit =
     Boolean(contractNumber.trim()) &&
     Boolean(issueDate) &&
-    Boolean(collectionDay) &&
-    Boolean(lastPaymentDate) &&
     Boolean(projectName) &&
     Boolean(paymentMethod) &&
     (!isPromotory || Boolean(consultantId)) &&
@@ -203,8 +206,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
         curp: clientMode === 'new' ? clientCurp.trim().toUpperCase() || null : null,
         rfc: clientMode === 'new' ? clientRfc.trim().toUpperCase() || null : null,
         issueDate,
-        collectionDay: Number(collectionDay),
-        lastPaymentDate: lastPaymentDate.trim(),
+        collectionDay: collectionDay ? Number(collectionDay) : null,
         projectName,
         paymentMethod,
       });
@@ -227,300 +229,232 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
     }
   };
 
+  const selectedClient = clientMode === 'existing' ? clients.find((c) => c.id === clientId) ?? null : null;
+  const clientSummary = selectedClient
+    ? [
+        selectedClient.rfc || selectedClient.curp,
+        selectedClient.birth_date ? `Nació el ${formatDateShortEsLocal(selectedClient.birth_date)}` : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+
   return (
     <>
       <AppDialog
         open={open}
         title="Registrar póliza"
-        description="Alta manual con los datos mínimos para cobranza y recordatorios."
+        description="Alta manual con lo mínimo para cobranza y recordatorios."
         onClose={handleClose}
         busy={submitting}
         size="lg"
+        footer={
+          <>
+            <Button type="button" variant="outline" size="lg" onClick={handleClose} disabled={submitting}>
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              form="manual-contract-form"
+              variant="brand"
+              size="lg"
+              disabled={submitting || !canSubmit || loadingLists}
+            >
+              {submitting ? 'Guardando…' : 'Registrar póliza'}
+            </Button>
+          </>
+        }
       >
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {loadingLists && (
-            <p className="text-sm text-[#9ca3af]">Cargando catálogos…</p>
-          )}
-
-          {isPromotory ? (
-            <div className="flex flex-wrap items-end gap-3">
-              <FormField
-                label="Asesor"
-                htmlFor="manual-consultant"
-                variant="auth"
-                error={fieldErrors.consultantId}
-                className="flex-1 min-w-[220px]"
-              >
-                <Select
-                  id="manual-consultant"
-                  value={consultantId}
-                  onChange={(e) => setConsultantId(e.target.value)}
-                  required
-                >
-                  <option value="">Selecciona un asesor…</option>
-                  {consultants.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {(c.consultant_code || '—') + ' · ' + (c.name || 'Sin nombre')}
-                    </option>
-                  ))}
-                </Select>
-              </FormField>
-              <Button
-                type="button"
-                variant="outline"
-                size="lg"
-                onClick={() => setInviteOpen(true)}
-              >
-                Invitar asesor
-              </Button>
-            </div>
-          ) : (
-            <p className="text-sm text-(--lifeops-muted)">La póliza quedará a tu nombre.</p>
-          )}
-
-          <FormField
-            label="Número de póliza"
-            htmlFor="manual-contract-number"
-            variant="auth"
-            error={fieldErrors.contractNumber}
+        <form id="manual-contract-form" onSubmit={handleSubmit} className="space-y-6" noValidate>
+          <FormSection
+            title="Cliente"
+            description={clientMode === 'existing' ? 'Elige a quien ya está en LifeOps.' : 'Se crea junto con la póliza.'}
+            actions={
+              clients.length > 0 ? (
+                <SegmentedControl
+                  label="Tipo de cliente"
+                  value={clientMode}
+                  onChange={switchClientMode}
+                  options={[
+                    { value: 'existing', label: 'Existente' },
+                    { value: 'new', label: 'Nuevo' },
+                  ]}
+                />
+              ) : null
+            }
           >
-            <Input
-              id="manual-contract-number"
-              value={contractNumber}
-              onChange={(e) => setContractNumber(e.target.value)}
-              maxLength={LIMITS.contractNumber}
-              required
-              placeholder="VI0001566370, GM0000682574…"
-
-            />
-          </FormField>
-
-          <section className="space-y-4 rounded-lg border-2 border-(--lifeops-border) bg-(--lifeops-hover) p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-(--lifeops-fg)">Cliente</h3>
-              <div className="inline-flex rounded-lg border-2 border-(--lifeops-border) bg-(--lifeops-chrome) p-0.5">
-                <button
-                  type="button"
-                  onClick={() => switchClientMode('existing')}
-                  className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${clientMode === 'existing'
-                      ? 'bg-[#FBDBAC] text-[#1a1d24]'
-                      : 'text-(--lifeops-muted) hover:text-(--lifeops-fg)'
-                    }`}
-                >
-                  Existente
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchClientMode('new')}
-                  className={`cursor-pointer rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${clientMode === 'new'
-                      ? 'bg-[#FBDBAC] text-[#1a1d24]'
-                      : 'text-(--lifeops-muted) hover:text-(--lifeops-fg)'
-                    }`}
-                >
-                  Nuevo
-                </button>
-              </div>
-            </div>
-
-            {clientMode === 'existing' ? (
+            {loadingLists ? (
+              <Skeleton className="h-12 w-full" />
+            ) : clientMode === 'existing' ? (
               <FormField
-                label="Selecciona el cliente"
+                label="Cliente"
                 htmlFor="manual-client-select"
                 variant="auth"
+                hint={clientSummary || undefined}
                 error={fieldErrors.clientId}
               >
-                <Select
+                <Combobox
                   id="manual-client-select"
                   value={clientId}
-                  onChange={(e) => handleClientSelect(e.target.value)}
-                  required
-                >
-                  <option value="">Elige un cliente…</option>
-                  {sortedClients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </Select>
+                  onChange={handleClientSelect}
+                  options={clientOptions}
+                  placeholder="Busca por nombre, RFC o CURP…"
+                  emptyText="No encontramos ese cliente. Cámbiate a «Nuevo» para registrarlo."
+                />
               </FormField>
             ) : (
-              <div className="space-y-4">
-                <FormField
-                  label="Nombre del cliente"
-                  htmlFor="manual-client-name"
-                  variant="auth"
-                  error={fieldErrors.clientName}
-                >
+              <>
+                <FormField label="Nombre completo" htmlFor="manual-client-name" variant="auth" error={fieldErrors.clientName}>
                   <Input
                     id="manual-client-name"
                     value={clientName}
-                    onChange={(e) => setClientName(e.target.value)}
+                    onChange={(e) => setClientName(filterPersonName(e.target.value))}
                     maxLength={LIMITS.personName}
+                    autoCapitalize="words"
                     required
-                    placeholder="Nombre completo"
-
+                    placeholder="Nombre y apellidos"
                   />
                 </FormField>
-                <FormField
-                  label="Fecha de nacimiento"
-                  htmlFor="manual-birth-date"
-                  variant="auth"
-                  hint="Opcional"
-                  error={fieldErrors.birthDate}
-                >
-                  <Input
-                    id="manual-birth-date"
-                    type="date"
-                    value={birthDate}
-                    max={maxDate}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      if (next && next > maxDate) return;
-                      setBirthDate(next);
-                    }}
-                    className="block w-full min-w-0"
-                  />
-                </FormField>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-3">
                   <FormField
-                    label="CURP"
-                    htmlFor="manual-client-curp"
+                    label="Nacimiento"
+                    htmlFor="manual-birth-date"
                     variant="auth"
                     hint="Opcional"
-                    error={fieldErrors.curp}
+                    error={fieldErrors.birthDate}
                   >
+                    <DateInput id="manual-birth-date" value={birthDate} max={maxDate} onChange={setBirthDate} />
+                  </FormField>
+                  <FormField label="CURP" htmlFor="manual-client-curp" variant="auth" hint="Opcional" error={fieldErrors.curp}>
                     <Input
                       id="manual-client-curp"
                       value={clientCurp}
-                      onChange={(e) => setClientCurp(e.target.value.toUpperCase())}
+                      onChange={(e) => setClientCurp(filterTaxId(e.target.value))}
                       maxLength={18}
                       autoCapitalize="characters"
-                      placeholder="XXXX000000XXXXXX00"
-                      className="uppercase"
+                      spellCheck={false}
+                      placeholder="18 caracteres"
+                      className="font-mono uppercase"
                     />
                   </FormField>
-                  <FormField
-                    label="RFC"
-                    htmlFor="manual-client-rfc"
-                    variant="auth"
-                    hint="Opcional"
-                    error={fieldErrors.rfc}
-                  >
+                  <FormField label="RFC" htmlFor="manual-client-rfc" variant="auth" hint="Opcional" error={fieldErrors.rfc}>
                     <Input
                       id="manual-client-rfc"
                       value={clientRfc}
-                      onChange={(e) => setClientRfc(e.target.value.toUpperCase())}
+                      onChange={(e) => setClientRfc(filterTaxId(e.target.value))}
                       maxLength={13}
                       autoCapitalize="characters"
-                      placeholder="XXXX000000XXX"
-                      className="uppercase"
+                      spellCheck={false}
+                      placeholder="12 o 13 caracteres"
+                      className="font-mono uppercase"
                     />
                   </FormField>
                 </div>
-              </div>
+              </>
             )}
-          </section>
+          </FormSection>
 
-          <div className="grid gap-4 sm:grid-cols-2 items-start">
-            <FormField
-              label="Fecha de emisión"
-              htmlFor="manual-issue-date"
-              variant="auth"
-              error={fieldErrors.issueDate}
-            >
-              <Input
-                id="manual-issue-date"
-                type="date"
-                value={issueDate}
-                max={maxDate}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  if (next && next > maxDate) return;
-                  setIssueDate(next);
-                }}
-                required
-                className="block w-full min-w-0"
-              />
-            </FormField>
-
-            <FormField
-              label="Día de cobro"
-              htmlFor="manual-collection-day"
-              variant="auth"
-              error={fieldErrors.collectionDay}
-            >
-              <Input
-                id="manual-collection-day"
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={31}
-                value={collectionDay}
-                onChange={(e) => setCollectionDay(e.target.value)}
-                required
-                placeholder="1–31"
-
-              />
-            </FormField>
-          </div>
-
-          <FormField
-            label="Fecha del último cobro"
-            htmlFor="manual-last-payment"
-            variant="auth"
-            hint="Obligatoria para recordatorios y cobranza"
-            error={fieldErrors.lastPaymentDate}
-          >
-            <Input
-              id="manual-last-payment"
-              type="date"
-              value={lastPaymentDate}
-              max={maxDate}
-              onChange={(e) => {
-                const next = e.target.value;
-                if (next && next > maxDate) return;
-                setLastPaymentDate(next);
-              }}
-              required
-              className="block w-full min-w-0"
-            />
-          </FormField>
-
-          <div className="grid gap-4 sm:grid-cols-2 items-start">
-            <FormField
-              label="Proyecto"
-              htmlFor="manual-project"
-              variant="auth"
-              error={fieldErrors.projectName}
-            >
-              <Select
+          <FormSection title="Póliza">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Número de póliza" htmlFor="manual-contract-number" variant="auth" error={fieldErrors.contractNumber}>
+                <Input
+                  id="manual-contract-number"
+                  value={contractNumber}
+                  onChange={(e) => setContractNumber(filterCode(e.target.value))}
+                  maxLength={LIMITS.contractNumber}
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  required
+                  placeholder="VI0001566370"
+                  className="font-mono"
+                />
+              </FormField>
+              {isPromotory ? (
+                <FormField
+                  label="Asesor"
+                  htmlFor="manual-consultant"
+                  variant="auth"
+                  error={fieldErrors.consultantId}
+                  hint={
+                    <button
+                      type="button"
+                      onClick={() => setInviteOpen(true)}
+                      className="cursor-pointer text-(--lifeops-accent) hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
+                    >
+                      ¿No está en la lista? Créalo
+                    </button>
+                  }
+                >
+                  {loadingLists ? (
+                    <Skeleton className="h-12 w-full" />
+                  ) : (
+                    <Combobox
+                      id="manual-consultant"
+                      value={consultantId}
+                      onChange={setConsultantId}
+                      options={consultants.map((c) => ({
+                        value: c.id,
+                        label: c.name || 'Sin nombre',
+                        description: c.consultant_code ? `Clave ${c.consultant_code}` : undefined,
+                      }))}
+                      placeholder="Busca por nombre o clave…"
+                      emptyText="No encontramos ese asesor."
+                    />
+                  )}
+                </FormField>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium text-(--lifeops-fg)">Asesor</span>
+                  <p className="flex h-12 items-center rounded-lg bg-(--lifeops-hover)/50 px-3 text-sm text-(--lifeops-muted)">
+                    Tú ({profile?.name || 'asesor'})
+                  </p>
+                </div>
+              )}
+            </div>
+            <FormField label="Proyecto" htmlFor="manual-project" variant="auth" error={fieldErrors.projectName}>
+              <Combobox
                 id="manual-project"
                 value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                required
-              >
-                <option value="">Selecciona…</option>
-                {PROJECT_NAME_OPTIONS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </Select>
+                onChange={setProjectName}
+                options={PROJECT_NAME_OPTIONS.map((name) => ({ value: name, label: name }))}
+                placeholder="Busca el proyecto o plan…"
+              />
             </FormField>
+          </FormSection>
 
-            <FormField
-              label="Forma de pago o cobro"
-              htmlFor="manual-payment-method"
-              variant="auth"
-              error={fieldErrors.paymentMethod}
-            >
+          <FormSection title="Cobranza" description="Con la emisión y la forma de pago se arma el calendario de recibos.">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Fecha de emisión" htmlFor="manual-issue-date" variant="auth" error={fieldErrors.issueDate}>
+                <DateInput id="manual-issue-date" value={issueDate} max={maxDate} onChange={setIssueDate} required />
+              </FormField>
+              <FormField
+                label="Día de cobro"
+                htmlFor="manual-collection-day"
+                variant="auth"
+                hint="Opcional · 1 a 31"
+                error={fieldErrors.collectionDay}
+              >
+                <Input
+                  id="manual-collection-day"
+                  inputMode="numeric"
+                  value={collectionDay}
+                  onChange={(e) => {
+                    const day = filterDigits(e.target.value, 2);
+                    if (day === '' || Number(day) <= 31) setCollectionDay(day);
+                  }}
+                  maxLength={2}
+                  placeholder="Ej. 15"
+                />
+              </FormField>
+            </div>
+            <FormField label="Forma de pago" htmlFor="manual-payment-method" variant="auth" error={fieldErrors.paymentMethod}>
               <Select
                 id="manual-payment-method"
                 value={paymentMethod}
                 onChange={(e) => setPaymentMethod(e.target.value)}
                 required
               >
-                <option value="">Selecciona…</option>
+                <option value="">Elige la forma de pago…</option>
                 {PAYMENT_METHOD_OPTIONS.map((name) => (
                   <option key={name} value={name}>
                     {name}
@@ -528,36 +462,13 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                 ))}
               </Select>
             </FormField>
-          </div>
+          </FormSection>
 
-          {formError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-red-800 bg-red-900/20 p-3 text-sm text-red-200"
-            >
+          {formError ? (
+            <p role="alert" className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2.5 text-sm text-(--lifeops-fg)">
               {formError}
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              onClick={handleClose}
-              disabled={submitting}
-            >
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              variant="brand"
-              size="lg"
-              disabled={submitting || !canSubmit || loadingLists}
-            >
-              {submitting ? 'Guardando…' : 'Registrar póliza'}
-            </Button>
-          </div>
+            </p>
+          ) : null}
         </form>
       </AppDialog>
 

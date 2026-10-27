@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import Link from 'next/link';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { ConsultantHome } from '@/components/dashboard/consultant-home';
@@ -14,6 +13,7 @@ import {
 } from '@/lib/collections/constants';
 import type { ContractAtRisk, ContractPendingPayment } from '@/lib/supabase';
 import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
+import { CardSkeleton, OverviewSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 
 export default function DashboardPage() {
   const { profile, loading } = useAuth();
@@ -51,9 +51,10 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-[40vh]">
-        <p className="text-[#9ca3af]">Cargando...</p>
-      </div>
+      <>
+        <PageHeaderSkeleton />
+        <OverviewSkeleton />
+      </>
     );
   }
 
@@ -75,20 +76,9 @@ export default function DashboardPage() {
 
       <CollectionOverview scope={{ officeId: profile.id }} />
 
-      <div className="mt-10 mb-10 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold text-(--lifeops-fg)">
-            Prioridad de cobranza
-          </h2>
-          <Link
-            href="/dashboard/collections"
-            className="text-sm text-[#FBDBAC] underline-offset-2 hover:underline"
-          >
-            Ir a cobranza
-          </Link>
-        </div>
+      <div className="mt-4 mb-10">
         {priorityLoading ? (
-          <p className="text-[#9ca3af] text-center py-8">Cargando prioridades…</p>
+          <CardSkeleton lines={6} />
         ) : (
           <CollectionPriorityLists
             atRisk={atRisk}

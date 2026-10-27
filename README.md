@@ -86,7 +86,8 @@ contract (1) ──< (many) contract_change_request
 - `contract_number` is unique per office when set
 - Client identity: CURP/RFC when available (global unique); otherwise local to office — see [`docs/product-decisions.md`](docs/product-decisions.md)
 - **Policy details have no duplicates.** Each commission file says which receipts were paid on its dates. Importing a receipt that already exists (same póliza + RECIBO) **updates** it with the file values, so amounts stay current and totals stay exact
-- A policy is **at risk** when its **next due** (from last known payment + forma de pago) is more than **30 days** overdue — same rule in Cobranza and Vista general (not every empty month in a lookback window)
+- **Next due = receipt calendar:** receipts fall on the FECHA EMISION day every forma-de-pago period (emisión 20/dic, Trimestral → dic, mar, jun, sep). The last payment covers the latest receipt due on or before payment date + 15 days; next due is the following receipt (paid 21/jul → jun receipt late → next 20/sep). Without FECHA EMISION: last payment + period. Details: [`docs/collection-due-dates.md`](docs/collection-due-dates.md)
+- A policy is **at risk** when its **next due** is more than **30 days** overdue — same rule in Cobranza and Vista general (not every empty month in a lookback window)
 - Promotory may **reassign** a policy to another consultant in the same office (same policy number + client)
 - Solicitud documents attach to a contract; CHANGE/CORRECT also link `change_request_id`; payment evidence links `file.collection_payment_id`
 - User stories (non-technical): [`docs/historias-de-usuario.md`](docs/historias-de-usuario.md)
@@ -106,9 +107,8 @@ contract (1) ──< (many) contract_change_request
 **Import Process**:
 1. **Import dates dialog** (on "Importar a Base de Datos"):
    - File `issue_date` is suggested from the most common `FECHA PAGO` (fecha de cobro) and stays editable
-   - **New policies** require a per-póliza "último pago conocido" (not one date for the whole file). That date may be after the commission file date when the file is old; only future dates are rejected (today is allowed).
    - File `issue_date` cannot be in the future (today is allowed).
-   - Rows missing `FECHA EMISION` must be filled before import (written back into the preview table); that date must be **before** the commission file date and not in the future
+   - Only **new pólizas without `FECHA EMISION`** in the file are listed: that date is required (it anchors the receipt calendar), written back into the preview table, must be **before** the commission file date and not in the future. No "último pago" is asked anymore
 2. **Pre-import Check**: Validates that all consultants (by `consultant_code` = "asesor") exist. Asesores only keep rows matching their own `consultant_code`; other codes are skipped (and rejected again on the server, scoped by the asesor's session).
 3. **Missing-consultant creation** (promotoría only): If codes are missing for the office:
    - Default: auto-create via `POST /api/extractor/create-consultants` (`mode: auto`)
@@ -133,7 +133,7 @@ contract (1) ──< (many) contract_change_request
    - If the file has no RECIBO column, rows identical in every value to a saved detail are skipped (the import warns about it)
    - The duplicate check before import lists receipts that already exist; continuing updates them
    - Seeds cobranza month marks from payment dates of new and updated details (`source=import`)
-   - For **first-time** policies: seeds that póliza’s prior payment mark, sets `collection_day`, and initial `collection_status` (`CORRIENTE` / `ATRASADO` if prior is already past the at-risk window)
+   - For **first-time** policies: initial `collection_status` from the receipt calendar (`ATRASADO` if its next due is more than 30 days late, else `CORRIENTE`); payments come from the file's FECHA PAGO
    - Clients are find-or-created by name for the office (names with spaces are supported)
 
 While an import is in progress (files loaded, dates, summary, or the save itself), changing section, signing out, or closing the tab asks for confirmation so that work is not abandoned without noticing.
@@ -144,8 +144,10 @@ While an import is in progress (files loaded, dates, summary, or the save itself
 - `Cliente` → `client.name`
 - `Moneda` / `Tipo Cambio` → `contract.currency` / `exchange_rate`
 - `FECHA EMISION` → `contract.issue_date` (earliest date in the póliza) and each `contract_detail.issue_date`
-- `RECIBO` → `contract_detail.receipt_number` (identifies the receipt; re-imports update it)
+- `RECIBO` → `contract_detail.receipt_number` (identifies the receipt; re-imports update it only when picked in the review)
 - Other detail headers (FECHA PAGO, PRIMA PAGO, FORMA DE PAGO, …) → `contract_detail`
+
+**Registry import (Mina de Oro de Seguros Monterrey / plantilla de LifeOps)** — promotoría only, from Importar (step 1) or the optional last onboarding step for Monterrey promotorías. One row per póliza, no payments: creates / updates pólizas, clients and asesores (missing ones as `NOT_INVITED`). Mina de Oro columns → `contract` (`contract_number`, `issue_date`, `payment_method`, `payment_channel` ← «Método de pago», `project_name` ← plan, `line_code` ← tipo de seguro, `plan_classification`, `insured_name`, `status` — only «En Vigor» is active —, `annual_premium` / `insured_amount` and their `_mxn` «convertido» values, `deductible_mxn`, `end_date`) and `client` (`name` ← contratante, `email`, `phone`, `birth_date`, `marital_status`). Same review rule as commissions: empty fields fill, differences keep LifeOps unless picked. A Mina de Oro from another promotoría number (vs the clave in Perfil) needs confirmation; after importing a Mina de Oro older than today, LifeOps recommends uploading the commission files from its cut-off to today. The promotoría can correct any imported receipt from the póliza expediente (**Editar recibo**, audited). See [`docs/product-flows.md`](docs/product-flows.md).
 
 ### 2. Authentication & Authorization
 
@@ -189,8 +191,8 @@ All database requests live in `src/lib/db/` (RLS: `db` for the browser, `createD
 - The browser coordinates (`runCommissionImport` in `src/lib/extractor/import/client.ts`): `planImportBatches` splits the preview table into batches of ~50 pólizas / ≤800 rows, keeping every row of one póliza number in the same batch.
 - Each step is a Server Action in `src/app/dashboard/extractor/actions.ts` (`maxDuration = 60` per call via the segment `layout.tsx`): **start** (validate dates, open `commission_import` as `pending`) → **batch** × n → **finish** (status `imported` / `failed`, totals, one audit entry). Inputs are validated with Zod (`commissionImport*Schema`).
 - Server logic lives in `src/lib/extractor/import/import-contracts.ts` (server only) and runs with `createDb(createUserClient(jwt))`, so RLS scopes every query; asesores are scoped by their session, not by the request.
-- Per batch, writes are grouped: new pólizas in one insert (with `collection_day` and initial `collection_status`), their prior payment right after, and all receipts loaded and written together.
-- A failed batch is retried up to 3 times. Retrying is safe: receipts are keyed by póliza + RECIBO, pólizas by number, and a póliza created by an interrupted attempt gets its prior payment repaired on the retry. If a batch still fails, its rows are reported and re-importing the file completes them without duplicates.
+- Per batch, writes are grouped: new pólizas in one insert (with initial `collection_status`) and all receipts loaded and written together.
+- A failed batch is retried up to 3 times. Retrying is safe: receipts are keyed by póliza + RECIBO, pólizas by number, If a batch still fails, its rows are reported and re-importing the file completes them without duplicates.
 - An interrupted import leaves its `commission_import` row in `pending`.
 
 ### 4. TypeScript Types (`src/lib/supabase.ts`)
@@ -282,10 +284,11 @@ Open [http://localhost:3000](http://localhost:3000)
 ### Main Pages
 
 - `/dashboard/extractor`: HTML commission import and data extraction
-- `/dashboard/contracts`: Contract listing, filters, and **manual póliza registration** (dialog)
-- `/dashboard/consultants`: Consultant management (promotory only)
-- `/dashboard/clients`: Client listing
-- `/dashboard/collections`: Collections (cobranza) payment-control grid (year selector; CSV export parked)
+- `/dashboard/contracts`: Póliza list with counters, cartera status per póliza (same buckets as Cobranza / Vista general), next due from the receipt calendar, status chips, search, and **manual póliza registration** (dialog)
+- `/dashboard/contracts/[id]`: Póliza expediente — status counters, receipt calendar with each payment on the receipt it covers, register payment, póliza data, history (`audit_log`) and commission lines
+- `/dashboard/consultants`: Asesores (promotory only) — counters, cartera per asesor (% al día, con atraso, pagos 30 días), access chips; expediente with cartera status and the asesor's pólizas
+- `/dashboard/clients`: Clientes — contact (teléfono / correo owned by the promotoría), pólizas activas, most critical cartera status, birthdays; expediente with contact, cartera status and the client's pólizas
+- `/dashboard/collections`: Cobranza board — counters, period chips, asesor list (promotory), receipts with days late, side panel to register payment or send a WhatsApp reminder, cartera by days late
 
 ### Key Components
 
@@ -316,7 +319,7 @@ Open [http://localhost:3000](http://localhost:3000)
 
 4. **Import Idempotency**:
    - If a contract with the same `contract_number` exists, it reuses it
-   - Details are keyed by póliza + RECIBO: re-importing the same file updates values and never duplicates receipts (unique index `contract_detail_contract_receipt_key`)
+   - Details are keyed by póliza + RECIBO: re-importing never duplicates receipts (unique index `contract_detail_contract_receipt_key`). A saved receipt with different values is **kept** unless the user picks «usar el archivo» in the step 2 review (same for asesor, contratante, forma de pago, moneda); empty LifeOps values are filled automatically.
 
 5. **Import auto-created asesores**:
    - Email pattern: `<asesorCode>.<officeTag>@lifeops.com` (unique per office; same code OK across promotorías)
@@ -329,7 +332,8 @@ Open [http://localhost:3000](http://localhost:3000)
      - **Promotory** and **consultant** see the same Vista general (office-wide vs own cartera): KPIs, estado de la cartera, avisos, pagos registrados por mes (año actual vs anterior), antigüedad del atraso and cartera por asesor, plus the priority lists (at-risk >30 days + pending payments). Data comes from one RPC, `get_collection_overview`; **counts only** (amounts are not reliable across currencies). See [`docs/product-flows.md`](docs/product-flows.md).
      - Prima filters/counters UI for promotory is parked (`src/parked/dashboard/promotory-premium-overview.tsx`); RPCs remain available for a later restore.
    - Cobranza (`/dashboard/collections`):
-     - Year-scoped grid of **active** contracts for payment control and reminder analysis.
+     - **Board** (current view): one row per active póliza with its next receipt (receipt calendar), period chips (por cobrar, vencen hoy, en peligro, vencida, por vencer…), asesor list for the promotoría, side panel to **register the payment** (evidence) or **send a WhatsApp reminder** to the client (needs `client.phone`). Data: `list_collection_board`. Counts only in counters (mixed currencies). See [`docs/product-flows.md`](docs/product-flows.md).
+     - Year-scoped grid of **active** contracts for payment control and reminder analysis (legacy path).
      - Columns: clave, asesor, póliza, cliente, proyecto, moneda, forma de pago, medio de cobro, prima al cobro, día de cobro, estatus, ENE–DIC.
      - Editable `collection_status` (AMPARADO, CORRIENTE, FLEXIBLE, FLEXIBLE/REVISAR, MES, PERIODO GRACIA, ATRASADO) — separate from contract lifecycle `status`.
      - Month cells show scheduled day and highlight when paid (`contract_collection_payment.paid_at`); click to register/clear payments (real payment date required).
@@ -337,6 +341,8 @@ Open [http://localhost:3000](http://localhost:3000)
      - Seeds month marks from HTML import / `contract_detail` without overwriting manual paid marks; append-only `audit_log` for manual and import changes (and other app actions).
      - Legacy vencimientos view remains at `/dashboard/collections/v0`.
    - Promotory can reassign a contract to another advisor in the same office (`/api/contracts/reassign`).
+   - **Delete** pólizas, clientes and asesores (always confirmed): a póliza alone; a cliente together with its pólizas in the office; an asesor together with all its pólizas and its LifeOps access (its clients stay). Documents are removed from Storage and each delete is kept in `audit_log`.
+   - **Full edit** of pólizas, clientes and asesores (row pencil or expediente **Editar**), validated on the server; every change is logged in `audit_log` (only changed fields) and shown in the expediente **Historial**.
    - Overview dashboard RPCs accept common filter parameters:
      `start_date`, `end_date`, `date_basis`, `seniority_min`, `seniority_max`, `consultant_ids`, `contract_type_filter`, `payment_method_filter`.
 

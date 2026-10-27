@@ -52,6 +52,11 @@ export const OTHER_CODE = "OTHER";
 /** The only aseguradora LifeOps supports today (commission import, cobranza from its reports). */
 const SUPPORTED_INSURER_CODE = "MONTERREY_NYL";
 
+/** Seguros Monterrey promotorías can load their cartera (Mina de Oro / plantilla) right away. */
+export function worksWithMonterrey(insurerCodes: string[]): boolean {
+  return insurerCodes.includes(SUPPORTED_INSURER_CODE);
+}
+
 /** True when the promotoría picked aseguradoras but none LifeOps supports yet. */
 export function lacksSupportedInsurer(insurerCodes: string[]): boolean {
   return insurerCodes.length > 0 && !insurerCodes.includes(SUPPORTED_INSURER_CODE);

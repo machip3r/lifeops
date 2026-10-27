@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { X } from 'lucide-react';
 
 type Props = {
   open: boolean;
@@ -8,6 +9,8 @@ type Props = {
   description?: string;
   onClose: () => void;
   children: ReactNode;
+  /** Sticky action row (buttons). Submit buttons outside the form use `form="<form id>"`. */
+  footer?: ReactNode;
   /** Wider panel for denser forms */
   size?: 'md' | 'lg' | 'xl';
   /** Disable backdrop / close while submitting */
@@ -17,7 +20,7 @@ type Props = {
 };
 
 /**
- * Shared dashboard modal shell — theme-aware chrome.
+ * Shared dashboard modal shell: fixed header and footer, scrolling body.
  */
 export function AppDialog({
   open,
@@ -25,19 +28,19 @@ export function AppDialog({
   description,
   onClose,
   children,
+  footer,
   size = 'md',
   busy = false,
   elevated = false,
 }: Props) {
   if (!open) return null;
 
-  const maxWidth =
-    size === 'xl' ? 'max-w-4xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg';
+  const maxWidth = size === 'xl' ? 'max-w-4xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg';
   const zClass = elevated ? 'z-[60]' : 'z-50';
 
   return (
     <div
-      className={`fixed inset-0 ${zClass} flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px] dark:bg-black/70`}
+      className={`fixed inset-0 ${zClass} flex items-end justify-center bg-black/50 p-0 backdrop-blur-[2px] sm:items-center sm:p-4 dark:bg-black/70`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="app-dialog-title"
@@ -46,41 +49,32 @@ export function AppDialog({
       }}
     >
       <div
-        className={`w-full ${maxWidth} max-h-[90vh] overflow-y-auto rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) text-(--lifeops-fg) shadow-2xl`}
+        className={`flex max-h-[92vh] w-full ${maxWidth} flex-col overflow-hidden rounded-t-2xl border border-(--lifeops-border) bg-(--lifeops-chrome) text-(--lifeops-fg) shadow-2xl sm:max-h-[90vh] sm:rounded-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="space-y-5 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2
-                id="app-dialog-title"
-                className="text-2xl font-bold text-(--lifeops-accent)"
-              >
-                {title}
-              </h2>
-              {description ? (
-                <p className="mt-1 text-sm text-(--lifeops-muted)">{description}</p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              aria-label="Cerrar"
-              className="cursor-pointer rounded-md p-1.5 text-(--lifeops-muted) transition-colors hover:bg-(--lifeops-hover) hover:text-(--lifeops-accent) focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] disabled:opacity-50"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-(--lifeops-border) px-5 py-4 sm:px-6">
+          <div className="min-w-0">
+            <h2 id="app-dialog-title" className="text-xl font-semibold text-(--lifeops-accent)">
+              {title}
+            </h2>
+            {description ? <p className="mt-0.5 text-[13px] text-(--lifeops-muted)">{description}</p> : null}
           </div>
-          {children}
-        </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            aria-label="Cerrar"
+            className="-mr-1.5 cursor-pointer rounded-md p-1.5 text-(--lifeops-muted) transition-colors hover:bg-(--lifeops-hover) hover:text-(--lifeops-fg) focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC] disabled:opacity-50"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        {footer ? (
+          <footer className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t border-(--lifeops-border) bg-(--lifeops-chrome) px-5 py-3.5 sm:px-6">
+            {footer}
+          </footer>
+        ) : null}
       </div>
     </div>
   );

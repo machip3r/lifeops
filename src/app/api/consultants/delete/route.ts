@@ -10,13 +10,15 @@ import { deactivateOrDeleteConsultantAdmin } from "@/lib/db-admin";
 const bodySchema = z.object({
   consultantId: z.string().uuid(),
   officeId: z.string().uuid(),
-  /** Hard-delete only when the consultant has zero contracts. Default: soft INACTIVE. */
+  /** Hard-delete the asesor. Default: soft INACTIVE. */
   forceDelete: z.boolean().optional().default(false),
+  /** With forceDelete: also delete its pólizas (otherwise an asesor with pólizas is rejected). */
+  withContracts: z.boolean().optional().default(false),
 });
 
 /**
  * Promotory-only: deactivate an asesor (INACTIVE) by default.
- * Hard-delete is allowed only when `forceDelete` and the asesor has no contracts.
+ * `forceDelete` hard-deletes it; with pólizas, `withContracts` must confirm deleting them too.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireOfficeContext(request);
@@ -44,6 +46,7 @@ export async function POST(request: NextRequest) {
       consultantId: parsed.data.consultantId,
       officeId: parsed.data.officeId,
       forceDelete: parsed.data.forceDelete,
+      withContracts: parsed.data.withContracts,
       actorUserId: auth.ctx.user.id,
     });
 

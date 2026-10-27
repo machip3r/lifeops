@@ -2,227 +2,329 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Consultant } from '@/lib/supabase';
+import { FileText, Gauge, Siren, UsersRound } from 'lucide-react';
+import type { Consultant, ConsultantPortfolio, ConsultantPortfolioRow } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
-import { DataTable, dataTablePanelClass } from '@/components/data-table';
+import { DataTable, dataTablePanelClass, type DataTableColumn } from '@/components/data-table';
 import { TablePagination } from '@/components/table-pagination';
 import { ListSearchFilters } from '@/components/list-search-filters';
 import { InviteConsultantDialog } from '@/components/consultants/invite-consultant-dialog';
+import { EditConsultantDialog } from '@/components/consultants/edit-consultant-dialog';
+import { RowActions } from '@/components/ui/row-edit-button';
+import { useToast } from '@/components/toast';
+import { CarteraMiniBar } from '@/components/collections/cartera-mini-bar';
 import { Button } from '@/components/ui/button';
+import { DotBadge } from '@/components/ui/dot-badge';
+import { FilterChips } from '@/components/ui/filter-chips';
+import { StatTile } from '@/components/dashboard/overview/stat-tile';
+import { numberEs } from '@/components/dashboard/overview/chart-parts';
+import { PageHeader } from '@/components/dashboard/page-header';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, type SortDir } from '@/lib/table-sort';
+import { PENDING_PAYMENT_WITHIN_DAYS, POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
+import { CONSULTANT_STATUS } from '@/lib/consultants/status';
 import { formatDateShortEsLocal } from '@/lib/format/date';
-import { PageHeader } from '@/components/dashboard/page-header';
-import { useQueryEffect, useResetPage } from '@/hooks/use-query-effect';
+import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
+import { StatTilesSkeleton, TableSkeleton } from '@/components/ui/skeleton';
 
-type SortKey = 'name' | 'email' | 'consultant_code' | 'created_at';
+type SortKey = 'name' | 'consultant_code' | 'created_at' | 'active_contracts' | 'healthy_share' | 'late';
+type Filter = 'all' | Consultant['status'];
+
+const STATUS_CHIPS: Consultant['status'][] = ['ACTIVE', 'PENDING', 'NOT_INVITED', 'INACTIVE'];
+const percentEs = new Intl.NumberFormat('es-MX', { style: 'percent', maximumFractionDigits: 0 });
 
 function ConsultantsPageContent() {
   const router = useRouter();
   const { profile } = useAuth();
-  const [consultants, setConsultants] = useState<Consultant[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [portfolio, setPortfolio] = useState<ConsultantPortfolio | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [loadError, setLoadError] = useState('');
+  const [editing, setEditing] = useState<Consultant | null>(null);
+  const { toast } = useToast();
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [page, setPage] = useResetPage(
-    `${search}\0${pageSize}\0${sortKey ?? ''}\0${sortDir}`,
-  );
-  const [total, setTotal] = useState(0);
+  const filterKey = `${search}\0${filter}\0${pageSize}\0${sortKey}\0${sortDir}`;
+  const [page, setPage] = useResetPage(filterKey);
+  const [loading, setLoading] = useQueryLoading(`${profile?.id ?? ''}\0${filterKey}\0${page}`);
 
   const loadConsultants = useCallback(async () => {
+    if (!profile?.id) return;
     try {
-      if (!profile?.id) {
-        setLoading(false);
-        return;
-      }
-
-      const dbSort = sortKey
-        ? { column: sortKey, ascending: sortDir === 'asc' }
-        : undefined;
-
-      const pageResult = await db.consultant.getConsultantsByOfficePage(profile.id, {
+      const result = await db.consultant.listPortfolio({
+        officeId: profile.id,
+        search: search || undefined,
+        status: filter === 'all' ? null : filter,
+        sort: { column: sortKey, ascending: sortDir === 'asc' },
         page,
         pageSize,
-        search,
-        status: 'ALL',
-        sort: dbSort,
+        riskDays: POLICY_AT_RISK_DAYS,
+        dueSoonDays: PENDING_PAYMENT_WITHIN_DAYS,
       });
-
-      setConsultants(pageResult.rows);
-      setTotal(pageResult.total);
-      setLoadError('');
-    } catch (error) {
-      console.error('Error loading consultants:', error);
-      setLoadError('Error al cargar los asesores. Por favor recarga la página.');
+      setPortfolio(result);
+      setError(null);
+    } catch (e) {
+      console.error('Error loading consultants:', e);
+      setError('No se pudieron cargar los asesores. Recarga la página.');
     } finally {
       setLoading(false);
     }
-  }, [
-    profile?.id,
-    page,
-    pageSize,
-    search,
-    sortKey,
-    sortDir,
-  ]);
+  }, [profile?.id, search, filter, sortKey, sortDir, page, pageSize, setLoading]);
 
   useQueryEffect(Boolean(profile?.role === 'promotory' && profile.id), loadConsultants);
 
-  const toggleSort = (key: SortKey) => {
-    const next = nextSortState(sortKey, sortDir, key);
-    setSortKey(next.key);
-    setSortDir(next.dir);
-  };
+  const sortFor = (key: SortKey, label: string) => ({
+    label,
+    active: sortKey === key,
+    dir: sortDir,
+    onSort: () => {
+      const next = nextSortState(sortKey, sortDir, key);
+      setSortKey(next.key);
+      setSortDir(next.dir);
+    },
+  });
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Cargando asesores...</p>
-      </div>
-    );
-  }
+  const summary = portfolio?.summary;
+  const counts = portfolio?.counts;
+  const columns: DataTableColumn<ConsultantPortfolioRow>[] = [
+    {
+      id: 'name',
+      header: 'Asesor',
+      sort: sortFor('name', 'Asesor'),
+      cell: (row) => (
+        <div className="min-w-0 max-w-[18rem]">
+          <p className="truncate font-medium text-(--lifeops-accent)">{row.name}</p>
+          <p className="truncate text-xs text-(--lifeops-muted)">{row.email || 'Sin correo'}</p>
+        </div>
+      ),
+    },
+    {
+      id: 'consultant_code',
+      header: 'Clave',
+      tone: 'muted',
+      className: 'font-mono text-[13px]',
+      sort: sortFor('consultant_code', 'Clave'),
+      cell: (row) => row.consultant_code || '—',
+    },
+    {
+      id: 'created_at',
+      header: 'Alta',
+      tone: 'muted',
+      sort: sortFor('created_at', 'Alta'),
+      cell: (row) => formatDateShortEsLocal(row.created_at?.slice(0, 10)),
+    },
+    {
+      id: 'active_contracts',
+      header: 'Pólizas',
+      align: 'right',
+      className: 'tabular-nums',
+      sort: sortFor('active_contracts', 'Pólizas'),
+      cell: (row) => (
+        <span>
+          {row.active_contracts}
+          <span className="ml-1 text-xs text-(--lifeops-muted)">· {row.clients} cl.</span>
+        </span>
+      ),
+    },
+    {
+      id: 'healthy_share',
+      header: 'Al día',
+      sort: sortFor('healthy_share', 'Al día'),
+      cell: (row) =>
+        row.healthy_share == null ? (
+          <span className="text-(--lifeops-muted)">—</span>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="w-10 tabular-nums">{percentEs.format(row.healthy_share)}</span>
+            <CarteraMiniBar counts={row} />
+          </div>
+        ),
+    },
+    {
+      id: 'late',
+      header: 'Con atraso',
+      align: 'right',
+      className: 'tabular-nums',
+      sort: sortFor('late', 'Con atraso'),
+      cell: (row) =>
+        row.overdue + row.at_risk === 0 ? (
+          <span className="text-(--lifeops-muted)">0</span>
+        ) : (
+          <span>
+            {row.overdue + row.at_risk}
+            {row.at_risk ? (
+              <span className="ml-1 text-xs text-(--lifeops-muted)">· {row.at_risk} en peligro</span>
+            ) : null}
+          </span>
+        ),
+    },
+    {
+      id: 'payments',
+      header: 'Pagos 30 días',
+      align: 'right',
+      tone: 'muted',
+      className: 'tabular-nums',
+      cell: (row) => row.payments_last_30_days,
+    },
+    {
+      id: 'status',
+      header: 'Acceso',
+      cell: (row) => <DotBadge {...CONSULTANT_STATUS[row.status]} />,
+    },
+    {
+      id: 'actions',
+      header: <span className="sr-only">Acciones</span>,
+      align: 'right',
+      sticky: true,
+      cell: (row) => (
+        <RowActions
+          editLabel={`Editar a ${row.name}`}
+          onEdit={() =>
+            setEditing({
+              id: row.id,
+              name: row.name,
+              email: row.email,
+              consultant_code: row.consultant_code,
+              status: row.status,
+              office_id: profile?.id ?? '',
+              auth_user_id: null,
+            })
+          }
+        />
+      ),
+    },
+  ];
 
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title="Asesores"
         watermark="Asesores"
-        description="Gestiona tus asesores."
+        description="Cartera y cobranza de cada asesor, y su acceso a LifeOps."
       />
 
-      {loadError && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-4">
-          <p className="text-sm text-red-800 dark:text-red-200">{loadError}</p>
+      {summary ? (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <StatTile
+            label="Asesores"
+            icon={UsersRound}
+            value={summary ? numberEs.format(summary.consultants) : '—'}
+            detail={
+              summary
+                ? `${numberEs.format(summary.active)} con acceso · ${numberEs.format(summary.pending_invites)} por invitar o aceptar`
+                : undefined
+            }
+          />
+          <StatTile
+            label="Pólizas en cartera"
+            icon={FileText}
+            value={summary ? numberEs.format(summary.active_contracts) : '—'}
+            detail="Pólizas activas de todos los asesores"
+          />
+          <StatTile
+            label="Cartera al día"
+            icon={Gauge}
+            value={summary?.healthy_share != null ? percentEs.format(summary.healthy_share) : '—'}
+            detail="Al corriente o por vencer, del total con próximo cobro"
+          />
+          <StatTile
+            label="Con pólizas en peligro"
+            icon={Siren}
+            value={summary ? numberEs.format(summary.with_at_risk) : '—'}
+            detail={summary?.at_risk_names.length ? summary.at_risk_names.join(', ') : 'Ningún asesor por ahora'}
+          />
         </div>
+      ) : (
+        <StatTilesSkeleton />
       )}
 
-      {/* Consultants List */}
       <div className={dataTablePanelClass}>
         <ListSearchFilters
           value={searchDraft}
           onChange={setSearchDraft}
-          onSubmit={() => {
-            setSearch(searchDraft);
-            setPage(1);
-          }}
-          placeholder="Nombre, código o correo…"
+          onSubmit={() => setSearch(searchDraft.trim())}
+          placeholder="Nombre, clave o correo…"
           id="consultants-search"
+          className="flex flex-wrap items-end gap-3 px-4 py-3 sm:px-5"
           actions={
-            <Button
-              type="button"
-              variant="brand"
-              size="lg"
-              onClick={() => setIsDialogOpen(true)}
-            >
-              Invitar asesor
+            <Button type="button" variant="brand" size="lg" onClick={() => setIsDialogOpen(true)}>
+              Crear asesor
             </Button>
           }
         />
-        <DataTable
-          rows={consultants}
-          getRowKey={(consultant) => consultant.id || `temp-${consultant.name}`}
-          onRowClick={(consultant) => router.push(`/dashboard/consultants/${consultant.id}`)}
-          empty={
-            total === 0
-              ? 'No hay asesores registrados. Invita uno para comenzar.'
-              : 'No hay asesores que coincidan con la búsqueda.'
-          }
-          columns={[
-            {
-              id: 'consultant_code',
-              header: 'Código',
-              tone: 'accent',
-              sort: {
-                label: 'Código',
-                active: sortKey === 'consultant_code',
-                dir: sortDir,
-                onSort: () => toggleSort('consultant_code'),
-              },
-              cell: (consultant) =>
-                consultant.consultant_code || (
-                  <span className="font-normal italic text-gray-400">No establecido</span>
-                ),
-            },
-            {
-              id: 'name',
-              header: 'Nombre',
-              sort: {
-                label: 'Nombre',
-                active: sortKey === 'name',
-                dir: sortDir,
-                onSort: () => toggleSort('name'),
-              },
-              cell: (consultant) => consultant.name,
-            },
-            {
-              id: 'email',
-              header: 'Correo Electrónico',
-              tone: 'muted',
-              sort: {
-                label: 'Correo Electrónico',
-                active: sortKey === 'email',
-                dir: sortDir,
-                onSort: () => toggleSort('email'),
-              },
-              cell: (consultant) =>
-                consultant.email || <span className="italic text-gray-400">No establecido</span>,
-            },
-            {
-              id: 'created_at',
-              header: 'Fecha de Invitación',
-              tone: 'muted',
-              sort: {
-                label: 'Fecha de Invitación',
-                active: sortKey === 'created_at',
-                dir: sortDir,
-                onSort: () => toggleSort('created_at'),
-              },
-              cell: (consultant) => formatDateShortEsLocal(consultant.created_at),
-            },
-            {
-              id: 'actions',
-              header: 'Acciones',
-              align: 'right',
-              sticky: true,
-              cell: (consultant) => (
-                <button
-                  type="button"
-                  onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
-                  className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                >
-                  Ver
-                </button>
-              ),
-            },
+
+        <FilterChips
+          label="Filtrar por acceso"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: 'all', label: 'Todos', count: counts?.all },
+            ...STATUS_CHIPS.map((status) => ({
+              value: status,
+              ...CONSULTANT_STATUS[status],
+              count: counts?.[status],
+            })),
           ]}
+          className="border-b border-(--lifeops-border) px-4 pb-4 sm:px-5"
         />
-        <TablePagination
-          page={page}
-          pageSize={pageSize}
-          total={total}
-          disabled={loading}
-          onPageChange={setPage}
-          onPageSizeChange={(size) => {
-            setPageSize(size);
-            setPage(1);
-          }}
-        />
+
+        {error ? (
+          <p className="px-4 py-10 text-center text-sm text-(--lifeops-muted)" role="alert">
+            {error}
+          </p>
+        ) : loading && !portfolio ? (
+          <TableSkeleton />
+        ) : (
+          <div className={loading ? 'opacity-60 transition-opacity' : undefined}>
+            <DataTable<ConsultantPortfolioRow>
+              rows={portfolio?.rows ?? []}
+              getRowKey={(row) => row.id}
+              onRowClick={(row) => router.push(`/dashboard/consultants/${row.id}`)}
+              empty={
+                counts?.all === 0 && !search
+                  ? 'Aún no hay asesores. Créalos aquí o impórtalos desde el extractor.'
+                  : 'No hay asesores que coincidan con la búsqueda o el filtro.'
+              }
+              columns={columns}
+            />
+            <TablePagination
+              page={page}
+              pageSize={pageSize}
+              total={portfolio?.total ?? 0}
+              disabled={loading}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Invite dialog */}
+      {profile?.id && editing ? (
+        <EditConsultantDialog
+          open
+          consultant={editing}
+          officeId={profile.id}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            toast.success('Asesor actualizado.');
+            setLoading(true);
+            void loadConsultants();
+          }}
+        />
+      ) : null}
+
       {profile?.id ? (
         <InviteConsultantDialog
           open={isDialogOpen}
           officeId={profile.id}
           onClose={() => setIsDialogOpen(false)}
           onInvited={() => {
+            setLoading(true);
             void loadConsultants();
           }}
         />

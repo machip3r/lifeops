@@ -50,6 +50,8 @@ const manualBodySchema = z.object({
         name: z.string().trim().min(1).max(120),
         email: emailSchema,
         password: passwordSchema,
+        /** false: create only (NOT_INVITED); the invitation can be sent later */
+        invite: z.boolean().optional().default(true),
       }),
     )
     .min(1)
@@ -109,7 +111,13 @@ export async function POST(request: NextRequest) {
 
       const created: string[] = [];
       for (const c of parsed.data.consultants) {
-        await createConsultantWithAuth(officeId, c);
+        await createConsultantWithAuth(officeId, {
+          consultantCode: c.consultantCode,
+          name: c.name,
+          email: c.email,
+          password: c.password,
+          status: c.invite ? "PENDING" : "NOT_INVITED",
+        });
         created.push(c.consultantCode);
       }
       return NextResponse.json({ success: true, created });

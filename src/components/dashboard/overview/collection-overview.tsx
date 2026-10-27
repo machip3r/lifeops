@@ -13,6 +13,7 @@ import { ConsultantCarteraChart } from "./consultant-cartera-chart";
 import { MonthlyPaymentsChart } from "./monthly-payments-chart";
 import { OverviewAlerts } from "./overview-alerts";
 import { StatTile } from "./stat-tile";
+import { OverviewSkeleton } from "@/components/ui/skeleton";
 
 const MONTH_NAMES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
@@ -67,7 +68,7 @@ export function CollectionOverview({ scope }: { scope: { officeId: string } | { 
   useQueryEffect(true, load);
 
   if (loading && !overview) {
-    return <p className="py-10 text-center text-(--lifeops-muted)">Cargando resumen…</p>;
+    return <OverviewSkeleton />;
   }
   if (error || !overview) {
     return (

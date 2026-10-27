@@ -12,6 +12,7 @@ import {
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
 import { CollectionOverview } from '@/components/dashboard/overview/collection-overview';
 import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
+import { OverviewSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 
 /** Asesor home: at-risk + pending payments + shortcuts. */
 export function ConsultantHome() {
@@ -62,14 +63,15 @@ export function ConsultantHome() {
 
   if (authLoading || loading) {
     return (
-      <div className="flex justify-center items-center min-h-[40vh]">
-        <p className="text-[#9ca3af]">Cargando…</p>
-      </div>
+      <>
+        <PageHeaderSkeleton />
+        <OverviewSkeleton />
+      </>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <PageHeader
         title="Vista general"
         watermark="Vista general"

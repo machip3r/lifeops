@@ -14,6 +14,7 @@ import {
 import { assets } from '@/app/theme/assets';
 import { Button } from '@/components/ui/button';
 import { needsOnboarding, ONBOARDING_PATH } from '@/lib/onboarding/routes';
+import { AppShellSkeleton, AuthCardSkeleton } from '@/components/ui/skeleton';
 
 export default function DashboardLayout({
   children,
@@ -42,30 +43,13 @@ export default function DashboardLayout({
   }, [mustOnboard, router]);
 
   if (loading || (session && !profile && profilePhase === 'loading')) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page)">
-        <div className="text-center">
-          {session ? (
-            <>
-              <p className="mb-4 text-lg text-(--lifeops-fg)">Cargando tu perfil...</p>
-              <p className="text-sm text-(--lifeops-accent)">Esto puede tomar un momento</p>
-            </>
-          ) : (
-            <p className="text-lg text-(--lifeops-fg)">Cargando...</p>
-          )}
-        </div>
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
 
   if (!session) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page)">
-        <div className="text-center">
-          <p className="text-lg text-(--lifeops-fg)">
-            Redirigiendo al inicio de sesión...
-          </p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page) px-4">
+        <AuthCardSkeleton />
       </div>
     );
   }
@@ -93,8 +77,8 @@ export default function DashboardLayout({
 
   if (mustOnboard) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page)">
-        <p className="text-lg text-(--lifeops-fg)">Preparando tu registro...</p>
+      <div className="flex min-h-screen items-center justify-center bg-(--lifeops-page) px-4">
+        <AuthCardSkeleton />
       </div>
     );
   }
@@ -114,12 +98,12 @@ export default function DashboardLayout({
           onSignOut={signOut}
         />
 
-        <div className="hidden w-[260px] shrink-0 lg:block" aria-hidden />
+        <div className="hidden w-[232px] shrink-0 lg:block" aria-hidden />
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-20 items-center justify-between gap-3 border-b border-(--lifeops-border) bg-(--lifeops-chrome) px-3 sm:h-24 lg:hidden">
+          <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-(--lifeops-border) bg-(--lifeops-chrome) px-3 lg:hidden">
             <span
-              className="min-w-0 truncate text-3xl font-semibold tracking-tight text-(--lifeops-fg) sm:text-4xl"
+              className="min-w-0 truncate text-2xl font-semibold tracking-tight text-(--lifeops-fg)"
               style={{ fontFamily: 'var(--font-lexend), Arial, Helvetica, sans-serif' }}
             >
               {brandParts[0]}
@@ -131,12 +115,12 @@ export default function DashboardLayout({
               className="shrink-0 p-2 text-(--lifeops-fg) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FBDBAC]"
               aria-label="Abrir menú"
             >
-              <Menu className="h-8 w-8" strokeWidth={1.75} />
+              <Menu className="h-6 w-6" strokeWidth={1.75} />
             </button>
           </header>
 
-          <main className="min-h-0 flex-1 px-4 py-8 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-7xl">{children}</div>
+          <main className="min-h-0 flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+            <div className="mx-auto max-w-[1600px]">{children}</div>
           </main>
         </div>
       </div>

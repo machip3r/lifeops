@@ -1,330 +1,252 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
-import { Client, Contract, Consultant } from '@/lib/supabase';
+import { CalendarClock, CircleDot, FileText, HandCoins, Pencil, Trash2 } from 'lucide-react';
+import type { AuditLogEntry, Client, ContractPortfolio } from '@/lib/supabase';
 import { db } from '@/lib/db';
+import { useAuth } from '@/contexts/auth-context';
 import ProtectedRoute from '@/components/protected-route';
-import { DataTable, dataTablePanelClass } from '@/components/data-table';
-import { TablePagination } from '@/components/table-pagination';
-import { ListSearchFilters } from '@/components/list-search-filters';
-import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
-import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
-import { formatDateShortEsLocal } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
-import {
-  DetailCard,
-  DetailField,
-  DetailGrid,
-} from '@/components/dashboard/detail-card';
-import { ClientFormDialog } from '@/components/clients/client-form-dialog';
+import { DetailCard, DetailRow, DetailRows } from '@/components/dashboard/detail-card';
+import { StatTile } from '@/components/dashboard/overview/stat-tile';
+import { numberEs } from '@/components/dashboard/overview/chart-parts';
+import { CarteraStatusCard } from '@/components/dashboard/overview/cartera-status';
+import { EditClientDialog } from '@/components/clients/edit-client-dialog';
+import { ActivityCard } from '@/components/dashboard/activity-card';
+import { EntityActionButton } from '@/components/dashboard/entity-action-button';
+import { DeleteClientDialog } from '@/components/delete-dialogs';
+import { ContractPortfolioPanel } from '@/components/contracts/contract-portfolio-panel';
 import { useToast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
-import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
+import { DotBadge } from '@/components/ui/dot-badge';
+import { CARTERA_STATUS, type CarteraStatus } from '@/lib/collections/status';
+import { ageFromBirthDate, formatDateShortEsLocal } from '@/lib/format/date';
+import { formatMxPhone } from '@/lib/validation/input-filters';
+import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
+import { ChartSkeleton, DetailPageSkeleton, StatTilesSkeleton } from '@/components/ui/skeleton';
 
-type SortKey = 'contract_number' | 'consultant' | 'payment_method';
+/** Most critical bucket among the client's active pólizas. */
+function worstStatus(summary: ContractPortfolio['summary']): CarteraStatus | null {
+  if (summary.at_risk) return 'at_risk';
+  if (summary.overdue) return 'overdue';
+  if (summary.due_soon) return 'due_soon';
+  if (summary.current) return 'current';
+  if (summary.no_payment) return 'no_payment';
+  return null;
+}
 
 function ClientDetailsPageContent() {
   const router = useRouter();
   const params = useParams();
   const clientId = params.id as string;
+  const { profile } = useAuth();
   const { toast } = useToast();
+  const officeView = profile?.role === 'promotory';
   const [client, setClient] = useState<Client | null>(null);
+  const [activity, setActivity] = useState<AuditLogEntry[]>([]);
+  const [portfolio, setPortfolio] = useState<ContractPortfolio | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [contractsTotal, setContractsTotal] = useState(0);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
-  const [consultantsMap, setConsultantsMap] = useState<Map<string, Consultant>>(
-    new Map(),
-  );
-  const [loading, setLoading] = useState(true);
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [searchDraft, setSearchDraft] = useState('');
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useResetPage(`${pageSize}\0${search}`);
-  const [contractsLoading, setContractsLoading] = useQueryLoading(
-    `${clientId}\0${page}\0${pageSize}\0${search}`,
-  );
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [loading, setLoading] = useQueryLoading(clientId);
 
-  const sortedContracts = useMemo(
-    () =>
-      sortRows(
-        contracts,
-        sortKey,
-        sortDir,
-        {
-          contract_number: (c) => c.contract_number,
-          consultant: (c) => consultantsMap.get(c.consultant_id)?.name,
-          payment_method: (c) => c.payment_method,
-        },
-      ),
-    [contracts, sortKey, sortDir, consultantsMap],
-  );
-
-  const toggleSort = (key: SortKey) => {
-    const next = nextSortState(sortKey, sortDir, key);
-    setSortKey(next.key);
-    setSortDir(next.dir);
-  };
-
-  const loadClientData = useCallback(async () => {
+  const loadClient = useCallback(async () => {
     try {
-      const [clientData, contractsPage] = await Promise.all([
+      const [data, entries] = await Promise.all([
         db.client.getClientById(clientId),
-        db.contract.getContractsWithClientsPage({
-          clientId,
-          search: search || undefined,
-          page,
-          pageSize,
+        db.auditLog.listByEntity('client', clientId).catch((error) => {
+          console.error('Error loading client activity:', error);
+          return [] as AuditLogEntry[];
         }),
       ]);
-
-      if (!clientData) {
-        throw new Error('Cliente no encontrado');
-      }
-
-      const contractsData = contractsPage.rows;
-      setClient(clientData);
-      setContracts(contractsData);
-      setContractsTotal(contractsPage.total);
-
-      const consultantIds = [
-        ...new Set(
-          contractsData
-            .map((c) => c.consultant_id)
-            .filter((id): id is string => !!id),
-        ),
-      ];
-      const nextConsultantsMap = new Map<string, Consultant>();
-
-      for (const consultantId of consultantIds) {
-        try {
-          const consultant = await db.consultant.getConsultantById(consultantId);
-          if (consultant) {
-            nextConsultantsMap.set(consultantId, consultant);
-          }
-        } catch (error) {
-          console.error(`Error loading consultant ${consultantId}:`, error);
-        }
-      }
-
-      setConsultantsMap(nextConsultantsMap);
-    } catch (error: unknown) {
+      setClient(data);
+      setActivity(entries);
+    } catch (error) {
       console.error('Error loading client data:', error);
     } finally {
       setLoading(false);
-      setContractsLoading(false);
     }
-  }, [clientId, page, pageSize, search, setContractsLoading]);
+  }, [clientId, setLoading]);
 
-  useQueryEffect(Boolean(clientId), loadClientData);
+  useQueryEffect(Boolean(clientId), loadClient);
 
-  const calculateAge = (birthDate: string | null | undefined) => {
-    if (!birthDate) return null;
-    try {
-      const birth = new Date(birthDate);
-      const today = new Date();
-      let age = today.getFullYear() - birth.getFullYear();
-      const monthDiff = today.getMonth() - birth.getMonth();
-      if (
-        monthDiff < 0 ||
-        (monthDiff === 0 && today.getDate() < birth.getDate())
-      ) {
-        age--;
-      }
-      return age;
-    } catch {
-      return null;
-    }
-  };
-
-  if (loading) {
+  if (loading && !client) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
+      <DetailPageSkeleton />
+    );
+  }
+
+  if (!client || !profile) {
+    return (
+      <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 text-center">
+        <p className="text-lg text-(--lifeops-muted)">No encontramos este cliente.</p>
+        <Button type="button" variant="brand" onClick={() => router.push('/dashboard/clients')}>
+          Volver a clientes
+        </Button>
       </div>
     );
   }
 
-  if (!client) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">
-            Cliente no encontrado
-          </p>
-          <button
-            type="button"
-            onClick={() => router.push('/dashboard/clients')}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Volver a Clientes
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const age = calculateAge(client.birth_date);
+  const age = ageFromBirthDate(client.birth_date);
+  const summary = portfolio?.summary;
+  const worst = summary ? worstStatus(summary) : null;
+  const late = summary ? summary.overdue + summary.at_risk : 0;
 
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title={client.name}
         watermark="Cliente"
         eyebrow={
-          <button
-            type="button"
-            onClick={() => router.push('/dashboard/clients')}
-            className="inline-flex items-center text-[#FBDBAC] hover:underline"
-          >
+          <Link href="/dashboard/clients" className="inline-flex items-center text-[#FBDBAC] hover:underline">
             ← Volver a clientes
-          </button>
+          </Link>
         }
-        description="Detalles del cliente"
+        description="Expediente del cliente: contacto, pólizas y cómo va con sus pagos."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <EntityActionButton icon={Pencil} label="Editar" onClick={() => setEditOpen(true)} />
+            <EntityActionButton icon={Trash2} label="Eliminar" variant="danger" disabled={!portfolio} onClick={() => setDeleteOpen(true)} />
+          </div>
+        }
       />
 
-      <DetailCard
-        title="Información"
-        actions={
-          <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-            Editar
-          </Button>
-        }
-      >
-        <DetailGrid>
-          <DetailField label="Nombre">{client.name}</DetailField>
-          <DetailField label="Nacimiento">
-            {client.birth_date
-              ? `${formatDateShortEsLocal(client.birth_date)}${age !== null ? ` · ${age} años` : ''}`
-              : '—'}
-          </DetailField>
-          <DetailField label="Pólizas">{contractsTotal}</DetailField>
-        </DetailGrid>
-      </DetailCard>
+      {summary ? (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <StatTile
+            label="Pólizas activas"
+            icon={FileText}
+            value={summary ? numberEs.format(summary.active) : '—'}
+            detail={
+              summary && officeView && summary.consultants > 0
+                ? `Con ${numberEs.format(summary.consultants)} asesor(es)`
+                : undefined
+            }
+          />
+          <StatTile
+            label="Estado"
+            icon={CircleDot}
+            value={
+              <span className="flex items-center gap-2 text-xl">
+                {worst ? (
+                  <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: CARTERA_STATUS[worst].color }} aria-hidden />
+                ) : null}
+                {worst ? CARTERA_STATUS[worst].label : 'Sin póliza activa'}
+              </span>
+            }
+            detail={late > 0 ? `${numberEs.format(late)} póliza(s) con atraso` : summary?.active ? 'Sin atrasos' : undefined}
+          />
+          <StatTile
+            label="Cobros en 30 días"
+            icon={CalendarClock}
+            value={summary ? numberEs.format(summary.due_next_30_days) : '—'}
+            detail="Según el calendario de recibos"
+          />
+          <StatTile
+            label="Pagos en 30 días"
+            icon={HandCoins}
+            value={summary ? numberEs.format(summary.payments_last_30_days) : '—'}
+            detail="Registrados en cobranza o en archivos"
+          />
+        </div>
+      ) : (
+        <StatTilesSkeleton />
+      )}
 
-      <ClientFormDialog
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="flex min-w-0 flex-col gap-4">
+          <DetailCard className="mb-0" title="Datos del cliente">
+            <DetailRows>
+              <DetailRow label="Teléfono">
+                {client.phone ? (
+                  <a
+                    href={`https://wa.me/52${client.phone}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-(--lifeops-accent) hover:underline"
+                  >
+                    {formatMxPhone(client.phone)}
+                  </a>
+                ) : (
+                  '—'
+                )}
+              </DetailRow>
+              <DetailRow label="Correo">
+                {client.email ? (
+                  <a href={`mailto:${encodeURIComponent(client.email)}`} className="text-(--lifeops-accent) hover:underline">
+                    {client.email}
+                  </a>
+                ) : (
+                  '—'
+                )}
+              </DetailRow>
+              <DetailRow label="Nacimiento">
+                {client.birth_date
+                  ? `${formatDateShortEsLocal(client.birth_date)}${age != null ? ` · ${age} años` : ''}`
+                  : '—'}
+              </DetailRow>
+              <DetailRow label="CURP">
+                <span className="font-mono">{client.curp || '—'}</span>
+              </DetailRow>
+              <DetailRow label="RFC">
+                <span className="font-mono">{client.rfc || '—'}</span>
+              </DetailRow>
+              <DetailRow label="Registrado">{formatDateShortEsLocal(client.created_at?.slice(0, 10))}</DetailRow>
+              <DetailRow label="Estado">
+                {worst ? (
+                  <DotBadge label={CARTERA_STATUS[worst].label} color={CARTERA_STATUS[worst].color} />
+                ) : (
+                  <DotBadge label="Sin póliza activa" color="var(--lifeops-muted)" />
+                )}
+              </DetailRow>
+            </DetailRows>
+            {!client.phone && !client.email ? (
+              <p className="mt-4 text-xs text-(--lifeops-muted)">
+                Agrega teléfono o correo con «Editar» para poder contactarlo por su cobranza.
+              </p>
+            ) : null}
+          </DetailCard>
+          <ActivityCard entries={activity} />
+        </div>
+
+        {summary ? (
+          <CarteraStatusCard status={summary} className="lg:col-span-2 lg:self-start" />
+        ) : (
+          <ChartSkeleton className="lg:col-span-2" bars={4} />
+        )}
+      </div>
+
+      <ContractPortfolioPanel
+        scope={{
+          ...(officeView ? { officeId: profile.id } : { consultantId: profile.id }),
+          clientId: client.id,
+        }}
+        showClient={false}
+        showConsultant={officeView}
+        title="Pólizas del cliente"
+        description="Estado de cobro y próximo recibo de cada póliza."
+        searchPlaceholder="Número de póliza…"
+        emptyText="Este cliente aún no tiene pólizas."
+        onLoaded={setPortfolio}
+      />
+
+      <EditClientDialog
         open={editOpen}
-        editingClient={client}
+        client={client}
         onClose={() => setEditOpen(false)}
-        onSubmit={async (data) => {
-          const updated = await db.client.updateClient(client.id, {
-            name: data.name,
-            birth_date: data.date_of_birth || null,
-            curp: data.curp,
-            rfc: data.rfc,
-          });
+        onSaved={(updated) => {
           setClient(updated);
-          setEditOpen(false);
           toast.success('Cliente actualizado.');
+          void loadClient();
         }}
       />
 
-      <div className={dataTablePanelClass}>
-        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">
-            Pólizas ({contractsTotal})
-          </h2>
-          <ListSearchFilters
-            value={searchDraft}
-            onChange={setSearchDraft}
-            onSubmit={() => {
-              setSearch(searchDraft);
-              setPage(1);
-            }}
-            placeholder="Número de póliza…"
-            id="client-contracts-search"
-            className="flex flex-wrap gap-3 items-end p-0 border-0"
-          />
-        </div>
-        {contractsTotal > 0 || contracts.length > 0 ? (
-          <>
-            <DataTable
-              rows={sortedContracts}
-              getRowKey={(contract) => contract.id}
-              onRowClick={(contract) => router.push(`/dashboard/contracts/${contract.id}`)}
-              columns={[
-                {
-                  id: 'contract_number',
-                  header: 'Número de póliza',
-                  tone: 'accent',
-                  sort: {
-                    label: 'Número de póliza',
-                    active: sortKey === 'contract_number',
-                    dir: sortDir,
-                    onSort: () => toggleSort('contract_number'),
-                  },
-                  cell: (contract) => contract.contract_number || '—',
-                },
-                {
-                  id: 'consultant',
-                  header: 'Asesor',
-                  tone: 'muted',
-                  sort: {
-                    label: 'Asesor',
-                    active: sortKey === 'consultant',
-                    dir: sortDir,
-                    onSort: () => toggleSort('consultant'),
-                  },
-                  cell: (contract) =>
-                    contract.consultant_id && consultantsMap.has(contract.consultant_id)
-                      ? consultantsMap.get(contract.consultant_id)?.name || '—'
-                      : contract.consultant_id
-                        ? 'Cargando...'
-                        : '—',
-                },
-                {
-                  id: 'payment_method',
-                  header: 'Forma de pago',
-                  tone: 'muted',
-                  sort: {
-                    label: 'Forma de pago',
-                    active: sortKey === 'payment_method',
-                    dir: sortDir,
-                    onSort: () => toggleSort('payment_method'),
-                  },
-                  cell: (contract) => contract.payment_method || '—',
-                },
-                {
-                  id: 'actions',
-                  header: 'Acciones',
-                  align: 'right',
-                  sticky: true,
-                  cell: (contract) => (
-                    <button
-                      type="button"
-                      onClick={() => router.push(`/dashboard/contracts/${contract.id}`)}
-                      className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                    >
-                      Ver
-                    </button>
-                  ),
-                },
-              ]}
-            />
-            <TablePagination
-              page={page}
-              pageSize={pageSize}
-              total={contractsTotal}
-              disabled={contractsLoading}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(1);
-              }}
-            />
-          </>
-        ) : (
-          <div className="p-12 text-center">
-            <p className="text-gray-600 dark:text-gray-400 text-lg">
-              {search.trim()
-                ? 'No hay pólizas que coincidan con la búsqueda.'
-                : 'Este cliente no tiene pólizas registradas'}
-            </p>
-          </div>
-        )}
-      </div>
+      <DeleteClientDialog
+        client={deleteOpen ? { id: client.id, name: client.name, contractCount: portfolio?.counts.all ?? 0 } : null}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => router.push('/dashboard/clients')}
+      />
     </div>
   );
 }

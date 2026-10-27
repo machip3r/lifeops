@@ -27,14 +27,20 @@ import {
   toOperationValues,
   toProfileValues,
 } from "@/lib/onboarding/form";
-import { lacksSupportedInsurer } from "@/lib/onboarding/options";
+import { lacksSupportedInsurer, worksWithMonterrey } from "@/lib/onboarding/options";
+import { OnboardingImportStep } from "@/components/onboarding/onboarding-import-step";
 
 const STEPS = ["Tu promotoría", "¿Quién eres?", "Tu operación"];
 const STEP_INTROS = [
-  "Empecemos con lo básico de tu promotoría.",
-  "Queremos saber quién está registrando la cuenta.",
-  "Con esto preparamos LifeOps para cómo trabajas.",
+  "Lo básico de tu promotoría.",
+  "Para saber con quién hablamos.",
+  "Así preparamos LifeOps para cómo trabajas.",
 ];
+
+/** Move to a step and bring the form top into view (phones scroll far down on long steps). */
+function scrollFormTop() {
+  if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+}
 
 /** Signup → onboarding → dashboard. Each step is saved, so the promotoría can resume later. */
 export function OnboardingWizard({
@@ -54,10 +60,12 @@ export function OnboardingWizard({
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showInsurerNotice, setShowInsurerNotice] = useState(false);
+  /** Monterrey promotorías get one more (optional) step to load their cartera */
+  const [importStage, setImportStage] = useState(false);
 
-  const enterDashboard = async () => {
+  const enterDashboard = async (path = "/dashboard") => {
     await reloadProfile();
-    router.replace("/dashboard");
+    router.replace(path);
   };
 
   const filled = [profileFilled(profile), contactsFilled(contacts), operationFilled(operation)][step];
@@ -87,6 +95,13 @@ export function OnboardingWizard({
       }
       if (!isLast) {
         setStep(step + 1);
+        scrollFormTop();
+        return;
+      }
+      if (worksWithMonterrey(operation.insurerCodes)) {
+        // Saved: stay here (no profile reload yet, it would leave the page) and offer the import
+        setImportStage(true);
+        scrollFormTop();
         return;
       }
       if (lacksSupportedInsurer(operation.insurerCodes)) {
@@ -103,12 +118,20 @@ export function OnboardingWizard({
     }
   };
 
+  if (importStage) {
+    return <OnboardingImportStep steps={[...STEPS, "Tu cartera"]} onFinish={enterDashboard} />;
+  }
+
   return (
     <form onSubmit={submit} className="flex flex-col gap-6" noValidate>
       <OnboardingSteps steps={STEPS} current={step} />
 
+      <div key={step} className="flex flex-col gap-6 animate-in fade-in slide-in-from-right-4 duration-300">
       <div>
-        <h2 className="text-xl font-semibold text-(--lifeops-fg)">{STEPS[step]}</h2>
+        <p className="text-xs font-medium uppercase tracking-wide text-(--lifeops-accent)">
+          Paso {step + 1} de {STEPS.length}
+        </p>
+        <h2 className="mt-1 text-xl font-semibold text-(--lifeops-fg)">{STEPS[step]}</h2>
         <p className="mt-1 text-sm text-(--lifeops-muted)">{STEP_INTROS[step]}</p>
       </div>
 
@@ -120,6 +143,7 @@ export function OnboardingWizard({
           disabled={saving}
           states={catalogs.states}
           agencyCodeLocked={false}
+          autoFocus
         />
       ) : step === 1 ? (
         <OfficeContactsFields
@@ -127,6 +151,7 @@ export function OnboardingWizard({
           onChange={(patch) => setContacts((v) => ({ ...v, ...patch }))}
           errors={errors}
           disabled={saving}
+          autoFocus
         />
       ) : (
         <OfficeOperationFields
@@ -138,6 +163,7 @@ export function OnboardingWizard({
           linesOfBusiness={catalogs.linesOfBusiness}
         />
       )}
+      </div>
 
       {formError ? (
         <p className="text-sm font-medium text-destructive" role="alert">
@@ -145,7 +171,8 @@ export function OnboardingWizard({
         </p>
       ) : null}
 
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
+      {/* Sticky on phones so the next step is always one tap away */}
+      <div className="sticky bottom-0 -mx-5 flex gap-3 border-t border-(--lifeops-border) bg-(--lifeops-chrome) px-5 py-3 sm:static sm:mx-0 sm:justify-between sm:border-0 sm:bg-transparent sm:p-0">
         <Button
           type="button"
           variant="outline"
@@ -153,13 +180,14 @@ export function OnboardingWizard({
             setErrors({});
             setFormError("");
             setStep(step - 1);
+            scrollFormTop();
           }}
           disabled={saving || step === 0}
-          className={step === 0 ? "invisible" : undefined}
+          className={step === 0 ? "hidden sm:invisible sm:inline-flex" : undefined}
         >
           Atrás
         </Button>
-        <Button type="submit" variant="brand" disabled={saving || !filled} className="sm:min-w-40">
+        <Button type="submit" variant="brand" disabled={saving || !filled} className="flex-1 sm:flex-none sm:min-w-40">
           {saving ? "Guardando…" : isLast ? "Terminar registro" : "Siguiente"}
         </Button>
       </div>

@@ -1,27 +1,114 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { useRouter, useParams } from 'next/navigation';
-import { Contract, ContractDetail, Client, Consultant } from '@/lib/supabase';
-import { db } from '@/lib/db';
+import { CalendarClock, CircleDot, HandCoins, Pencil, ReceiptText, Trash2 } from 'lucide-react';
+import type {
+    AuditLogEntry,
+    Client,
+    Consultant,
+    Contract,
+    ContractCollectionPayment,
+    ContractDetail,
+} from '@/lib/supabase';
+import { db, type ContractFile } from '@/lib/db';
 import ProtectedRoute from '@/components/protected-route';
 import { DataTable, dataTablePanelClass } from '@/components/data-table';
 import { TablePagination } from '@/components/table-pagination';
 import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { useAuth } from '@/contexts/auth-context';
 import { EditContractDialog } from '@/components/contracts/edit-contract-dialog';
+import { EditContractDetailDialog } from '@/components/contracts/edit-contract-detail-dialog';
+import { RowActions } from '@/components/ui/row-edit-button';
 import { ReassignConsultantDialog } from '@/components/contracts/reassign-consultant-dialog';
+import { ReceiptCalendar } from '@/components/contracts/receipt-calendar';
+import { PaymentEvidenceCard } from '@/components/contracts/payment-evidence';
+import { getDocumentSignedUrl } from '@/lib/documents/upload';
+import { ActivityCard } from '@/components/dashboard/activity-card';
+import { EntityActionButton } from '@/components/dashboard/entity-action-button';
+import { DeleteContractDialog } from '@/components/delete-dialogs';
+import { MissingPaymentMethodFlag } from '@/components/contracts/missing-payment-method';
+import {
+    RegisterPaymentDialog,
+    type RegisterPaymentTarget,
+} from '@/components/collections/register-payment-dialog';
 import { useToast } from '@/components/toast';
 import { Button } from '@/components/ui/button';
+import { DotBadge } from '@/components/ui/dot-badge';
+import { StatTile } from '@/components/dashboard/overview/stat-tile';
 import { formatDateShortEsLocal } from '@/lib/format/date';
-import { normalizeCurrency } from '@/lib/contracts/currencies';
-import { PageHeader } from '@/components/dashboard/page-header';
+import { CURRENCY_LABELS, formatAmount, normalizeCurrency } from '@/lib/contracts/currencies';
 import {
-    DetailCard,
-    DetailField,
-    DetailGrid,
-} from '@/components/dashboard/detail-card';
+    maxIsoDate,
+    nextCollectionDue,
+    receiptCalendar,
+    type ReceiptPayment,
+} from '@/lib/collections/next-due';
+import { PORTFOLIO_STATUS, carteraStatus, daysPastDue, type PortfolioStatus } from '@/lib/collections/status';
+import { PageHeader } from '@/components/dashboard/page-header';
+import { DetailCard, DetailRow, DetailRows } from '@/components/dashboard/detail-card';
 import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
+import { DetailPageSkeleton } from '@/components/ui/skeleton';
+
+/** Collection marks + commission-file payments, one entry per payment (newest first). */
+const LINE_LABELS: Record<string, string> = { LIFE: 'Vida', HEALTH: 'Gastos médicos', SAVINGS: 'Ahorro / retiro' };
+
+function mergePayments(
+    marks: ContractCollectionPayment[],
+    details: ContractDetail[],
+    evidenceByPayment: Map<string, string>,
+): ReceiptPayment[] {
+    const detailByDate = new Map<string, ContractDetail>();
+    for (const detail of details) {
+        const paid = detail.payment_date?.slice(0, 10);
+        if (paid && !detailByDate.has(paid)) detailByDate.set(paid, detail);
+    }
+    const payments: ReceiptPayment[] = [];
+    const seen = new Set<string>();
+    for (const mark of marks) {
+        const paid = mark.paid_at?.slice(0, 10);
+        if (!paid) continue;
+        const detail = mark.source === 'import' ? detailByDate.get(paid) : undefined;
+        payments.push({
+            paidAt: paid,
+            evidenceFileId: evidenceByPayment.get(mark.id) ?? null,
+            source: mark.source,
+            amount: mark.amount ?? detail?.premium_payment ?? null,
+            reference: detail?.receipt_number
+                ? `Recibo ${detail.receipt_number}`
+                : mark.notes?.trim() || null,
+        });
+        seen.add(paid);
+    }
+    for (const [paid, detail] of detailByDate) {
+        if (seen.has(paid)) continue;
+        payments.push({
+            paidAt: paid,
+            source: 'import',
+            amount: detail.premium_payment ?? null,
+            reference: detail.receipt_number ? `Recibo ${detail.receipt_number}` : null,
+        });
+    }
+    return payments.sort((a, b) => b.paidAt.localeCompare(a.paidAt));
+}
+
+/** Inicial / renovación from the ANTIGÜEDAD of the latest paid commission line. */
+function contractType(details: ContractDetail[]): string | null {
+    const latest = [...details]
+        .filter((d) => d.payment_date)
+        .sort((a, b) => (b.payment_date ?? '').localeCompare(a.payment_date ?? ''))[0];
+    const seniority = Number.parseFloat(latest?.seniority?.replace(/[,\s]/g, '') ?? '');
+    if (!Number.isFinite(seniority)) return null;
+    return seniority === 1 ? 'Inicial' : 'Renovación';
+}
+
+function relativeDue(due: Date): string {
+    const days = daysPastDue(due) ?? 0;
+    if (days > 0) return days === 1 ? 'Hace 1 día' : `Hace ${days} días`;
+    if (days === 0) return 'Hoy';
+    return days === -1 ? 'Mañana' : `En ${-days} días`;
+}
 
 function ContractDetailsPageContent() {
     const router = useRouter();
@@ -30,34 +117,46 @@ function ContractDetailsPageContent() {
     const { toast } = useToast();
     const contractId = params.id as string;
     const [editOpen, setEditOpen] = useState(false);
+    const [deleteOpen, setDeleteOpen] = useState(false);
+    const [editingDetail, setEditingDetail] = useState<ContractDetail | null>(null);
+    const [paymentTarget, setPaymentTarget] = useState<RegisterPaymentTarget | null>(null);
     const [contract, setContract] = useState<Contract | null>(null);
+    const [client, setClient] = useState<Client | null>(null);
+    const [consultant, setConsultant] = useState<Consultant | null>(null);
+    const [allDetails, setAllDetails] = useState<ContractDetail[]>([]);
+    const [marks, setMarks] = useState<ContractCollectionPayment[]>([]);
+    const [files, setFiles] = useState<ContractFile[]>([]);
+    const [activity, setActivity] = useState<AuditLogEntry[]>([]);
     const [contractDetails, setContractDetails] = useState<ContractDetail[]>([]);
     const [detailsTotal, setDetailsTotal] = useState(0);
     const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
     const [page, setPage] = useResetPage(String(pageSize));
-    const [statsDetails, setStatsDetails] = useState<ContractDetail[]>([]);
-    const [client, setClient] = useState<Client | null>(null);
-    const [consultant, setConsultant] = useState<Consultant | null>(null);
     const [loading, setLoading] = useQueryLoading(contractId);
-    const [detailsLoading, setDetailsLoading] = useQueryLoading(
-        `${contractId}\0${page}\0${pageSize}`,
-    );
+    const [detailsLoading, setDetailsLoading] = useQueryLoading(`${contractId}\0${page}\0${pageSize}`);
 
     const loadContractMeta = useCallback(async () => {
         try {
-            const [contractWithRelations, allDetails] = await Promise.all([
+            const [withRelations, details, payments, contractFiles, entries] = await Promise.all([
                 db.contract.getContractWithRelations(contractId),
                 db.contractDetail.getDetailsByContract(contractId),
+                db.collections.listContractPayments(contractId),
+                db.files.listByContract(contractId).catch((error) => {
+                    console.error('Error loading contract files:', error);
+                    return [] as ContractFile[];
+                }),
+                db.auditLog.listByEntity('contract', contractId).catch((error) => {
+                    console.error('Error loading contract activity:', error);
+                    return [] as AuditLogEntry[];
+                }),
             ]);
-
-            if (!contractWithRelations) {
-                throw new Error('Contract not found');
-            }
-
-            setContract(contractWithRelations.contract);
-            setClient(contractWithRelations.client);
-            setConsultant(contractWithRelations.consultant);
-            setStatsDetails(allDetails);
+            if (!withRelations) throw new Error('Contract not found');
+            setContract(withRelations.contract);
+            setClient(withRelations.client);
+            setConsultant(withRelations.consultant);
+            setAllDetails(details);
+            setMarks(payments);
+            setFiles(contractFiles);
+            setActivity(entries);
         } catch (error) {
             console.error('Error loading contract data:', error);
         } finally {
@@ -67,10 +166,7 @@ function ContractDetailsPageContent() {
 
     const loadDetailsPage = useCallback(async () => {
         try {
-            const result = await db.contractDetail.getDetailsByContractPage(contractId, {
-                page,
-                pageSize,
-            });
+            const result = await db.contractDetail.getDetailsByContractPage(contractId, { page, pageSize });
             setContractDetails(result.rows);
             setDetailsTotal(result.total);
         } catch (error) {
@@ -83,162 +179,296 @@ function ContractDetailsPageContent() {
     useQueryEffect(Boolean(contractId), loadContractMeta);
     useQueryEffect(Boolean(contractId), loadDetailsPage);
 
-    const formatDate = (dateString: string | null | undefined) => {
-        if (!dateString) return 'N/A';
-        return formatDateShortEsLocal(dateString);
+    const evidenceByPayment = useMemo(() => {
+        const map = new Map<string, string>();
+        for (const file of files) if (file.collection_payment_id) map.set(file.collection_payment_id, file.id);
+        return map;
+    }, [files]);
+    const payments = useMemo(
+        () => mergePayments(marks, allDetails, evidenceByPayment),
+        [marks, allDetails, evidenceByPayment],
+    );
+
+    // Signed links last a few minutes: open a tab right away (popup blockers), then point it at the file
+    const openDocument = async (fileId: string) => {
+        const tab = window.open('', '_blank');
+        try {
+            const url = await getDocumentSignedUrl(fileId);
+            if (tab) {
+                tab.opener = null;
+                tab.location.href = url;
+            } else {
+                window.location.assign(url);
+            }
+        } catch (error) {
+            tab?.close();
+            console.error('Error opening document:', error);
+            toast.error('No se pudo abrir el documento.');
+        }
     };
+    const calendar = useMemo(
+        () =>
+            contract
+                ? receiptCalendar({
+                      issueDate: contract.issue_date,
+                      paymentMethod: contract.payment_method,
+                      payments,
+                  })
+                : null,
+        [contract, payments],
+    );
 
-    const formatMoney = (value: number | null | undefined) =>
-        value != null
-            ? `$${value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : 'N/A';
-
-    // Determine contract type: "inicial" or "renovacion" based on last contract_detail's seniority
-    // The last detail is the one with the most recent payment_date
-    const getContractType = (): 'inicial' | 'renovacion' | null => {
-        if (statsDetails.length === 0) return null;
-
-        // Sort by payment_date descending to get the most recent one
-        const sortedDetails = [...statsDetails].sort((a, b) => {
-            if (!a.payment_date && !b.payment_date) return 0;
-            if (!a.payment_date) return 1;
-            if (!b.payment_date) return -1;
-            return b.payment_date.localeCompare(a.payment_date);
-        });
-
-        const lastDetail = sortedDetails[0];
-        if (!lastDetail.seniority) return null;
-
-        // Parse seniority as number (remove commas and spaces)
-        const cleaned = lastDetail.seniority.trim().replace(/,/g, '').replace(/\s/g, '');
-        const seniorityNum = parseFloat(cleaned);
-        if (isNaN(seniorityNum)) return null;
-
-        // If seniority is 1, it's "inicial", if more than 1 it's "renovacion"
-        return seniorityNum === 1 ? 'inicial' : 'renovacion';
-    };
-
-    const contractType = getContractType();
-
-    if (loading) {
+    if (loading && !contract) {
         return (
-            <div className="flex items-center justify-center min-h-screen">
-                <p className="text-gray-600 dark:text-gray-400">Cargando...</p>
-            </div>
+            <DetailPageSkeleton />
         );
     }
 
     if (!contract) {
         return (
-            <div className="flex items-center justify-center min-h-screen">
-                <div className="text-center">
-                    <p className="text-gray-600 dark:text-gray-400 text-lg mb-4">Contrato no encontrado</p>
-                    <button
-                        onClick={() => router.push('/dashboard/contracts')}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                        Volver a Contratos
-                    </button>
-                </div>
+            <div className="flex min-h-[40vh] flex-col items-center justify-center gap-4 text-center">
+                <p className="text-lg text-(--lifeops-muted)">No encontramos esta póliza.</p>
+                <Button type="button" variant="brand" onClick={() => router.push('/dashboard/contracts')}>
+                    Volver a pólizas
+                </Button>
             </div>
         );
     }
 
+    const inactive = contract.status === 'INACTIVE';
+    const lastPaid = maxIsoDate(...payments.map((p) => p.paidAt));
+    const lastPayment = payments.find((p) => p.paidAt === lastPaid) ?? null;
+    const nextDue = inactive
+        ? null
+        : nextCollectionDue({
+              issueDate: contract.issue_date,
+              lastPaidAt: lastPaid,
+              paymentMethod: contract.payment_method,
+              collectionDay: contract.collection_day,
+          });
+    const status: PortfolioStatus = inactive ? 'inactive' : carteraStatus(nextDue);
+    const late = daysPastDue(nextDue);
+    const dueReceipts = calendar?.receipts.filter((r) => daysPastDue(r.due)! >= 0) ?? [];
+    const paidReceipts = calendar?.receipts.filter((r) => r.state === 'paid').length ?? 0;
+    const nextReceipt = calendar?.receipts[calendar.nextIndex];
+    const officeView = profile?.role === 'promotory';
+    const currencyCode = normalizeCurrency(contract.currency);
+
+    const statusDetail =
+        status === 'inactive'
+            ? 'Póliza inactiva: no genera cobros'
+            : status === 'no_payment'
+              ? 'Falta fecha de emisión y no hay pagos'
+              : late != null && late > 0
+                ? `${late} días de atraso`
+                : 'Sin atraso';
+
     return (
-        <div>
+        <div className="space-y-4">
             <PageHeader
-                title={contract.contract_number || '—'}
+                title={contract.contract_number || 'Sin número'}
                 watermark="Póliza"
                 eyebrow={
-                    <button
-                        type="button"
-                        onClick={() => router.push('/dashboard/contracts')}
-                        className="inline-flex items-center text-[#FBDBAC] hover:underline"
-                    >
+                    <Link href="/dashboard/contracts" className="inline-flex items-center text-[#FBDBAC] hover:underline">
                         ← Volver a pólizas
-                    </button>
+                    </Link>
                 }
-                description="Detalles de la póliza"
-            />
-
-            <DetailCard
-                title="Información"
+                description={[client?.name, consultant?.name].filter(Boolean).join(' · ') || 'Expediente de la póliza'}
                 actions={
-                    <>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setEditOpen(true)}
-                        >
-                            Editar
-                        </Button>
+                    <div className="flex flex-wrap gap-2">
+                        <EntityActionButton icon={Pencil} label="Editar" onClick={() => setEditOpen(true)} />
                         {profile?.role === 'promotory' && contract.consultant_id ? (
                             <ReassignConsultantDialog
                                 officeId={profile.id}
                                 contractId={contract.id}
                                 currentConsultantId={contract.consultant_id}
+                                currentClientId={contract.client_id ?? null}
                                 onReassigned={() => {
                                     setLoading(true);
                                     void loadContractMeta();
                                 }}
                             />
                         ) : null}
-                    </>
+                        <EntityActionButton icon={Trash2} label="Eliminar" variant="danger" onClick={() => setDeleteOpen(true)} />
+                    </div>
                 }
-            >
-                <DetailGrid>
-                    <DetailField label="Número">
-                        <span className="font-mono">{contract.contract_number || '—'}</span>
-                    </DetailField>
-                    <DetailField label="Cliente">
-                        {client?.id ? (
-                            <button
-                                type="button"
-                                onClick={() => router.push(`/dashboard/clients/${client.id}`)}
-                                className="text-left text-(--lifeops-accent) hover:underline"
-                            >
-                                {client.name}
-                            </button>
-                        ) : (
-                            client?.name || '—'
-                        )}
-                    </DetailField>
-                    <DetailField label="Asesor">
-                        {consultant?.id && profile?.role === 'promotory' ? (
-                            <button
-                                type="button"
-                                onClick={() => router.push(`/dashboard/consultants/${consultant.id}`)}
-                                className="text-left text-(--lifeops-accent) hover:underline"
-                            >
-                                {consultant.name}
-                                {consultant.consultant_code
-                                    ? ` · ${consultant.consultant_code}`
-                                    : ''}
-                            </button>
-                        ) : (
-                            consultant?.name || '—'
-                        )}
-                    </DetailField>
-                    <DetailField label="Forma de pago">
-                        {contract.payment_method || '—'}
-                    </DetailField>
-                    <DetailField label="Prima anual">
-                        {contract.annual_premium || '—'}
-                    </DetailField>
-                    <DetailField label="Suma asegurada">
-                        {contract.insured_amount || '—'}
-                    </DetailField>
-                    <DetailField label="Moneda">
-                        {normalizeCurrency(contract.currency) || contract.currency || '—'}
-                    </DetailField>
-                    {contractType ? (
-                        <DetailField label="Tipo">
-                            {contractType === 'inicial' ? 'Inicial' : 'Renovación'}
-                        </DetailField>
-                    ) : null}
-                </DetailGrid>
-            </DetailCard>
+            />
+
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                <StatTile
+                    label="Estado"
+                    icon={CircleDot}
+                    value={
+                        <span className="flex items-center gap-2 text-xl">
+                            <span
+                                className="h-3 w-3 shrink-0 rounded-full"
+                                style={{ background: PORTFOLIO_STATUS[status].color }}
+                                aria-hidden
+                            />
+                            {PORTFOLIO_STATUS[status].label}
+                        </span>
+                    }
+                    detail={statusDetail}
+                />
+                <StatTile
+                    label="Próximo cobro"
+                    icon={CalendarClock}
+                    value={<span className="text-xl">{nextDue ? formatDateShortEsLocal(nextDue) : '—'}</span>}
+                    detail={
+                        nextDue
+                            ? [relativeDue(nextDue), nextReceipt ? `recibo ${nextReceipt.number}/${nextReceipt.perYear}` : null]
+                                  .filter(Boolean)
+                                  .join(' · ')
+                            : undefined
+                    }
+                />
+                <StatTile
+                    label="Último pago"
+                    icon={HandCoins}
+                    value={<span className="text-xl">{lastPaid ? formatDateShortEsLocal(lastPaid) : '—'}</span>}
+                    detail={
+                        lastPayment
+                            ? lastPayment.source === 'import'
+                                ? 'Del archivo de comisiones'
+                                : 'Registrado en cobranza'
+                            : 'Sin pagos registrados'
+                    }
+                />
+                <StatTile
+                    label={calendar ? 'Recibos pagados' : 'Pagos registrados'}
+                    icon={ReceiptText}
+                    value={calendar ? paidReceipts : payments.length}
+                    detail={calendar ? `De ${dueReceipts.length} recibos vencidos a la fecha` : 'Sin calendario de recibos'}
+                />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                <div className="min-w-0 lg:col-span-2">
+                    <ReceiptCalendar
+                        calendar={calendar}
+                        payments={payments}
+                        issueDate={contract.issue_date}
+                        paymentMethod={contract.payment_method}
+                        currency={contract.currency}
+                        onCompletePaymentMethod={() => setEditOpen(true)}
+                        onOpenEvidence={(fileId) => void openDocument(fileId)}
+                        actions={
+                            inactive ? null : (
+                                <Button
+                                    type="button"
+                                    variant="brand"
+                                    size="sm"
+                                    onClick={() =>
+                                        setPaymentTarget({
+                                            contractId: contract.id,
+                                            contractNumber: contract.contract_number ?? null,
+                                            clientName: client?.name ?? null,
+                                            nextDue,
+                                            suggestedAmount: payments.find((p) => p.amount != null)?.amount ?? null,
+                                            collectionDay: contract.collection_day ?? null,
+                                        })
+                                    }
+                                >
+                                    Registrar pago
+                                </Button>
+                            )
+                        }
+                    />
+                    <div className="mt-4">
+                        <PaymentEvidenceCard files={files} payments={marks} onOpen={(fileId) => void openDocument(fileId)} />
+                    </div>
+                </div>
+
+                <div className="flex min-w-0 flex-col gap-4">
+                    <DetailCard className="mb-0" title="Datos de la póliza">
+                        <DetailRows>
+                            <DetailRow label="Póliza">
+                                <span className="font-mono">{contract.contract_number || '—'}</span>
+                            </DetailRow>
+                            <DetailRow label="Cliente">
+                                {client?.id ? (
+                                    <Link href={`/dashboard/clients/${client.id}`} className="text-(--lifeops-accent) hover:underline">
+                                        {client.name}
+                                    </Link>
+                                ) : (
+                                    client?.name || '—'
+                                )}
+                            </DetailRow>
+                            <DetailRow label="Asesor">
+                                {consultant?.id && officeView ? (
+                                    <Link
+                                        href={`/dashboard/consultants/${consultant.id}`}
+                                        className="text-(--lifeops-accent) hover:underline"
+                                    >
+                                        {consultant.name}
+                                        {consultant.consultant_code ? ` · ${consultant.consultant_code}` : ''}
+                                    </Link>
+                                ) : (
+                                    consultant?.name || '—'
+                                )}
+                            </DetailRow>
+                            <DetailRow label="Forma de pago">
+                                {contract.payment_method || <MissingPaymentMethodFlag />}
+                            </DetailRow>
+                            <DetailRow label="Emisión">{formatDateShortEsLocal(contract.issue_date)}</DetailRow>
+                            {contract.collection_day ? (
+                                <DetailRow label="Día de cobro">{contract.collection_day}</DetailRow>
+                            ) : null}
+                            <DetailRow label="Moneda">
+                                {currencyCode ? CURRENCY_LABELS[currencyCode] : contract.currency || '—'}
+                            </DetailRow>
+                            {contract.annual_premium ? (
+                                <DetailRow label="Prima anual">{contract.annual_premium}</DetailRow>
+                            ) : null}
+                            {contract.insured_amount ? (
+                                <DetailRow label="Suma asegurada">{contract.insured_amount}</DetailRow>
+                            ) : null}
+                            {contract.project_name ? (
+                                <DetailRow label="Plan">{contract.project_name}</DetailRow>
+                            ) : null}
+                            {contract.line_code ? (
+                                <DetailRow label="Ramo">{LINE_LABELS[contract.line_code] ?? contract.line_code}</DetailRow>
+                            ) : null}
+                            {contract.plan_classification ? (
+                                <DetailRow label="Clasificación">{contract.plan_classification}</DetailRow>
+                            ) : null}
+                            {contract.insured_name ? (
+                                <DetailRow label="Asegurado principal">{contract.insured_name}</DetailRow>
+                            ) : null}
+                            {contract.end_date ? (
+                                <DetailRow label="Fin de vigencia">{formatDateShortEsLocal(contract.end_date)}</DetailRow>
+                            ) : null}
+                            {contract.annual_premium_mxn != null ? (
+                                <DetailRow label="Prima anual en pesos">{formatAmount(contract.annual_premium_mxn, 'PESO')}</DetailRow>
+                            ) : null}
+                            {contract.insured_amount_mxn != null ? (
+                                <DetailRow label="Suma asegurada en pesos">{formatAmount(contract.insured_amount_mxn, 'PESO')}</DetailRow>
+                            ) : null}
+                            {contract.deductible_mxn != null ? (
+                                <DetailRow label="Deducible">{formatAmount(contract.deductible_mxn, 'PESO')}</DetailRow>
+                            ) : null}
+                            {contract.payment_channel ? (
+                                <DetailRow label="Conducto de cobro">{contract.payment_channel}</DetailRow>
+                            ) : null}
+                            {contractType(allDetails) ? (
+                                <DetailRow label="Tipo">{contractType(allDetails)}</DetailRow>
+                            ) : null}
+                            <DetailRow label="Origen">
+                                {contract.source === 'manual'
+                                    ? 'Alta manual'
+                                    : contract.source === 'mixed'
+                                      ? 'Manual y archivo de comisiones'
+                                      : 'Archivo de comisiones'}
+                            </DetailRow>
+                            <DetailRow label="Estatus">
+                                <DotBadge label={PORTFOLIO_STATUS[status].label} color={PORTFOLIO_STATUS[status].color} />
+                            </DetailRow>
+                        </DetailRows>
+                    </DetailCard>
+
+                    <ActivityCard entries={activity} />
+                </div>
+            </div>
 
             <EditContractDialog
                 open={editOpen}
@@ -247,58 +477,148 @@ function ContractDetailsPageContent() {
                 onSaved={(next) => {
                     setContract(next);
                     toast.success('Póliza actualizada.');
+                    // Refresh calendar inputs and the history
+                    void loadContractMeta();
                 }}
             />
 
-            {/* Contract Details Table */}
-            {detailsTotal > 0 || contractDetails.length > 0 ? (
-                <div className={dataTablePanelClass}>
-                    <div className="p-6">
-                        <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Detalles de la póliza ({detailsTotal} filas)</h2>
-                    </div>
-                    <DataTable
-                        rows={contractDetails}
-                        getRowKey={(detail) => detail.id}
-                        columns={[
-                            { id: 'issue_date', header: 'Fecha emisión', cell: (detail) => formatDate(detail.issue_date) },
-                            { id: 'payment_date', header: 'Fecha pago', cell: (detail) => formatDate(detail.payment_date) },
-                            { id: 'premium_payment', header: 'Prima pago', cell: (detail) => formatMoney(detail.premium_payment) },
-                            { id: 'payment_method', header: 'Forma de pago', cell: (detail) => detail.payment_method || 'N/A' },
-                            { id: 'commission_honoraries', header: 'Comisión / honorarios', cell: (detail) => formatMoney(detail.commission_honoraries) },
-                            {
-                                id: 'commission_percentage',
-                                header: '% comisión',
-                                cell: (detail) =>
-                                    detail.commission_percentage != null
-                                        ? `${detail.commission_percentage.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
-                                        : 'N/A',
-                            },
-                            { id: 'collection_premium', header: 'Prima cobro', cell: (detail) => formatMoney(detail.collection_premium) },
-                            { id: 'seniority', header: 'Antigüedad', cell: (detail) => detail.seniority || 'N/A' },
-                            { id: 'target_premium', header: 'Prima meta', cell: (detail) => formatMoney(detail.target_premium) },
-                            { id: 'movement', header: 'Movimiento', cell: (detail) => detail.movement || 'N/A' },
-                            { id: 'commission_premium', header: 'Prima comisión', cell: (detail) => formatMoney(detail.commission_premium) },
-                        ]}
-                    />
-                    <TablePagination
-                        page={page}
-                        pageSize={pageSize}
-                        total={detailsTotal}
-                        disabled={detailsLoading}
-                        onPageChange={setPage}
-                        onPageSizeChange={(size) => {
-                            setPageSize(size);
-                            setPage(1);
-                        }}
-                    />
-                </div>
-            ) : (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-12 text-center">
-                    <p className="text-gray-600 dark:text-gray-400 text-lg">
-                        No se encontraron detalles de la póliza para esta póliza
+            <EditContractDetailDialog
+                open={editingDetail != null}
+                detail={editingDetail}
+                currency={contract.currency}
+                onClose={() => setEditingDetail(null)}
+                onSaved={() => {
+                    toast.success('Recibo actualizado.');
+                    // Table row, receipt calendar, cobranza marks and the history
+                    void loadDetailsPage();
+                    void loadContractMeta();
+                }}
+            />
+
+            <DeleteContractDialog
+                contract={deleteOpen ? { id: contract.id, contractNumber: contract.contract_number ?? null } : null}
+                onClose={() => setDeleteOpen(false)}
+                onDeleted={() => router.push('/dashboard/contracts')}
+            />
+
+            <RegisterPaymentDialog
+                open={paymentTarget != null}
+                target={paymentTarget}
+                onClose={() => setPaymentTarget(null)}
+                onSaved={async () => {
+                    setLoading(true);
+                    await loadContractMeta();
+                }}
+            />
+
+            <div className={dataTablePanelClass}>
+                <div className="px-4 pt-4 pb-3 sm:px-5">
+                    <h2 className="text-[15px] font-semibold text-(--lifeops-fg)">Recibos del archivo de comisiones</h2>
+                    <p className="mt-0.5 text-sm text-(--lifeops-muted)">
+                        {detailsTotal > 0
+                            ? `${detailsTotal} renglones importados. Al volver a subir un archivo se actualizan por número de recibo.`
+                            : 'Aún no hay renglones importados para esta póliza.'}
                     </p>
                 </div>
-            )}
+                {detailsTotal > 0 || contractDetails.length > 0 ? (
+                    <>
+                        <DataTable
+                            rows={contractDetails}
+                            getRowKey={(detail) => detail.id}
+                            columns={[
+                                {
+                                    id: 'receipt_number',
+                                    header: 'Recibo',
+                                    className: 'font-mono',
+                                    cell: (d) => d.receipt_number || '—',
+                                },
+                                { id: 'payment_date', header: 'Fecha pago', cell: (d) => formatDateShortEsLocal(d.payment_date) },
+                                {
+                                    id: 'issue_date',
+                                    header: 'Emisión',
+                                    tone: 'muted',
+                                    cell: (d) => formatDateShortEsLocal(d.issue_date),
+                                },
+                                {
+                                    id: 'premium_payment',
+                                    header: 'Prima pago',
+                                    align: 'right',
+                                    className: 'tabular-nums',
+                                    cell: (d) => formatAmount(d.premium_payment, contract.currency) ?? '—',
+                                },
+                                {
+                                    id: 'collection_premium',
+                                    header: 'Prima cobro',
+                                    align: 'right',
+                                    className: 'tabular-nums',
+                                    cell: (d) => formatAmount(d.collection_premium, contract.currency) ?? '—',
+                                },
+                                {
+                                    id: 'commission_honoraries',
+                                    header: 'Comisión / honorarios',
+                                    align: 'right',
+                                    className: 'tabular-nums',
+                                    cell: (d) => formatAmount(d.commission_honoraries, contract.currency) ?? '—',
+                                },
+                                {
+                                    id: 'commission_percentage',
+                                    header: '% comisión',
+                                    align: 'right',
+                                    className: 'tabular-nums',
+                                    cell: (d) =>
+                                        d.commission_percentage != null
+                                            ? `${d.commission_percentage.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`
+                                            : '—',
+                                },
+                                {
+                                    id: 'target_premium',
+                                    header: 'Prima meta',
+                                    align: 'right',
+                                    className: 'tabular-nums',
+                                    cell: (d) => formatAmount(d.target_premium, contract.currency) ?? '—',
+                                },
+                                {
+                                    id: 'commission_premium',
+                                    header: 'Prima comisión',
+                                    align: 'right',
+                                    className: 'tabular-nums',
+                                    cell: (d) => formatAmount(d.commission_premium, contract.currency) ?? '—',
+                                },
+                                { id: 'seniority', header: 'Antigüedad', tone: 'muted', cell: (d) => d.seniority || '—' },
+                                { id: 'movement', header: 'Movimiento', tone: 'muted', cell: (d) => d.movement || '—' },
+                                { id: 'payment_method', header: 'Forma de pago', tone: 'muted', cell: (d) => d.payment_method || '—' },
+                                ...(officeView
+                                    ? [
+                                          {
+                                              id: 'actions',
+                                              header: <span className="sr-only">Acciones</span>,
+                                              align: 'right' as const,
+                                              sticky: true,
+                                              cell: (d: ContractDetail) => (
+                                                  <RowActions
+                                                      editLabel={d.receipt_number ? `Editar recibo ${d.receipt_number}` : 'Editar recibo'}
+                                                      onEdit={() => setEditingDetail(d)}
+                                                  />
+                                              ),
+                                          },
+                                      ]
+                                    : []),
+                            ]}
+                        />
+                        <TablePagination
+                            page={page}
+                            pageSize={pageSize}
+                            total={detailsTotal}
+                            disabled={detailsLoading}
+                            onPageChange={setPage}
+                            onPageSizeChange={(size) => {
+                                setPageSize(size);
+                                setPage(1);
+                            }}
+                        />
+                    </>
+                ) : null}
+            </div>
         </div>
     );
 }

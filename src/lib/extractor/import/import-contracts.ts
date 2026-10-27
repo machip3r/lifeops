@@ -1,14 +1,15 @@
 import "server-only";
 
 import { normalizeClientName } from "@/lib/clients/name-match";
-import { initialCollectionStatus } from "@/lib/collections/next-due";
+import { initialCollectionStatus, nextCollectionDue } from "@/lib/collections/next-due";
 import type { Db } from "@/lib/db";
+import type { AuditActor } from "@/lib/db/audit-log";
 import type { ImportedDetail } from "@/lib/db/contract-detail";
+import { detailValuesFromRow } from "./detail-record";
 import { chunkArray, IMPORT_BATCH_SIZE } from "@/lib/extractor/batch";
 import {
   cellAt,
   groupRowsByContract,
-  normalizeContractNumber,
   resolveImportColumns,
   type ContractGroup,
   type IndexedRow,
@@ -18,10 +19,7 @@ import {
   parseDate,
   parseNumeric,
 } from "@/lib/extractor/import/parse";
-import {
-  collapseRepeatedReceipts,
-  normalizeReceiptNumber,
-} from "@/lib/extractor/receipt";
+import { collapseRepeatedReceipts } from "@/lib/extractor/receipt";
 import type { Client, Consultant, Contract } from "@/lib/supabase";
 import type {
   CommissionImportBatchResult,
@@ -47,7 +45,7 @@ function todayIso(): string {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 }
 
-/** File date required and not future; prior payments may be after it (old files) but not future. */
+/** File date required and not future. */
 function validateImportMeta(meta: CommissionImportMeta): string | null {
   const today = todayIso();
   const fileIssueDate = meta.fileIssueDate.trim();
@@ -56,12 +54,6 @@ function validateImportMeta(meta: CommissionImportMeta): string | null {
   }
   if (fileIssueDate > today) {
     return "La fecha de emisión del archivo no puede ser futura.";
-  }
-  for (const [key, prior] of Object.entries(meta.priorPaymentByContract ?? {})) {
-    const paidAt = prior?.trim() || "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidAt) || paidAt > today) {
-      return `La fecha del último pago de la póliza "${key}" debe ser válida y no futura.`;
-    }
   }
   return null;
 }
@@ -83,8 +75,6 @@ export async function startCommissionImport(
       status: "pending",
       row_count: input.rowCount,
       metadata: {
-        require_prior_for_new: Boolean(input.importMeta.requirePriorForNew),
-        prior_payment_by_contract: input.importMeta.priorPaymentByContract ?? {},
       },
     });
     return { commissionImportId: batch.id, warnings: [] };
@@ -103,8 +93,6 @@ type ResolvedGroup = {
   client: Client;
   issueDate: string | null;
   contract?: Contract;
-  /** Set for first-time pólizas: last known payment before this file. */
-  priorPaymentDate?: string;
 };
 
 /** Imports one batch of rows (whole pólizas) and returns its share of the result. */
@@ -116,9 +104,17 @@ export async function importCommissionBatch(
     headers: string[];
     rows: IndexedRow[];
     importMeta: CommissionImportMeta;
+    /**
+     * Review decisions per póliza number: contract fields (`consultantCode`, `clientName`,
+     * `paymentMethod`, `currency`) and `receipt:<RECIBO>` to overwrite. Anything not listed keeps
+     * LifeOps (empty LifeOps values are still filled).
+     */
+    decisions?: Record<string, string[]>;
   },
 ): Promise<CommissionImportBatchResult> {
   const { db, actorUserId, officeId, consultantId, commissionImportId } = input;
+  const decisions = input.decisions ?? {};
+  const picked = (contractNumber: string, field: string) => (decisions[contractNumber] ?? []).includes(field);
   const warnings: Array<{ row: number; message: string }> = [];
   const counts: CommissionImportCounts = {
     contractsCreated: 0,
@@ -132,7 +128,6 @@ export async function importCommissionBatch(
   if (invalid) {
     return { success: 0, errors: [{ row: 0, error: invalid }], warnings, counts };
   }
-  const priorPaymentByContract = input.importMeta.priorPaymentByContract ?? {};
 
   const columns = resolveImportColumns(input.headers);
   const { groups, errors } = groupRowsByContract(input.rows, columns);
@@ -152,12 +147,12 @@ export async function importCommissionBatch(
     }
   }
 
-  // Existing pólizas by number, limited to these asesores
+  // Existing pólizas by number: the whole office (RLS), or the asesor's own pólizas.
+  // A póliza with another asesor is found too, so the review can reassign it instead of failing.
   const existingByNumber = new Map<string, Contract>();
   const numbers = [...new Set(groups.map((g) => g.contractNumber).filter(Boolean))];
-  const consultantIds = [...consultantByCode.values()].map((c) => c.id);
   for (const chunk of chunkArray(numbers, IMPORT_BATCH_SIZE)) {
-    const found = await db.contract.findByNumbers(chunk, { consultantIds, consultantId });
+    const found = await db.contract.findByNumbers(chunk, { consultantId });
     for (const contract of found) {
       if (contract.contract_number) existingByNumber.set(contract.contract_number, contract);
     }
@@ -166,7 +161,9 @@ export async function importCommissionBatch(
   let clientByName: Map<string, Client>;
   try {
     clientByName = await db.client.findOrCreateClientsByName(
-      groups.map((g) => g.clientName),
+      groups
+        .filter((g) => !g.contractNumber || !existingByNumber.has(g.contractNumber) || picked(g.contractNumber, "clientName"))
+        .map((g) => g.clientName),
       officeId,
     );
   } catch (error) {
@@ -188,6 +185,25 @@ export async function importCommissionBatch(
   for (const group of groups) {
     const groupRow = group.rows[0]?.rowIndex ?? 0;
     const consultant = consultantByCode.get(group.consultantCode.trim().toLowerCase());
+    const existingContract = group.contractNumber ? existingByNumber.get(group.contractNumber) : undefined;
+    if (existingContract) {
+      // Already in LifeOps: receipts go to it; asesor / cliente only change when picked
+      let issueDate: string | null = null;
+      for (const { row } of group.rows) {
+        const iso = parseDate(cellAt(row, columns.issueDate));
+        if (iso && (!issueDate || iso < issueDate)) issueDate = iso;
+      }
+      resolved.push({
+        group,
+        consultant: consultant ?? ({ id: existingContract.consultant_id } as Consultant),
+        client:
+          clientByName.get(normalizeClientName(group.clientName).toLowerCase()) ??
+          ({ id: existingContract.client_id, name: group.clientName } as Client),
+        issueDate,
+        contract: existingContract,
+      });
+      continue;
+    }
     if (!consultant?.id) {
       errors.push({
         row: groupRow,
@@ -217,30 +233,28 @@ export async function importCommissionBatch(
       continue;
     }
 
-    const priorKey = group.contractNumber
-      ? normalizeContractNumber(group.contractNumber)
-      : `__unnamed__:${group.clientName.toLowerCase()}`;
-    const priorPaymentDate =
-      priorPaymentByContract[priorKey] || priorPaymentByContract[group.contractNumber] || null;
-    if (!priorPaymentDate) {
+    // New pólizas need FECHA EMISION: it anchors their receipt calendar
+    if (!issueDate) {
       errors.push({
         row: groupRow,
         error: group.contractNumber
-          ? `Póliza "${group.contractNumber}" es nueva: indica la fecha del último pago antes de este archivo de comisiones.`
-          : "Póliza nueva sin número: indica la fecha del último pago antes de este archivo de comisiones.",
+          ? `Póliza "${group.contractNumber}" es nueva: indica su fecha de emisión.`
+          : "Póliza nueva sin número: indica su fecha de emisión.",
       });
       continue;
     }
-    entry.priorPaymentDate = priorPaymentDate;
     resolved.push(entry);
     // Same number twice in the file (e.g. client spelled differently) → one póliza
     const createKey = group.contractNumber || `__unnamed__:${group.clientName}:${group.consultantCode}`;
     toCreate.set(createKey, [...(toCreate.get(createKey) ?? []), entry]);
   }
 
-  await updateExistingContracts(db, resolved, warnings, counts);
+  await updateExistingContracts(db, resolved, warnings, counts, {
+    columns,
+    picked,
+    actor: { userId: actorUserId, officeId, role: consultantId ? "consultant" : "promotory" },
+  });
   await createNewContracts({ db, actorUserId, officeId, commissionImportId, columns, toCreate, errors, counts });
-  await repairInterruptedPriorPayments({ db, actorUserId, commissionImportId, resolved, priorPaymentByContract, counts });
 
   // Receipts of every póliza in the batch, written together
   const ready = resolved.filter((entry) => entry.contract);
@@ -251,18 +265,7 @@ export async function importCommissionBatch(
     const records = entry.group.rows.map(({ row }) => ({
       contract_id: contract.id,
       commission_import_id: commissionImportId,
-      receipt_number: normalizeReceiptNumber(cellAt(row, columns.receiptNumber)), // RECIBO
-      issue_date: parseDate(cellAt(row, columns.issueDate)), // FECHA EMISION
-      payment_date: parseDate(cellAt(row, columns.paymentDate)), // FECHA PAGO
-      premium_payment: parseNumeric(cellAt(row, columns.premiumPayment)), // PRIMA PAGO
-      payment_method: normalizePaymentMethod(cellAt(row, columns.paymentMethod)), // FORMA DE PAGO
-      commission_honoraries: parseNumeric(cellAt(row, columns.commissionHonoraries)), // COMISION/HONORARIOS
-      commission_percentage: parseNumeric(cellAt(row, columns.commissionPercentage)), // % COMISION
-      collection_premium: parseNumeric(cellAt(row, columns.collectionPremium)), // PRIMA COBRO
-      seniority: cellAt(row, columns.seniority), // ANTIGÜEDAD
-      target_premium: parseNumeric(cellAt(row, columns.targetPremium)), // PRIMA META
-      movement: cellAt(row, columns.movement), // MOVIMIENTO
-      commission_premium: parseNumeric(cellAt(row, columns.commissionPremium)), // PRIMA COMISION
+      ...detailValuesFromRow(row, columns),
     }));
     detailsByContract.set(contract.id, [...(detailsByContract.get(contract.id) ?? []), ...records]);
     groupsByContract.set(contract.id, [...(groupsByContract.get(contract.id) ?? []), entry]);
@@ -279,7 +282,10 @@ export async function importCommissionBatch(
     }
   }
 
-  const written = await writeDetails(db, detailsByContract, groupsByContract, errors);
+  const numberByContract = new Map(ready.map((e) => [(e.contract as Contract).id, e.group.contractNumber]));
+  const written = await writeDetails(db, detailsByContract, groupsByContract, errors, (contractId, receipt) =>
+    picked(numberByContract.get(contractId) ?? "", `receipt:${receipt}`),
+  );
   const pendingCobranza: Array<{ contractId: string; details: ImportedDetail[] }> = [];
   let success = 0;
   for (const [contractId, result] of written) {
@@ -287,6 +293,13 @@ export async function importCommissionBatch(
     success += contractGroups.length;
     counts.detailsInserted += result.inserted.length;
     counts.detailsUpdated += result.updated.length;
+    if (result.kept > 0) {
+      const first = contractGroups[0]?.group;
+      warnings.push({
+        row: first?.rows[0]?.rowIndex ?? 0,
+        message: `${result.kept} recibo(s) de la póliza "${first?.contractNumber || "N/A"}" traían otros valores; se conservaron los de LifeOps.`,
+      });
+    }
     if (result.skipped > 0) {
       const first = contractGroups[0]?.group;
       warnings.push({
@@ -320,12 +333,20 @@ export async function importCommissionBatch(
   return { success, errors, warnings, counts };
 }
 
-/** Existing pólizas: mark manual ones as mixed and fill a missing emission date. */
+/**
+ * Existing pólizas: mark manual ones as mixed, fill empty data (emisión, forma de pago, moneda) and
+ * apply the review picks (asesor, contratante, forma de pago, moneda). Audited as `contract.update`.
+ */
 async function updateExistingContracts(
   db: Db,
   resolved: ResolvedGroup[],
   warnings: Array<{ row: number; message: string }>,
   counts: CommissionImportCounts,
+  opts: {
+    columns: ReturnType<typeof resolveImportColumns>;
+    picked: (contractNumber: string, field: string) => boolean;
+    actor: AuditActor;
+  },
 ) {
   const seen = new Set<string>();
   for (const entry of resolved) {
@@ -333,26 +354,48 @@ async function updateExistingContracts(
     if (!existing || seen.has(existing.id)) continue;
     seen.add(existing.id);
     counts.contractsUpdated += 1;
+    const number = entry.group.contractNumber;
     warnings.push({
       row: entry.group.rows[0]?.rowIndex ?? 0,
-      message: `Poliza con número "${entry.group.contractNumber}" ya existe. Se omitirá la creación de la póliza y se actualizarán sus detalles.`,
+      message: `La póliza "${number}" ya estaba en LifeOps: se agregaron sus recibos nuevos.`,
     });
+
+    const isEmpty = (v: unknown) => v == null || String(v).trim() === "";
     const updates: Partial<Contract> = {};
     if (existing.source === "manual") updates.source = "mixed";
     if (!existing.issue_date && entry.issueDate) updates.issue_date = entry.issueDate;
+
+    const method = entry.group.rows
+      .map(({ row }) => normalizePaymentMethod(cellAt(row, opts.columns.paymentMethod) || null))
+      .find((m) => m && ["Anual", "Semestral", "Trimestral", "Mensual"].includes(m));
+    if (method && method !== existing.payment_method && (isEmpty(existing.payment_method) || opts.picked(number, "paymentMethod"))) {
+      updates.payment_method = method;
+    }
+    const currency = entry.group.currency;
+    if (currency && currency !== existing.currency && (isEmpty(existing.currency) || opts.picked(number, "currency"))) {
+      updates.currency = currency;
+    }
+    if (opts.picked(number, "consultantCode") && entry.consultant.consultant_code && entry.consultant.id !== existing.consultant_id) {
+      updates.consultant_id = entry.consultant.id;
+    }
+    if (opts.picked(number, "clientName") && entry.client.id && entry.client.id !== existing.client_id) {
+      updates.client_id = entry.client.id;
+    }
+
     if (Object.keys(updates).length > 0) {
-      const updated = await db.contract.updateContract(existing.id, updates);
+      const saved = await db.contract.updateWithAudit(existing.id, updates, opts.actor, "import");
+      if (!saved.ok) {
+        warnings.push({ row: entry.group.rows[0]?.rowIndex ?? 0, message: `Póliza "${number}": ${saved.error}` });
+        continue;
+      }
       for (const other of resolved) {
-        if (other.contract?.id === existing.id) other.contract = updated;
+        if (other.contract?.id === existing.id) other.contract = saved.data;
       }
     }
   }
 }
 
-/**
- * First-time pólizas: one insert for the batch, then their prior payment right away so an
- * interrupted request never leaves a póliza without its último pago conocido.
- */
+/** First-time pólizas: one insert for the batch (receipt calendar starts at FECHA EMISION). */
 async function createNewContracts(input: {
   db: Db;
   actorUserId: string;
@@ -368,23 +411,30 @@ async function createNewContracts(input: {
 
   const pending = [...toCreate.values()];
   const payloads = pending.map((entries) => {
-    const { group, consultant, client, issueDate, priorPaymentDate } = entries[0];
-    const prior = priorPaymentDate as string;
-    const priorDay = Number.parseInt(prior.slice(8, 10), 10);
+    const { group, consultant, client, issueDate } = entries[0];
+    // FORMA DE PAGO from the first detail row when present
+    const paymentMethod = normalizePaymentMethod(cellAt(group.rows[0]?.row ?? [], input.columns.paymentMethod) || null);
+    let lastPaid: string | null = null;
+    for (const entry of entries) {
+      for (const { row } of entry.group.rows) {
+        const paid = parseDate(cellAt(row, input.columns.paymentDate));
+        if (paid && (!lastPaid || paid > lastPaid)) lastPaid = paid;
+      }
+    }
     return {
       consultant_id: consultant.id,
       client_id: client.id,
       contract_number: group.contractNumber || null,
       currency: group.currency || null,
       exchange_rate: parseNumeric(group.exchangeRate),
-      // FORMA DE PAGO from the first detail row when present
-      payment_method: normalizePaymentMethod(cellAt(group.rows[0]?.row ?? [], input.columns.paymentMethod) || null),
+      payment_method: paymentMethod,
       status: "ACTIVE",
       source: "import" as const,
       office_id: input.officeId,
       issue_date: issueDate,
-      collection_day: Number.isFinite(priorDay) ? priorDay : null,
-      collection_status: initialCollectionStatus(prior),
+      collection_status: initialCollectionStatus(
+        nextCollectionDue({ issueDate, lastPaidAt: lastPaid, paymentMethod }),
+      ),
     };
   });
 
@@ -427,64 +477,10 @@ async function createNewContracts(input: {
     }
   }
 
-  const priorByContractId: Record<string, string> = {};
   for (const { entries, contract } of created) {
     for (const entry of entries) entry.contract = contract;
-    priorByContractId[contract.id] = entries[0].priorPaymentDate as string;
   }
   counts.contractsCreated += created.length;
-  if (created.length === 0) return;
-
-  try {
-    counts.paymentsMarked += await db.collections.seedPriorPayments({
-      actorUserId: input.actorUserId,
-      priorByContractId,
-      commissionImportId: input.commissionImportId,
-    });
-  } catch (error) {
-    console.error("Prior payment seed failed", error);
-    errors.push({
-      row: 0,
-      error: "Pólizas nuevas creadas, pero no se pudo registrar su último pago previo en cobranza. Vuelve a importar el archivo para completarlo.",
-    });
-  }
-}
-
-/**
- * Retry safety: a póliza the user declared new (has a prior date) that already exists but has
- * no cobranza marks was created by an interrupted attempt — seed its prior payment now.
- */
-async function repairInterruptedPriorPayments(input: {
-  db: Db;
-  actorUserId: string;
-  commissionImportId: string | null;
-  resolved: ResolvedGroup[];
-  priorPaymentByContract: Record<string, string>;
-  counts: CommissionImportCounts;
-}) {
-  const candidates = new Map<string, string>();
-  for (const entry of input.resolved) {
-    const contract = entry.contract;
-    if (!contract || entry.priorPaymentDate || !entry.group.contractNumber) continue;
-    const prior = input.priorPaymentByContract[normalizeContractNumber(entry.group.contractNumber)];
-    if (prior && contract.source === "import") candidates.set(contract.id, prior);
-  }
-  if (candidates.size === 0) return;
-
-  try {
-    const withPayments = await input.db.collections.listContractIdsWithPayments([...candidates.keys()]);
-    const priorByContractId = Object.fromEntries(
-      [...candidates].filter(([contractId]) => !withPayments.has(contractId)),
-    );
-    if (Object.keys(priorByContractId).length === 0) return;
-    input.counts.paymentsMarked += await input.db.collections.seedPriorPayments({
-      actorUserId: input.actorUserId,
-      priorByContractId,
-      commissionImportId: input.commissionImportId,
-    });
-  } catch (error) {
-    console.error("Prior payment repair failed", error);
-  }
 }
 
 /** Writes all receipts of the batch at once; on failure, per póliza so one bad row is isolated. */
@@ -493,16 +489,17 @@ async function writeDetails(
   detailsByContract: Map<string, ImportedDetail[]>,
   groupsByContract: Map<string, ResolvedGroup[]>,
   errors: Array<{ row: number; error: string }>,
+  allowUpdate: (contractId: string, receipt: string) => boolean,
 ) {
   try {
-    return await db.contractDetail.writeImportedDetails(detailsByContract);
+    return await db.contractDetail.writeImportedDetails(detailsByContract, allowUpdate);
   } catch (error) {
     console.error("bulk detail write failed", error);
   }
-  const results = new Map<string, { inserted: ImportedDetail[]; updated: ImportedDetail[]; skipped: number }>();
+  const results = new Map<string, { inserted: ImportedDetail[]; updated: ImportedDetail[]; skipped: number; kept: number }>();
   for (const [contractId, records] of detailsByContract) {
     try {
-      const one = await db.contractDetail.writeImportedDetails(new Map([[contractId, records]]));
+      const one = await db.contractDetail.writeImportedDetails(new Map([[contractId, records]]), allowUpdate);
       const result = one.get(contractId);
       if (result) results.set(contractId, result);
     } catch (error) {
