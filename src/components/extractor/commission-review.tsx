@@ -1,7 +1,7 @@
 'use client';
 
 import { CheckCircle2 } from 'lucide-react';
-import { DiffReview } from '@/components/extractor/diff-review';
+import { DiffReview, FilledFieldsSummary } from '@/components/extractor/diff-review';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { CommissionChangeItem } from '@/lib/extractor/import/types';
 
@@ -43,26 +43,12 @@ export function CommissionReview({
           Las pólizas que ya estaban en LifeOps coinciden con el archivo; solo se agregarán sus recibos nuevos.
         </p>
       ) : null}
-      {filled.length > 0 ? (
-        <details className="rounded-lg border border-(--lifeops-border) bg-(--lifeops-chrome) px-4 py-3 text-sm">
-          <summary className="cursor-pointer text-(--lifeops-fg)">
-            Se completarán datos vacíos en {filled.length} póliza(s) <span className="text-(--lifeops-muted)">(automático)</span>
-          </summary>
-          <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs text-(--lifeops-muted)">
-            {filled.slice(0, 200).map((i) => (
-              <li key={i.contractNumber}>
-                <span className="font-mono text-(--lifeops-fg)">{i.contractNumber}</span>:{' '}
-                {i.fills.map((f) => `${f.label} ${f.incoming}`).join(' · ')}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
+      <FilledFieldsSummary items={filled.map((i) => ({ key: i.contractNumber, fills: i.fills }))} />
       <DiffReview
         items={withDiffs.map((i) => ({ key: i.contractNumber, subtitle: i.clientName, diffs: i.diffs }))}
         picks={picks}
         onChange={onChange}
-        description="Por defecto se conserva lo que ya tienes en LifeOps (recibos incluidos). Marca lo que quieras actualizar con este archivo; los recibos nuevos se agregan siempre."
+        description="Por defecto se conserva lo que ya tienes en LifeOps (recibos incluidos). Elige el valor del archivo solo donde quieras actualizar; los recibos nuevos se agregan siempre."
       />
     </div>
   );

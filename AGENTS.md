@@ -14,7 +14,7 @@ Use **pnpm** only (`pnpm install`, `pnpm add`, `pnpm run dev`, etc.). Do not use
 
 ## Verification
 
-Do **not** run `pnpm run build` (or `next build`) on every change unless the user asks for a production build check, or the task is specifically about build/deploy/CI failures. Prefer `pnpm run lint` or `pnpm run knip` when you need a quick check, or rely on the dev server and TypeScript feedback.
+Do **not** run `pnpm run build` (or `next build`) on every change unless the user asks for a production build check, or the task is specifically about build/deploy/CI failures. Prefer `pnpm run lint` or `pnpm run knip` when you need a quick check, or rely on the dev server and TypeScript feedback. `pnpm test` (Vitest, `src/**/*.test.ts`) runs the import tests against an in-memory `db` — run it after touching the extractor / registry import or póliza matching, and add a case when fixing an import bug.
 
 ## Project
 
@@ -68,6 +68,13 @@ docs/
 
 - Every schema / RPC / RLS change is a **new file** under `supabase/migrations/` (e.g. `002_…sql`, `003_…sql`).
 - **Never** edit an already-created migration that may have been applied — append a new migration instead.
+- **Assume production data exists.** Every migration must be safe to run on a database with real promotorías, pólizas and payments:
+  - **Never lose data:** no `DROP TABLE` / `DROP COLUMN` / `TRUNCATE` / destructive `DELETE` or type changes that truncate without the user's explicit approval. Prefer adding a column and migrating values over replacing one.
+  - **Map existing values explicitly** before tightening anything: `UPDATE … SET` with a written mapping for every legacy value (including NULL and unexpected ones), *then* add the `CHECK` / `NOT NULL` / FK. A constraint that existing rows violate must never fail mid-deploy.
+  - **New columns** are nullable or have a safe `DEFAULT`; do not guess backfills from unrelated data — if a value can't be derived reliably, leave it NULL and say how it gets filled (e.g. next import).
+  - **Idempotent where possible:** `ADD COLUMN IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS` before re-adding, `CREATE OR REPLACE FUNCTION`. Changing a function's arguments or return type needs `DROP FUNCTION IF EXISTS <old signature>` + create + re-`REVOKE`/`GRANT` + `COMMENT`.
+  - **Behavior changes on live data** (what counts as cobranza, buckets, statuses) are called out in the migration header comment and in the summary to the user, with what changes for existing rows.
+  - Keep each migration focused; never put destructive cleanup in the same file as a feature change. Prefer testing on a local / branch database before the remote one.
 - Keep migrations SQL-only; name them descriptively after the change.
 - Baseline: `supabase/migrations/001_baseline_schema.sql` (initial full schema; must be numbered so `supabase db push` / reset apply it). New work appends `002_…`, `003_…`, etc.
 - **Keep [`docs/database.md`](docs/database.md) in sync** with every migration and any other database change (tables, columns, constraints, RPCs, triggers, RLS policies, enums). Update that English doc in the **same change** as the SQL — do not leave schema docs stale.

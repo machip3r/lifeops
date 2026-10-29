@@ -205,7 +205,7 @@ export async function getCollectionsGrid(
     `,
       { count: "exact" },
     )
-    .eq("status", "ACTIVE")
+    .eq("status", "IN_FORCE")
     .order("contract_number", { ascending: true, nullsFirst: false })
     .range(from, to);
 

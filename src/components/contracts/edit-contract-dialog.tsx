@@ -6,6 +6,10 @@ import { useAuth } from '@/contexts/auth-context';
 import { updateContractAction } from '@/app/dashboard/contracts/actions';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/contracts/payment-methods';
 import { CURRENCY_LABELS, CURRENCY_OPTIONS, normalizeCurrency } from '@/lib/contracts/currencies';
+import { POLICY_STATUS, POLICY_STATUSES, isPolicyStatus } from '@/lib/contracts/policy-status';
+import { PAYMENT_CHANNEL_LABELS, PAYMENT_CHANNEL_OPTIONS } from '@/lib/contracts/payment-channels';
+import { PLAN_CLASSIFICATION_LABELS, PLAN_CLASSIFICATION_OPTIONS } from '@/lib/contracts/plan-classifications';
+import { CatalogSelect } from '@/components/contracts/catalog-select';
 import { AppDialog } from '@/components/ui/app-dialog';
 import { Button } from '@/components/ui/button';
 import { DateInput } from '@/components/ui/date-input';
@@ -13,7 +17,9 @@ import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { FormSection } from '@/components/ui/form-section';
-import { filterAmountText, filterCode, filterDigits, filterEntityName } from '@/lib/validation/input-filters';
+import { filterAmountText, filterCode, filterDigits } from '@/lib/validation/input-filters';
+import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
+import { Combobox } from '@/components/ui/combobox';
 import { LIMITS } from '@/lib/validation/schemas';
 import { FormSkeleton } from '@/components/ui/skeleton';
 
@@ -25,11 +31,6 @@ type Props = {
   onSaved: (next: Contract) => void;
 };
 
-const STATUS_OPTIONS = [
-  { value: 'ACTIVE', label: 'Activa' },
-  { value: 'PENDING', label: 'En trámite' },
-  { value: 'INACTIVE', label: 'Inactiva (cancelada)' },
-] as const;
 
 type Values = {
   contractNumber: string;
@@ -40,6 +41,8 @@ type Values = {
   annualPremium: string;
   insuredAmount: string;
   projectName: string;
+  planClassification: string;
+  paymentChannel: string;
   status: string;
 };
 
@@ -53,7 +56,9 @@ function toValues(contract: Contract | null): Values {
     annualPremium: contract?.annual_premium ?? '',
     insuredAmount: contract?.insured_amount ?? '',
     projectName: contract?.project_name ?? '',
-    status: contract?.status === 'INACTIVE' || contract?.status === 'PENDING' ? contract.status : 'ACTIVE',
+    planClassification: contract?.plan_classification?.trim() ?? '',
+    paymentChannel: contract?.payment_channel?.trim() ?? '',
+    status: contract?.status ?? 'IN_FORCE',
   };
 }
 
@@ -82,6 +87,14 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
     onClose();
   };
 
+  // Plan from the Mina de Oro / older data outside the catalog stays selectable
+  const projectOptions = [
+    ...PROJECT_NAME_OPTIONS.map((name) => ({ value: name, label: name })),
+    ...(values.projectName && !(PROJECT_NAME_OPTIONS as readonly string[]).includes(values.projectName)
+      ? [{ value: values.projectName, label: values.projectName, description: 'Valor actual' }]
+      : []),
+  ];
+
   // Legacy values outside the catalog stay selectable so they are not lost silently
   const legacyPayment =
     values.paymentMethod &&
@@ -109,6 +122,8 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
         annualPremium: values.annualPremium,
         insuredAmount: values.insuredAmount,
         projectName: values.projectName,
+        planClassification: values.planClassification,
+        paymentChannel: values.paymentChannel,
         status: values.status,
       });
       if (!result.ok) {
@@ -175,25 +190,52 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
                   onChange={(e) => set({ contractNumber: filterCode(e.target.value) })}
                 />
               </FormField>
-              <FormField label="Estado" htmlFor="edit-contract-status" variant="auth" error={fieldErrors.status}>
+              <FormField
+                label="Estatus de la póliza"
+                htmlFor="edit-contract-status"
+                variant="auth"
+                hint={isPolicyStatus(values.status) ? POLICY_STATUS[values.status].description : undefined}
+                error={fieldErrors.status}
+              >
                 <Select id="edit-contract-status" value={values.status} disabled={saving} onChange={(e) => set({ status: e.target.value })}>
-                  {STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {POLICY_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {POLICY_STATUS[status].label}
                     </option>
                   ))}
                 </Select>
               </FormField>
             </div>
-            <FormField label="Proyecto o plan" htmlFor="edit-contract-project" variant="auth" hint="Opcional" error={fieldErrors.projectName}>
-              <Input
-                id="edit-contract-project"
-                value={values.projectName}
-                maxLength={LIMITS.entityName}
-                disabled={saving}
-                onChange={(e) => set({ projectName: filterEntityName(e.target.value) })}
-              />
-            </FormField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Proyecto o plan" htmlFor="edit-contract-project" variant="auth" hint="Opcional" error={fieldErrors.projectName}>
+                <Combobox
+                  id="edit-contract-project"
+                  value={values.projectName}
+                  onChange={(projectName) => set({ projectName })}
+                  options={projectOptions}
+                  placeholder="Busca el proyecto o plan…"
+                  emptyText="No encontramos ese proyecto."
+                  disabled={saving}
+                />
+              </FormField>
+              <FormField
+                label="Clasificación"
+                htmlFor="edit-contract-classification"
+                variant="auth"
+                hint="Opcional · vida: tradicional o flexible"
+                error={fieldErrors.planClassification}
+              >
+                <CatalogSelect
+                  id="edit-contract-classification"
+                  value={values.planClassification}
+                  onChange={(planClassification) => set({ planClassification })}
+                  options={PLAN_CLASSIFICATION_OPTIONS}
+                  labels={PLAN_CLASSIFICATION_LABELS}
+                  emptyLabel="Sin clasificación"
+                  disabled={saving}
+                />
+              </FormField>
+            </div>
           </FormSection>
 
           <FormSection title="Cobranza" description="La emisión y la forma de pago arman el calendario de recibos.">
@@ -237,6 +279,23 @@ export function EditContractDialog({ open, contract, onClose, onSaved }: Props) 
                 />
               </FormField>
             </div>
+            <FormField
+              label="Conducto de cobro"
+              htmlFor="edit-contract-channel"
+              variant="auth"
+              hint="Opcional"
+              error={fieldErrors.paymentChannel}
+            >
+              <CatalogSelect
+                id="edit-contract-channel"
+                value={values.paymentChannel}
+                onChange={(paymentChannel) => set({ paymentChannel })}
+                options={PAYMENT_CHANNEL_OPTIONS}
+                labels={PAYMENT_CHANNEL_LABELS}
+                emptyLabel="Sin conducto de cobro"
+                disabled={saving}
+              />
+            </FormField>
           </FormSection>
 
           <FormSection title="Montos" description="Opcionales; se muestran en la moneda de la póliza.">

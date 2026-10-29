@@ -268,6 +268,27 @@ h6 {
   animation: lifeops-cta-pulse 1.6s ease-out infinite;
 }
 
+/* Progress bar without a known total (import / read in progress) */
+@keyframes lifeops-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+.lifeops-indeterminate {
+  animation: lifeops-indeterminate 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lifeops-indeterminate {
+    animation: none;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -18,6 +18,8 @@ import { nextSortState, type SortDir } from '@/lib/table-sort';
 import { PENDING_PAYMENT_WITHIN_DAYS, POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 import { PORTFOLIO_STATUS, type PortfolioStatus } from '@/lib/collections/status';
 import { CURRENCY_LABELS } from '@/lib/contracts/currencies';
+import { POLICY_STATUS, POLICY_STATUSES, type PolicyStatus } from '@/lib/contracts/policy-status';
+import { DotBadge } from '@/components/ui/dot-badge';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
 import { TableSkeleton } from '@/components/ui/skeleton';
@@ -30,12 +32,14 @@ type SortKey =
   | 'next_due'
   | 'payment_method';
 type StatusFilter = 'all' | PortfolioStatus;
+type PolicyFilter = 'all' | PolicyStatus;
 
 /** Chip order: critical first, like Cobranza and Vista general. */
-const STATUS_CHIPS: PortfolioStatus[] = ['at_risk', 'overdue', 'due_soon', 'current', 'no_payment', 'inactive'];
+const STATUS_CHIPS: PortfolioStatus[] = ['at_risk', 'overdue', 'due_soon', 'current', 'no_payment'];
 
 /**
- * Pólizas table with cartera status (`list_contract_portfolio`): search, status chips with counts,
+ * Pólizas table with cartera status (`list_contract_portfolio`): search, póliza status (en vigor by
+ * default; anuladas, prorrogadas, sin pago de primas) and cartera chips with counts,
  * server-side sort and pagination. Used by Pólizas, the client expediente and the asesor expediente.
  */
 export function ContractPortfolioPanel({
@@ -69,12 +73,13 @@ export function ContractPortfolioPanel({
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('next_due');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [policyFilter, setPolicyFilter] = useState<PolicyFilter>('IN_FORCE');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const scopeKey = `${officeId ?? ''}\0${consultantId ?? ''}\0${clientId ?? ''}`;
-  const filterKey = `${scopeKey}\0${search}\0${statusFilter}\0${pageSize}\0${sortKey}\0${sortDir}`;
+  const filterKey = `${scopeKey}\0${search}\0${policyFilter}\0${statusFilter}\0${pageSize}\0${sortKey}\0${sortDir}`;
   const [page, setPage] = useResetPage(filterKey);
   const [loading, setLoading] = useQueryLoading(`${filterKey}\0${page}`);
 
@@ -86,6 +91,7 @@ export function ContractPortfolioPanel({
         clientId,
         search: search || undefined,
         status: statusFilter === 'all' ? null : statusFilter,
+        policyStatus: policyFilter === 'all' ? null : policyFilter,
         sort: { column: sortKey, ascending: sortDir === 'asc' },
         page,
         pageSize,
@@ -101,7 +107,7 @@ export function ContractPortfolioPanel({
     } finally {
       setLoading(false);
     }
-  }, [officeId, consultantId, clientId, search, statusFilter, sortKey, sortDir, page, pageSize, setLoading, onLoaded]);
+  }, [officeId, consultantId, clientId, search, policyFilter, statusFilter, sortKey, sortDir, page, pageSize, setLoading, onLoaded]);
 
   useQueryEffect(Boolean(officeId || consultantId), load);
 
@@ -132,6 +138,9 @@ export function ContractPortfolioPanel({
   };
 
   const counts = portfolio?.counts;
+  const policyCounts = portfolio?.policy_counts;
+  // Cartera buckets only mean something for pólizas en vigor
+  const showCarteraChips = policyFilter === 'IN_FORCE' || policyFilter === 'all';
   const rows = portfolio?.rows ?? [];
   const columns: DataTableColumn<ContractPortfolioRow>[] = [
     {
@@ -195,7 +204,15 @@ export function ContractPortfolioPanel({
     {
       id: 'cartera_status',
       header: 'Estado',
-      cell: (row) => <CarteraStatusBadge status={row.cartera_status} daysOverdue={row.days_past_due} />,
+      cell: (row) =>
+        row.cartera_status === 'inactive' ? (
+          <DotBadge
+            label={POLICY_STATUS[row.status]?.label ?? PORTFOLIO_STATUS.inactive.label}
+            color={POLICY_STATUS[row.status]?.color ?? PORTFOLIO_STATUS.inactive.color}
+          />
+        ) : (
+          <CarteraStatusBadge status={row.cartera_status} daysOverdue={row.days_past_due} />
+        ),
     },
     {
       id: 'actions',
@@ -244,21 +261,61 @@ export function ContractPortfolioPanel({
         actions={actions}
       />
 
-      <FilterChips
-        label="Estado de la póliza"
-        value={statusFilter}
-        onChange={setStatusFilter}
-        options={[
-          { value: 'all', label: 'Todas', count: counts?.all },
-          ...STATUS_CHIPS.map((status) => ({
-            value: status,
-            label: status === 'inactive' ? 'Inactivas' : PORTFOLIO_STATUS[status].label,
-            color: PORTFOLIO_STATUS[status].color,
-            count: counts?.[status],
-          })),
-        ]}
-        className="border-b border-(--lifeops-border) px-4 pb-4 sm:px-5"
-      />
+      <div className="space-y-3 border-b border-(--lifeops-border) px-4 pb-4 sm:px-5">
+        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+          <span className="shrink-0 text-xs font-medium text-(--lifeops-muted)">Estatus de la póliza</span>
+          <FilterChips
+            label="Estatus de la póliza"
+            value={policyFilter}
+            onChange={(next) => {
+              setPolicyFilter(next);
+              if (next !== 'IN_FORCE' && next !== 'all') setStatusFilter('all');
+            }}
+            options={[
+              ...POLICY_STATUSES.map((status) => ({
+                value: status,
+                label: POLICY_STATUS[status].plural,
+                color: POLICY_STATUS[status].color,
+                count: policyCounts?.[status],
+              })),
+              { value: 'all' as const, label: 'Todas', count: policyCounts?.all },
+            ]}
+          />
+        </div>
+        {showCarteraChips ? (
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+            <span className="shrink-0 text-xs font-medium text-(--lifeops-muted)">Cobranza</span>
+            <FilterChips
+              label="Estado de cobranza"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: 'all', label: policyFilter === 'IN_FORCE' ? 'Todas en vigor' : 'Todas', count: counts?.all },
+                ...STATUS_CHIPS.map((status) => ({
+                  value: status,
+                  label: PORTFOLIO_STATUS[status].label,
+                  color: PORTFOLIO_STATUS[status].color,
+                  count: counts?.[status],
+                })),
+                ...(policyFilter === 'all'
+                  ? [
+                      {
+                        value: 'inactive' as const,
+                        label: PORTFOLIO_STATUS.inactive.label,
+                        color: PORTFOLIO_STATUS.inactive.color,
+                        count: counts?.inactive,
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          </div>
+        ) : (
+          <p className="text-xs text-(--lifeops-muted)">
+            {POLICY_STATUS[policyFilter].description}
+          </p>
+        )}
+      </div>
 
       {error ? (
         <p className="px-4 py-10 text-center text-sm text-(--lifeops-muted)" role="alert">
@@ -273,7 +330,11 @@ export function ContractPortfolioPanel({
             getRowKey={(row) => row.id}
             onRowClick={(row) => router.push(`/dashboard/contracts/${row.id}`)}
             empty={
-              counts?.all === 0 && !search ? emptyText : 'No hay pólizas que coincidan con la búsqueda o el estado.'
+              policyCounts?.all === 0 && !search
+                ? emptyText
+                : policyFilter !== 'all' && policyCounts?.[policyFilter] === 0 && !search
+                  ? `No hay pólizas con estatus «${POLICY_STATUS[policyFilter].label}».`
+                  : 'No hay pólizas que coincidan con la búsqueda o el estado.'
             }
             columns={columns}
           />

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AuditSource, Client, Consultant, Contract, ContractPortfolio, ContractSource } from '@/lib/supabase';
 import type { PortfolioStatus } from '@/lib/collections/status';
+import type { PolicyStatus } from '@/lib/contracts/policy-status';
 import { auditDiff, writeAuditLog, type AuditActor } from './audit-log';
 import type { EditResult } from './edit-result';
 import { emptyPageResult, normalizePageParams, toRange, type PageParams, type PageResult, type SortOrder } from '@/lib/pagination';
@@ -114,6 +115,16 @@ export function createContractDb(supabase: SupabaseClient) {
             });
         },
 
+        /** How many pólizas (any status) an office or asesor has — empty-cartera screens. */
+        countContracts: async (scope: { officeId?: string; consultantId?: string }): Promise<number> => {
+            let query = supabase.from('contract').select('id', { count: 'exact', head: true });
+            if (scope.officeId) query = query.eq('office_id', scope.officeId);
+            if (scope.consultantId) query = query.eq('consultant_id', scope.consultantId);
+            const { count, error } = await query;
+            if (error) throw error;
+            return count ?? 0;
+        },
+
         /** Pólizas page with cartera status, chip counts and counters (`list_contract_portfolio`). */
         listPortfolio: async (opts: {
             officeId?: string;
@@ -121,6 +132,7 @@ export function createContractDb(supabase: SupabaseClient) {
             clientId?: string;
             search?: string;
             status?: PortfolioStatus | null;
+            policyStatus?: PolicyStatus | null;
             sort?: SortOrder;
             riskDays: number;
             dueSoonDays: number;
@@ -138,6 +150,7 @@ export function createContractDb(supabase: SupabaseClient) {
                 page_offset: (page - 1) * pageSize,
                 risk_days: opts.riskDays,
                 due_soon_days: opts.dueSoonDays,
+                policy_status_filter: opts.policyStatus ?? null,
             });
             if (error) throw error;
             return data as ContractPortfolio;
@@ -252,6 +265,26 @@ export function createContractDb(supabase: SupabaseClient) {
                 out.push(...((data ?? []) as typeof out));
             }
             return out;
+        },
+
+        /**
+         * Insurer reported these pólizas en vigor on `asOf`: moves `in_force_as_of` forward (never back)
+         * for the ones en vigor. Returns how many changed. Metadata only, no per-póliza audit.
+         */
+        confirmInForce: async (ids: string[], asOf: string): Promise<number> => {
+            let changed = 0;
+            for (const chunk of chunkArray([...new Set(ids)], IMPORT_BATCH_SIZE)) {
+                const { data, error } = await supabase
+                    .from('contract')
+                    .update({ in_force_as_of: asOf })
+                    .in('id', chunk)
+                    .eq('status', 'IN_FORCE')
+                    .or(`in_force_as_of.is.null,in_force_as_of.lt.${asOf}`)
+                    .select('id');
+                if (error) throw error;
+                changed += data?.length ?? 0;
+            }
+            return changed;
         },
 
         findByNumbers: async (

@@ -11,6 +11,9 @@ export const navigationGuardRuntime = {
   installed: false,
   copy: null as { title: string; description: string } | null,
   onBack: null as null | (() => void),
+  /** Busy locks running (`useBusyLock`): leaving is not offered, it is cancelled */
+  locked: 0,
+  lockPath: '',
 };
 
 export function installNavigationGuardListener(): void {
@@ -22,6 +25,13 @@ export function installNavigationGuardListener(): void {
     const runtime = navigationGuardRuntime;
     if (runtime.bypass) {
       runtime.bypass = false;
+      return;
+    }
+    if (runtime.locked > 0) {
+      const here = `${window.location.pathname}${window.location.search}`;
+      if (!runtime.lockPath || here === runtime.lockPath) return;
+      event.stopImmediatePropagation();
+      History.prototype.pushState.call(window.history, window.history.state, '', runtime.lockPath);
       return;
     }
     if (!runtime.active || !runtime.onBack) return;

@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { CalendarClock, CalendarRange, HandCoins, Siren } from 'lucide-react';
+import { CalendarCheck2, CalendarClock, CalendarRange, HandCoins, Siren } from 'lucide-react';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
 import ProtectedRoute from '@/components/protected-route';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
@@ -30,6 +32,9 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/pagination';
 import { nextSortState, sortRows, type SortDir } from '@/lib/table-sort';
 import { formatDateShortEsLocal, isoToLocalDate } from '@/lib/format/date';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { GettingStarted } from '@/components/dashboard/getting-started';
+import { EmptyState } from '@/components/ui/empty-state';
+import { useContractCount } from '@/hooks/use-contract-count';
 import { ListSearchFilters } from '@/components/list-search-filters';
 import { cn } from '@/lib/utils';
 import { useQueryEffect, useQueryLoading, useResetPage } from '@/hooks/use-query-effect';
@@ -87,6 +92,10 @@ function CollectionsPageContent() {
   const { toast } = useToast();
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
+  const cartera = useContractCount(
+    officeView ? { officeId: profile?.id } : { consultantId: profile?.id },
+    !authLoading && Boolean(profile),
+  );
   const [page, setPage] = useResetPage(`${period}\0${search}\0${consultantId ?? ''}\0${pageSize}`);
 
   const loadBoard = useCallback(async () => {
@@ -205,6 +214,7 @@ function CollectionsPageContent() {
       nextDue: isoToLocalDate(row.next_due),
       suggestedAmount: row.amount,
       collectionDay: row.collection_day,
+      currency: row.currency,
     });
 
   const sortFor = (key: SortKey, label: string) => ({
@@ -301,119 +311,143 @@ function CollectionsPageContent() {
         description="Recibos por cobrar según el calendario de cada póliza. Registra el pago con evidencia o manda un recordatorio al cliente."
       />
 
-      {board ? (
-        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-          <StatTile
-            label="Vencen hoy"
-            icon={CalendarClock}
-            value={board ? numberEs.format(counters.today) : '—'}
-            detail={board ? `${numberEs.format(counters.next7)} en los próximos 7 días` : undefined}
-          />
-          <StatTile
-            label="Por cobrar al cierre"
-            icon={CalendarRange}
-            value={board ? numberEs.format(counters.untilMonthEnd) : '—'}
-            detail={board ? `Recibos pendientes hasta el ${formatDateShortEsLocal(counters.monthEnd)}` : undefined}
-          />
-          <StatTile
-            label="Vencidos"
-            icon={Siren}
-            value={board ? numberEs.format(counters.late) : '—'}
-            detail={board ? `${numberEs.format(counters.atRisk)} en peligro (más de ${POLICY_AT_RISK_DAYS} días)` : undefined}
-          />
-          <StatTile
-            label="Pagos este mes"
-            icon={HandCoins}
-            value={board ? numberEs.format(board.payments_month_to_date) : '—'}
-            detail="Registrados en cobranza o en archivos"
-          />
-        </div>
+      {cartera.count === 0 ? (
+        <GettingStarted
+          context="collections"
+          onRegistered={() => {
+            void cartera.reload();
+            setLoading(true);
+            void loadBoard();
+          }}
+        />
+      ) : board && board.rows.length === 0 && cartera.count != null ? (
+        <EmptyState
+          icon={CalendarCheck2}
+          title="No hay pólizas en vigor por cobrar"
+          description="Las pólizas que tienes están anuladas, prorrogadas o sin pago de primas, así que no generan recibos. Si rehabilitas una anulada desde su expediente, aparecerá aquí."
+          actions={
+            <Button asChild variant="brand">
+              <Link href="/dashboard/contracts">Ver pólizas</Link>
+            </Button>
+          }
+        />
       ) : (
-        <StatTilesSkeleton />
-      )}
-
-      <FilterChips label="Periodo de cobro" options={periodOptions} value={period} onChange={setPeriod} />
-
-      <div
-        className={cn(
-          'grid grid-cols-1 gap-4',
-          showPicker ? 'xl:grid-cols-[15rem_minmax(0,1fr)_20rem]' : 'xl:grid-cols-[minmax(0,1fr)_20rem]',
-        )}
-      >
-        {showPicker ? (
-          <div className="min-w-0">
-            <ConsultantPicker
-              items={consultants}
-              value={consultantId}
-              onChange={(id) => {
-                setConsultantId(id);
-                setSelectedId(null);
-              }}
-              total={searched.filter((r) => inPeriod(r, period)).length}
-            />
-          </div>
-        ) : null}
-
-        <div className={cn(dataTablePanelClass, 'min-w-0')}>
-          <div className="px-4 pt-4 sm:px-5">
-            <h2 className="text-[15px] font-semibold text-(--lifeops-fg)">{scopeTitle}</h2>
-            <p className="text-sm text-(--lifeops-muted)">
-              {numberEs.format(filtered.length)} recibo(s) en «{PERIODS.find((p) => p.value === period)?.label}»
-            </p>
-          </div>
-          <ListSearchFilters
-            value={searchDraft}
-            onChange={setSearchDraft}
-            onSubmit={() => setSearch(searchDraft.trim())}
-            placeholder={officeView ? 'Póliza, cliente, asesor o forma de pago…' : 'Póliza, cliente o forma de pago…'}
-            id="collections-search"
-            className="flex flex-wrap items-end gap-3 border-b border-(--lifeops-border) px-4 py-3 sm:px-5"
-          />
-
-          {error ? (
-            <p className="px-4 py-10 text-center text-sm text-(--lifeops-muted)" role="alert">
-              {error}
-            </p>
-          ) : loading && !board ? (
-            <TableSkeleton />
-          ) : (
-            <div className={loading ? 'opacity-60 transition-opacity' : undefined}>
-              <DataTable<CollectionBoardRow>
-                rows={pageRows}
-                getRowKey={(row) => row.contract_id}
-                selectedRowKey={selectedId}
-                onRowClick={(row) => setSelectedId(row.contract_id)}
-                empty={
-                  search.trim()
-                    ? 'No hay recibos que coincidan con la búsqueda.'
-                    : period === 'today'
-                      ? 'Ningún recibo vence hoy.'
-                      : 'No hay recibos en este periodo.'
-                }
-                columns={columns}
+        <>
+          {board ? (
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+              <StatTile
+                label="Vencen hoy"
+                icon={CalendarClock}
+                value={board ? numberEs.format(counters.today) : '—'}
+                detail={board ? `${numberEs.format(counters.next7)} en los próximos 7 días` : undefined}
               />
-              <TablePagination
-                page={page}
-                pageSize={pageSize}
-                total={sortedItems.length}
-                disabled={loading}
-                onPageChange={setPage}
-                onPageSizeChange={setPageSize}
+              <StatTile
+                label="Por cobrar al cierre"
+                icon={CalendarRange}
+                value={board ? numberEs.format(counters.untilMonthEnd) : '—'}
+                detail={board ? `Recibos pendientes hasta el ${formatDateShortEsLocal(counters.monthEnd)}` : undefined}
+              />
+              <StatTile
+                label="Vencidos"
+                icon={Siren}
+                value={board ? numberEs.format(counters.late) : '—'}
+                detail={board ? `${numberEs.format(counters.atRisk)} en peligro (más de ${POLICY_AT_RISK_DAYS} días)` : undefined}
+              />
+              <StatTile
+                label="Pagos este mes"
+                icon={HandCoins}
+                value={board ? numberEs.format(board.payments_month_to_date) : '—'}
+                detail="Registrados en cobranza o en archivos"
               />
             </div>
+          ) : (
+            <StatTilesSkeleton />
           )}
-        </div>
 
-        <div className="flex min-w-0 flex-col gap-4">
-          <ReceiptPanel row={selected} onRegisterPayment={openPayment} onAddPhone={(row) => void openClientEdit(row)} />
-          <CollectionAgingCard
-            title={selectedConsultant ? selectedConsultant.name : officeView ? 'Toda la promotoría' : 'Tu cartera'}
-            subtitle="Pólizas activas por antigüedad del atraso"
-            rows={consultantId ? rows.filter((r) => r.consultant_id === consultantId) : rows}
-            href={officeView && consultantId ? `/dashboard/consultants/${consultantId}` : undefined}
-          />
-        </div>
-      </div>
+          <FilterChips label="Periodo de cobro" options={periodOptions} value={period} onChange={setPeriod} />
+
+          <div
+            className={cn(
+              'grid grid-cols-1 gap-4',
+              showPicker ? 'xl:grid-cols-[15rem_minmax(0,1fr)_20rem]' : 'xl:grid-cols-[minmax(0,1fr)_20rem]',
+            )}
+          >
+            {showPicker ? (
+              <div className="min-w-0">
+                <ConsultantPicker
+                  items={consultants}
+                  value={consultantId}
+                  onChange={(id) => {
+                    setConsultantId(id);
+                    setSelectedId(null);
+                  }}
+                  total={searched.filter((r) => inPeriod(r, period)).length}
+                />
+              </div>
+            ) : null}
+
+            <div className={cn(dataTablePanelClass, 'min-w-0')}>
+              <div className="px-4 pt-4 sm:px-5">
+                <h2 className="text-[15px] font-semibold text-(--lifeops-fg)">{scopeTitle}</h2>
+                <p className="text-sm text-(--lifeops-muted)">
+                  {numberEs.format(filtered.length)} recibo(s) en «{PERIODS.find((p) => p.value === period)?.label}»
+                </p>
+              </div>
+              <ListSearchFilters
+                value={searchDraft}
+                onChange={setSearchDraft}
+                onSubmit={() => setSearch(searchDraft.trim())}
+                placeholder={officeView ? 'Póliza, cliente, asesor o forma de pago…' : 'Póliza, cliente o forma de pago…'}
+                id="collections-search"
+                className="flex flex-wrap items-end gap-3 border-b border-(--lifeops-border) px-4 py-3 sm:px-5"
+              />
+
+              {error ? (
+                <p className="px-4 py-10 text-center text-sm text-(--lifeops-muted)" role="alert">
+                  {error}
+                </p>
+              ) : loading && !board ? (
+                <TableSkeleton />
+              ) : (
+                <div className={loading ? 'opacity-60 transition-opacity' : undefined}>
+                  <DataTable<CollectionBoardRow>
+                    rows={pageRows}
+                    getRowKey={(row) => row.contract_id}
+                    selectedRowKey={selectedId}
+                    onRowClick={(row) => setSelectedId(row.contract_id)}
+                    empty={
+                      search.trim()
+                        ? 'No hay recibos que coincidan con la búsqueda.'
+                        : period === 'today'
+                          ? 'Ningún recibo vence hoy.'
+                          : 'No hay recibos en este periodo.'
+                    }
+                    columns={columns}
+                  />
+                  <TablePagination
+                    page={page}
+                    pageSize={pageSize}
+                    total={sortedItems.length}
+                    disabled={loading}
+                    onPageChange={setPage}
+                    onPageSizeChange={setPageSize}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex min-w-0 flex-col gap-4">
+              <ReceiptPanel row={selected} onRegisterPayment={openPayment} onAddPhone={(row) => void openClientEdit(row)} />
+              <CollectionAgingCard
+                title={selectedConsultant ? selectedConsultant.name : officeView ? 'Toda la promotoría' : 'Tu cartera'}
+                subtitle="Pólizas en vigor por antigüedad del atraso"
+                rows={consultantId ? rows.filter((r) => r.consultant_id === consultantId) : rows}
+                href={officeView && consultantId ? `/dashboard/consultants/${consultantId}` : undefined}
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       <EditClientDialog
         open={editingClient != null}

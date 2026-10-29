@@ -41,7 +41,7 @@ export function OnboardingImportStep({ steps, onFinish }: { steps: string[]; onF
             source={picked.source}
             file={picked.file}
             onExit={() => setPicked(null)}
-            onUploadCommissions={() => void finish("/dashboard/extractor")}
+            onUploadCommissions={(from) => void finish(`/dashboard/extractor?commissionsFrom=${encodeURIComponent(from)}`)}
             doneActions={
               <Button type="button" variant="brand" disabled={leaving} onClick={() => void finish()}>
                 {leaving ? "Entrando…" : "Ir a LifeOps"}

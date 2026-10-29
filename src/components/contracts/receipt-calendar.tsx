@@ -84,13 +84,17 @@ function ReceiptRow({
               ))
             : receipt.state === 'covered'
               ? <p>Sin pago propio; lo cubre un pago posterior</p>
-              : <p>{pendingLine(receipt.due)}</p>}
+              : receipt.state === 'insurer'
+                ? <p>Sin pago registrado en LifeOps; la aseguradora reporta la póliza en vigor</p>
+                : <p>{pendingLine(receipt.due)}</p>}
         </div>
       </div>
       {receipt.state === 'paid' ? (
         <DotBadge label="Pagado" color="var(--viz-current)" />
       ) : receipt.state === 'covered' ? (
         <DotBadge label="Sin registro" color="var(--lifeops-muted)" />
+      ) : receipt.state === 'insurer' ? (
+        <DotBadge label="Al día según aseguradora" color="var(--viz-current)" />
       ) : status === 'current' ? (
         <DotBadge label="Programado" color="var(--viz-last-year)" />
       ) : (

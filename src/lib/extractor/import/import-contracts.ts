@@ -428,7 +428,7 @@ async function createNewContracts(input: {
       currency: group.currency || null,
       exchange_rate: parseNumeric(group.exchangeRate),
       payment_method: paymentMethod,
-      status: "ACTIVE",
+      status: "IN_FORCE" as const,
       source: "import" as const,
       office_id: input.officeId,
       issue_date: issueDate,

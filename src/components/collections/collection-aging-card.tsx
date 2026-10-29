@@ -38,7 +38,7 @@ export function CollectionAgingCard({
       </header>
       <div className="px-4 py-3 sm:px-5">
         <DetailRows>
-          <DetailRow label="Pólizas activas">{numberEs.format(rows.length)}</DetailRow>
+          <DetailRow label="Pólizas en vigor">{numberEs.format(rows.length)}</DetailRow>
           {lines.map((line) => (
             <DetailRow key={line.label} label={line.label}>
               <span className="inline-flex items-center gap-2 tabular-nums">

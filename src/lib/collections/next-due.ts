@@ -66,13 +66,38 @@ const EARLY_PAYMENT_DAYS = 15;
 
 /**
  * Next receipt due from the póliza calendar: FECHA EMISION + forma de pago (same rule as
- * SQL `next_collection_due`). The last payment covers the latest receipt due on or before
- * payment date + 15 days.
+ * SQL `contract_next_due`). The last payment covers the latest receipt due on or before
+ * payment date + 15 days; `inForceAsOf` (insurer reported the póliza en vigor) covers every
+ * receipt due on or before that date.
  *
  * Example: emisión 2025-12-20, Trimestral (dic, mar, jun, sep), last paid 2026-07-21
  * (jun receipt, late) → 2026-09-20. Without issue date: last payment + period.
  */
 export function nextCollectionDue(input: {
+  issueDate?: string | null;
+  lastPaidAt?: string | null;
+  paymentMethod?: string | null;
+  collectionDay?: number | null;
+  inForceAsOf?: string | null;
+}): Date | null {
+  const fromPayments = nextDueFromPayments(input);
+  const asOf = input.inForceAsOf ? parseIsoLocal(input.inForceAsOf.slice(0, 10)) : null;
+  if (!asOf) return fromPayments;
+  // Shift back the early-payment window so the confirmation covers receipts due up to that day
+  const shifted = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate() - EARLY_PAYMENT_DAYS);
+  const fromInsurer = input.issueDate
+    ? nextDueFromPayments({ ...input, lastPaidAt: isoLocal(shifted) })
+    : nextDueFromLastPayment(isoLocal(asOf), input.paymentMethod, input.collectionDay);
+  if (!fromPayments) return fromInsurer;
+  if (!fromInsurer) return fromPayments;
+  return fromInsurer > fromPayments ? fromInsurer : fromPayments;
+}
+
+function isoLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function nextDueFromPayments(input: {
   issueDate?: string | null;
   lastPaidAt?: string | null;
   paymentMethod?: string | null;
@@ -113,8 +138,11 @@ export type CalendarReceipt = {
   perYear: number;
   due: Date;
   payments: ReceiptPayment[];
-  /** paid: has a payment · covered: before the last paid receipt, no payment of its own · pending */
-  state: "paid" | "covered" | "pending";
+  /**
+   * paid: has a payment · covered: before the last paid receipt, no payment of its own ·
+   * insurer: no payment registered but due on or before the insurer «en vigor» date · pending
+   */
+  state: "paid" | "covered" | "insurer" | "pending";
 };
 
 /**
@@ -126,6 +154,8 @@ export function receiptCalendar(input: {
   issueDate?: string | null;
   paymentMethod?: string | null;
   payments: ReceiptPayment[];
+  /** Insurer reported the póliza en vigor on this date: receipts due up to it count as paid */
+  inForceAsOf?: string | null;
   today?: Date;
   upcoming?: number;
 }): { receipts: CalendarReceipt[]; nextIndex: number } | null {
@@ -158,7 +188,9 @@ export function receiptCalendar(input: {
     lastCovered = Math.max(lastCovered, k);
   }
 
-  const nextIndex = lastCovered + 1;
+  const asOf = input.inForceAsOf ? parseIsoLocal(input.inForceAsOf.slice(0, 10)) : null;
+  const insurerCovered = asOf ? indexAtOrBefore(asOf) : -1;
+  const nextIndex = Math.max(lastCovered, insurerCovered) + 1;
   const last = Math.max(nextIndex, indexAtOrBefore(today)) + (input.upcoming ?? 2);
   const receipts: CalendarReceipt[] = [];
   for (let k = 0; k <= last; k++) {
@@ -169,7 +201,7 @@ export function receiptCalendar(input: {
       perYear,
       due: receipt(k),
       payments,
-      state: payments.length > 0 ? "paid" : k < nextIndex ? "covered" : "pending",
+      state: payments.length > 0 ? "paid" : k < lastCovered ? "covered" : k <= insurerCovered ? "insurer" : "pending",
     });
   }
   return { receipts, nextIndex };

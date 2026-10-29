@@ -24,7 +24,7 @@ export const TEMPLATE_COLUMNS: TemplateColumn[] = [
   { key: "projectName", header: "Plan", example: "Imagina Ser 65", width: 24 },
   { key: "lineCode", header: "Ramo", example: "Vida", width: 14 },
   { key: "planClassification", header: "Clasificación del plan", example: "Tradicional", width: 20 },
-  { key: "status", header: "Estado", example: "Vigente", width: 12 },
+  { key: "status", header: "Estado", example: "En vigor", width: 26 },
   { key: "currency", header: "Moneda", example: "Pesos", width: 10 },
   { key: "annualPremium", header: "Prima anual", example: "4089.48", width: 14 },
   { key: "insuredAmount", header: "Suma asegurada", example: "90000", width: 16 },

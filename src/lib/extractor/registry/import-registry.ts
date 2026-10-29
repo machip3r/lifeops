@@ -6,6 +6,7 @@
 import type { Db } from "@/lib/db";
 import type { AuditActor } from "@/lib/db/audit-log";
 import { initialCollectionStatus, nextCollectionDue } from "@/lib/collections/next-due";
+import { isInForce } from "@/lib/contracts/policy-status";
 import { normalizeClientName } from "@/lib/clients/name-match";
 import type { Client, Consultant, Contract } from "@/lib/supabase";
 import { IMPORT_BATCH_SIZE, chunkArray } from "@/lib/extractor/batch";
@@ -37,6 +38,8 @@ export type RegistryPreviewItem = {
   consultantCode: string;
   /** new: not in LifeOps · changed: has differences · filled: only empty fields to complete · same */
   kind: "new" | "changed" | "filled" | "same";
+  /** En vigor in the file and LifeOps has no newer insurer date: its receipts up to `asOf` count as paid */
+  confirmsInForce: boolean;
   fills: RegistryChange[];
   diffs: RegistryChange[];
 };
@@ -51,6 +54,8 @@ export type RegistryApplyResult = {
   created: number;
   updated: number;
   unchanged: number;
+  /** Existing pólizas en vigor whose insurer date moved to `asOf` */
+  confirmed: number;
   errors: Array<{ row: number; error: string }>;
   warnings: Array<{ row: number; message: string }>;
 };
@@ -101,9 +106,16 @@ function dedupe(rows: RegistryRow[], warnings: RegistryApplyResult["warnings"]) 
   return [...byNumber.values()];
 }
 
+/** Póliza en vigor after the import and the file date is newer than what LifeOps has. */
+function confirmsInForce(row: RegistryRow, found: ExistingContract, asOf: string | null, picked: RegistryField[] = []): boolean {
+  if (!asOf || !isInForce(row.status)) return false;
+  const statusAfter = picked.includes("status") || found.status == null ? row.status : found.status;
+  return isInForce(statusAfter) && (!found.in_force_as_of || found.in_force_as_of < asOf);
+}
+
 export async function previewRegistry(
   db: Db,
-  input: { officeId: string; rows: RegistryRow[] },
+  input: { officeId: string; rows: RegistryRow[]; asOf: string | null },
 ): Promise<RegistryPreview> {
   const rows = dedupe(input.rows, []);
   const existing = new Map(
@@ -121,9 +133,16 @@ export async function previewRegistry(
     if (!knownCodes.has(key) && !missing.has(key)) missing.set(key, { code: row.consultantCode, name: row.consultantName });
     const found = existing.get(row.contractNumber);
     const base = { index: row.index, contractNumber: row.contractNumber, clientName: row.clientName, consultantCode: row.consultantCode };
-    if (!found) return { ...base, kind: "new", fills: [], diffs: [] };
+    if (!found) return { ...base, kind: "new", fills: [], diffs: [], confirmsInForce: false };
     const { fills, diffs } = compareRow(row, found);
-    return { ...base, kind: diffs.length > 0 ? "changed" : fills.length > 0 ? "filled" : "same", fills, diffs };
+    return {
+      ...base,
+      kind: diffs.length > 0 ? "changed" : fills.length > 0 ? "filled" : "same",
+      fills,
+      diffs,
+      // Status picked in the review is unknown here: count it when LifeOps already has it en vigor
+      confirmsInForce: confirmsInForce(row, found, input.asOf),
+    };
   });
   return { items, missingConsultants: [...missing.values()] };
 }
@@ -144,9 +163,12 @@ export async function applyRegistry(
     rows: RegistryRow[];
     /** Per póliza number: differing fields to overwrite with the file */
     updates: Record<string, RegistryField[]>;
+    /** Insurer «en vigor» date of the file (Mina de Oro cut-off / import day) */
+    asOf: string | null;
   },
 ): Promise<RegistryApplyResult> {
-  const result: RegistryApplyResult = { created: 0, updated: 0, unchanged: 0, errors: [], warnings: [] };
+  const result: RegistryApplyResult = { created: 0, updated: 0, unchanged: 0, confirmed: 0, errors: [], warnings: [] };
+  const confirmIds: string[] = [];
   const rows = dedupe(input.rows, result.warnings);
 
   const consultants = await db.consultant.getConsultantsByOffice(input.officeId);
@@ -226,10 +248,13 @@ export async function applyRegistry(
         deductible_mxn: row.deductibleMxn,
         end_date: row.endDate,
         collection_day: row.collectionDay,
+        in_force_as_of: isInForce(row.status) ? input.asOf : null,
         source: "import",
         collection_status:
-          row.status === "ACTIVE"
-            ? initialCollectionStatus(nextCollectionDue({ issueDate: row.issueDate, paymentMethod: row.paymentMethod }))
+          isInForce(row.status)
+            ? initialCollectionStatus(
+                nextCollectionDue({ issueDate: row.issueDate, paymentMethod: row.paymentMethod, inForceAsOf: input.asOf }),
+              )
             : null,
       },
     });
@@ -277,6 +302,7 @@ export async function applyRegistry(
     }
     if (found.source === "manual" && Object.keys(patch).length > 0) patch.source = "mixed";
     queueClient(targetClient, row, picked);
+    if (confirmsInForce(row, found, input.asOf, picked)) confirmIds.push(found.id);
 
     if (Object.keys(patch).length === 0) {
       result.unchanged += 1;
@@ -285,6 +311,15 @@ export async function applyRegistry(
     const saved = await db.contract.updateWithAudit(found.id, patch, input.actor, "import");
     if (saved.ok) result.updated += 1;
     else result.errors.push({ row: row.index, error: `${row.contractNumber}: ${saved.error}` });
+  }
+
+  if (input.asOf && confirmIds.length > 0) {
+    try {
+      result.confirmed = await db.contract.confirmInForce(confirmIds, input.asOf);
+    } catch (error) {
+      console.error("registry confirm in force failed", error);
+      result.warnings.push({ row: 0, message: "No se pudo marcar la fecha en vigor de la aseguradora en algunas pólizas." });
+    }
   }
 
   for (const { client, patch } of clientPatches.values()) {
@@ -306,6 +341,8 @@ export async function applyRegistry(
       created: result.created,
       updated: result.updated,
       unchanged: result.unchanged,
+      confirmed_in_force: result.confirmed,
+      in_force_as_of: input.asOf,
       errors: result.errors.length,
     },
   });

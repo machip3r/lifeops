@@ -34,7 +34,6 @@ type PriorityRow = {
   status: PriorityState;
   /** Positive = days late, 0 = today, negative = days ahead */
   daysPastDue: number;
-  href: string;
 };
 
 const VISIBLE_ROWS = 8;
@@ -48,7 +47,6 @@ function toRows(atRisk: ContractAtRisk[], pending: ContractPendingPayment[]): Pr
     dueDate: row.due_date,
     status: 'at_risk',
     daysPastDue: row.days_overdue,
-    href: `/dashboard/contracts/${row.contract_id}`,
   }));
   const seen = new Set(rows.map((row) => row.contractId));
   for (const row of pending) {
@@ -61,7 +59,6 @@ function toRows(atRisk: ContractAtRisk[], pending: ContractPendingPayment[]): Pr
       dueDate: row.due_date,
       status: row.is_overdue ? 'overdue' : 'due_soon',
       daysPastDue: -row.days_until_due,
-      href: '/dashboard/collections',
     });
   }
   // Most urgent first: by state, then the longest overdue / the closest due
@@ -158,7 +155,7 @@ export function CollectionPriorityLists({ atRisk, pending, showConsultant = fals
               {visible.map((row) => (
                 <li key={row.contractId}>
                   <Link
-                    href={row.href}
+                    href={`/dashboard/contracts/${row.contractId}`}
                     className="group grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1.5 px-4 py-3 hover:bg-(--lifeops-hover) focus-visible:bg-(--lifeops-hover) focus-visible:outline-none sm:grid-cols-[minmax(0,1fr)_9rem_8rem_auto] sm:px-5"
                   >
                     <div className="min-w-0">

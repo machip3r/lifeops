@@ -62,7 +62,7 @@ Column-level reference: [`docs/database.md`](docs/database.md). Summary:
 | `office` | Promotoría; `id` = `auth.users.id`. Onboarding answers (`name`, `state_code`, `agency_code`, ranges, `onboarding_completed_at`) + `office_contact`, `office_insurer`, `office_line_of_business` (catalogs `insurer`, `line_of_business`, `mx_state`) |
 | `consultant` | Asesor of one office. `consultant_code` = "Asesor" from imports, unique per office. `status`: `NOT_INVITED`, `PENDING`, `ACTIVE`, `INACTIVE` |
 | `client` | Asegurado. Optional `curp` / `rfc` (globally unique); without them the client is local to its office |
-| `contract` | Póliza. `contract_number` = "Poliza" from imports, unique per office. `source` = `import` / `manual` / `mixed`; cobranza fields `collection_status`, `collection_day` |
+| `contract` | Póliza. `contract_number` = canonical póliza number (no spaces / commas, uppercase), unique per office — every source (manual, commission HTML, Mina de Oro, plantilla) links to the same póliza by it. `source` = `import` / `manual` / `mixed`; `status` = insurer status — **en vigor** (`IN_FORCE`), **en vigor prorrogado** (`EXTENDED`), **en vigor sin pago de primas** (`NO_PREMIUMS`), **anulada** (`ANNULLED`); only en vigor is in cobranza, and an anulada póliza can be **rehabilitated** (back to en vigor, enters cobranza); `in_force_as_of` = date the insurer reported it en vigor (Mina de Oro cut-off / rehabilitation) — receipts due up to it count as paid everywhere (cobranza, charts, lists), since en vigor means its payments are up to date; cobranza fields `collection_status`, `collection_day` |
 | `contract_detail` | One paid receipt from a commission file. `receipt_number` (RECIBO) unique per póliza |
 | `commission_import` | One commission-file upload (required file `issue_date`) |
 | `contract_collection_payment` | Cobranza mark per póliza / year / month (`paid_at`, `source` manual or import) |
@@ -163,7 +163,7 @@ While an import is in progress (files loaded, dates, summary, or the save itself
 - Profile stored in `office` or `consultant` tables; if both resolve for the same auth user, **consultant wins** (avoids phantom office rows granting promotory UI)
 - `ProtectedRoute` component enforces role-based access
 - Consultant invitations create tokens that can be used to sign up
-- Promotory full wipe (`POST /api/office/cleanup` from Perfil) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment`), `audit_log`, `file` rows, and Storage objects under the office `documents/` prefix
+- Promotory full wipe (`POST /api/office/cleanup` from Perfil; database part all-or-nothing in the `cleanup_office_data` RPC, then Storage / Auth) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment`), `audit_log`, `file` rows, and Storage objects under the office `documents/` prefix
 
 **Key Files**:
 - `src/contexts/auth-context.tsx`: Provides `useAuth()` hook
@@ -284,10 +284,10 @@ Open [http://localhost:3000](http://localhost:3000)
 ### Main Pages
 
 - `/dashboard/extractor`: HTML commission import and data extraction
-- `/dashboard/contracts`: Póliza list with counters, cartera status per póliza (same buckets as Cobranza / Vista general), next due from the receipt calendar, status chips, search, and **manual póliza registration** (dialog)
-- `/dashboard/contracts/[id]`: Póliza expediente — status counters, receipt calendar with each payment on the receipt it covers, register payment, póliza data, history (`audit_log`) and commission lines
+- `/dashboard/contracts`: Póliza list with counters, **póliza status filter** (En vigor by default, Anuladas, Prorrogadas, Sin pago de primas, Todas), cartera status per póliza en vigor (same buckets as Cobranza / Vista general), next due from the receipt calendar, cobranza chips, search, and **manual póliza registration** (dialog: cliente, número, asesor, proyecto, clasificación, emisión, forma de pago, **moneda** (required — payments are registered in it), conducto de cobro)
+- `/dashboard/contracts/[id]`: Póliza expediente — status counters, **Rehabilitar** for an anulada póliza (back to en vigor and into cobranza), receipt calendar with each payment on the receipt it covers, register payment, póliza data, history (`audit_log`) and commission lines
 - `/dashboard/consultants`: Asesores (promotory only) — counters, cartera per asesor (% al día, con atraso, pagos 30 días), access chips; expediente with cartera status and the asesor's pólizas
-- `/dashboard/clients`: Clientes — contact (teléfono / correo owned by the promotoría), pólizas activas, most critical cartera status, birthdays; expediente with contact, cartera status and the client's pólizas
+- `/dashboard/clients`: Clientes — contact (teléfono / correo owned by the promotoría), pólizas en vigor, most critical cartera status, birthdays; expediente with contact, cartera status and the client's pólizas
 - `/dashboard/collections`: Cobranza board — counters, period chips, asesor list (promotory), receipts with days late, side panel to register payment or send a WhatsApp reminder, cartera by days late
 
 ### Key Components

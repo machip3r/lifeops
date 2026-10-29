@@ -37,7 +37,11 @@ export async function previewRegistryImportAction(
   const parsed = registryImportBatchSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: INVALID_FILE_DATA };
   try {
-    const preview = await previewRegistry(session.db, { officeId: session.ctx.officeId, rows: parsed.data.rows });
+    const preview = await previewRegistry(session.db, {
+      officeId: session.ctx.officeId,
+      rows: parsed.data.rows,
+      asOf: parsed.data.asOf ?? null,
+    });
     return { ok: true, ...preview };
   } catch (error) {
     console.error("previewRegistryImportAction:", error);
@@ -79,6 +83,7 @@ export async function applyRegistryImportAction(
       source: parsed.data.source,
       rows: parsed.data.rows,
       updates: (parsed.data.updates ?? {}) as Record<string, RegistryField[]>,
+      asOf: parsed.data.asOf ?? null,
     });
     return { ok: true, ...result, warnings: [...warnings, ...result.warnings] };
   } catch (error) {

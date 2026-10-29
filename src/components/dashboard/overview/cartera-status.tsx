@@ -86,7 +86,7 @@ export function CarteraStatusCard({ status, className }: { status: CarteraStatus
     <ChartCard
       className={className}
       title="Estado de la cartera"
-      subtitle={`${numberEs.format(total)} pólizas activas con pagos registrados, según su próximo cobro`}
+      subtitle={`${numberEs.format(total)} pólizas en vigor con pagos registrados, según su próximo cobro`}
       legend={
         <ChartLegend
           items={CARTERA_STATES.map((s) => ({

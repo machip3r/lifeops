@@ -15,12 +15,12 @@ export const CARTERA_STATUS: Record<CarteraStatus, { label: string; color: strin
   no_payment: { label: "Sin fecha de cobro", color: "var(--lifeops-muted)" },
 };
 
-/** Pólizas list adds lifecycle `inactive` (no next due) to the cartera buckets. */
+/** Pólizas list adds `inactive` (póliza not en vigor: anulada, prorrogada, sin pago de primas) to the cartera buckets. */
 export type PortfolioStatus = CarteraStatus | "inactive";
 
 export const PORTFOLIO_STATUS: Record<PortfolioStatus, { label: string; color: string }> = {
   ...CARTERA_STATUS,
-  inactive: { label: "Inactiva", color: "var(--viz-last-year)" },
+  inactive: { label: "Fuera de cobranza", color: "var(--viz-last-year)" },
 };
 
 /** Days from due date to today (positive = overdue). */

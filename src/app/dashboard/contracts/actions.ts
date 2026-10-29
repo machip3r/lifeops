@@ -10,6 +10,7 @@ import { zodFieldErrors } from "@/lib/validation/field-errors";
 import {
   createManualContractSchema,
   deleteContractSchema,
+  rehabilitateContractSchema,
   updateContractDetailSchema,
   updateContractSchema,
 } from "@/lib/validation/schemas";
@@ -76,6 +77,8 @@ export async function updateContractAction(accessToken: string, input: unknown) 
         annual_premium: v.annualPremium ?? null,
         insured_amount: v.insuredAmount ?? null,
         project_name: v.projectName ?? null,
+        plan_classification: v.planClassification ?? null,
+        payment_channel: v.paymentChannel ?? null,
         status: v.status,
       },
       { userId: auth.ctx.user.id, officeId: auth.ctx.officeId, role: auth.ctx.role },
@@ -83,6 +86,38 @@ export async function updateContractAction(accessToken: string, input: unknown) 
   } catch (error) {
     console.error("updateContractAction:", error);
     return { ok: false as const, error: "No se pudo guardar la póliza. Intenta de nuevo." };
+  }
+}
+
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Rehabilitar: an anulada póliza is en vigor again and enters cobranza (`contract.update` audit). */
+export async function rehabilitateContractAction(accessToken: string, input: unknown) {
+  const auth = await resolveOfficeContext(accessToken);
+  if (!auth.ok) return { ok: false as const, error: auth.error };
+
+  const parsed = rehabilitateContractSchema.safeParse(input);
+  if (!parsed.success) return { ok: false as const, error: "Póliza no válida." };
+
+  const db = createDb(createUserClient(accessToken));
+  try {
+    const contract = await db.contract.getContractById(parsed.data.contractId);
+    if (!contract) return { ok: false as const, error: "No encontramos la póliza." };
+    if (contract.status !== "ANNULLED") {
+      return { ok: false as const, error: "Solo se puede rehabilitar una póliza anulada." };
+    }
+    return await db.contract.updateWithAudit(
+      contract.id,
+      // Rehabilitating settles the overdue receipts: up to today counts as paid
+      { status: "IN_FORCE", in_force_as_of: todayIso() },
+      { userId: auth.ctx.user.id, officeId: auth.ctx.officeId, role: auth.ctx.role },
+    );
+  } catch (error) {
+    console.error("rehabilitateContractAction:", error);
+    return { ok: false as const, error: "No se pudo rehabilitar la póliza. Intenta de nuevo." };
   }
 }
 

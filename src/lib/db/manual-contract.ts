@@ -16,6 +16,9 @@ export type ManualContractInput = {
   collectionDay?: number | null;
   projectName: string;
   paymentMethod: string;
+  currency?: string | null;
+  planClassification?: string | null;
+  paymentChannel?: string | null;
 };
 
 type Actor = {
@@ -215,12 +218,15 @@ export async function createManualContract(
       capture_date: input.issueDate,
       project_name: input.projectName,
       payment_method: input.paymentMethod,
+      currency: input.currency ?? null,
+      plan_classification: input.planClassification ?? null,
+      payment_channel: input.paymentChannel ?? null,
       collection_day: input.collectionDay ?? null,
       // Same as the import: next due from FECHA EMISION + forma de pago until payments are registered
       collection_status: initialCollectionStatus(
         nextCollectionDue({ issueDate: input.issueDate, paymentMethod: input.paymentMethod }),
       ),
-      status: "ACTIVE",
+      status: "IN_FORCE",
       source: "manual",
     })
     .select("*")

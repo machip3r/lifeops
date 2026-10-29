@@ -98,7 +98,7 @@ function CollectionOverviewView({
     <div className={refreshing ? "opacity-60 transition-opacity" : undefined}>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatTile
-          label="Pólizas activas"
+          label="Pólizas en vigor"
           value={numberEs.format(o.active_contracts)}
           icon={FileText}
           detail={officeView ? `${numberEs.format(o.by_consultant.length)} asesor(es) con cartera` : undefined}

@@ -12,6 +12,8 @@ import { StatTile } from '@/components/dashboard/overview/stat-tile';
 import { numberEs } from '@/components/dashboard/overview/chart-parts';
 import { POLICY_AT_RISK_DAYS } from '@/lib/collections/constants';
 import { PageHeader } from '@/components/dashboard/page-header';
+import { GettingStarted } from '@/components/dashboard/getting-started';
+import { useContractCount } from '@/hooks/use-contract-count';
 import { StatTilesSkeleton } from '@/components/ui/skeleton';
 
 function ContractsPageContent() {
@@ -22,6 +24,10 @@ function ContractsPageContent() {
   // Remounts the list after registering a póliza
   const [listKey, setListKey] = useState(0);
   const summary = portfolio?.summary;
+  const cartera = useContractCount(
+    officeView ? { officeId: profile?.id } : { consultantId: profile?.id },
+    Boolean(profile),
+  );
 
   if (!profile) return null;
 
@@ -40,13 +46,24 @@ function ContractsPageContent() {
       <ManualContractDialog
         open={manualOpen}
         onClose={() => setManualOpen(false)}
-        onCreated={() => setListKey((key) => key + 1)}
+        onCreated={() => {
+          setListKey((key) => key + 1);
+          void cartera.reload();
+        }}
       />
 
-      {summary ? (
+      {cartera.count === 0 ? (
+        <GettingStarted
+          context="contracts"
+          onRegistered={() => {
+            void cartera.reload();
+            setListKey((key) => key + 1);
+          }}
+        />
+      ) : summary ? (
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <StatTile
-            label="Pólizas activas"
+            label="Pólizas en vigor"
             icon={FileText}
             value={summary ? numberEs.format(summary.active) : '—'}
             detail={
@@ -84,19 +101,21 @@ function ContractsPageContent() {
         <StatTilesSkeleton />
       )}
 
-      <ContractPortfolioPanel
-        key={listKey}
-        scope={officeView ? { officeId: profile.id } : { consultantId: profile.id }}
-        showConsultant={officeView}
-        searchPlaceholder={officeView ? 'Póliza, cliente o asesor…' : 'Póliza o cliente…'}
-        emptyText="Aún no hay pólizas. Regístrala aquí o impórtalas desde el extractor."
-        onLoaded={setPortfolio}
-        actions={
-          <Button type="button" variant="brand" size="lg" onClick={() => setManualOpen(true)}>
-            Registrar póliza
-          </Button>
-        }
-      />
+      {cartera.count === 0 ? null : (
+        <ContractPortfolioPanel
+          key={listKey}
+          scope={officeView ? { officeId: profile.id } : { consultantId: profile.id }}
+          showConsultant={officeView}
+          searchPlaceholder={officeView ? 'Póliza, cliente o asesor…' : 'Póliza o cliente…'}
+          emptyText="Aún no hay pólizas. Regístrala aquí o impórtalas desde el extractor."
+          onLoaded={setPortfolio}
+          actions={
+            <Button type="button" variant="brand" size="lg" onClick={() => setManualOpen(true)}>
+              Registrar póliza
+            </Button>
+          }
+        />
+      )}
     </div>
   );
 }

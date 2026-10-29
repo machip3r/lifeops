@@ -133,6 +133,12 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
       }
 
       if (!signOutButton && !href) return;
+      // A busy lock (delete / import running) cancels the click without asking
+      if (navigationGuardRuntime.locked > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (!navigationGuardRuntime.copy && !dialogRef.current) return;
 
       event.preventDefault();
@@ -152,6 +158,8 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
         canPreventDefault?: boolean;
       };
       if (navEvent.navigationType !== 'traverse') return;
+      // useBusyLock cancels it on its own
+      if (navigationGuardRuntime.locked > 0) return;
       if (bypassRef.current) {
         bypassRef.current = false;
         return;

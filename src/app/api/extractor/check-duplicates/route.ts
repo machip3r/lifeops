@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeContractNumber } from "@/lib/contracts/contract-number";
 import { z } from "zod";
 import {
   assertOfficeAccess,
@@ -45,10 +46,6 @@ const bodySchema = z.object({
     .optional(),
 });
 
-function normalizeContractId(raw: string): string {
-  return raw.trim().replace(/,/g, "").replace(/\s+/g, "");
-}
-
 export async function POST(request: NextRequest) {
   const auth = await requireOfficeContext(request);
   if (!auth.ok) {
@@ -76,7 +73,7 @@ export async function POST(request: NextRequest) {
   const validContractNumbers: string[] = [];
   const invalidContractNumbers: string[] = [];
   for (const raw of parsed.data.contractNumbers) {
-    const normalized = normalizeContractId(raw);
+    const normalized = normalizeContractNumber(raw);
     const checked = contractNumberSchema.safeParse(normalized);
     if (checked.success) {
       validContractNumbers.push(checked.data);
@@ -128,7 +125,7 @@ export async function POST(request: NextRequest) {
 
         for (const row of parsed.data.details) {
           const checked = contractNumberSchema.safeParse(
-            normalizeContractId(row.contractNumber),
+            normalizeContractNumber(row.contractNumber),
           );
           if (!checked.success) continue;
           const contract = byNumber.get(checked.data);

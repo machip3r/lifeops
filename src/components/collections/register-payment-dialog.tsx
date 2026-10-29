@@ -11,6 +11,8 @@ import { FileDropzone } from '@/components/ui/file-dropzone';
 import { Textarea } from '@/components/ui/textarea';
 import { uploadPaymentEvidence } from '@/lib/documents/upload';
 import { formatDateShortEsLocal } from '@/lib/format/date';
+import { Coins } from 'lucide-react';
+import { CURRENCY_CODES, CURRENCY_LABELS, normalizeCurrency } from '@/lib/contracts/currencies';
 import {
   DOCUMENT_ALLOWED_MIME_TYPES,
   LIMITS,
@@ -25,6 +27,8 @@ export type RegisterPaymentTarget = {
   nextDue: Date | null;
   suggestedAmount?: number | null;
   collectionDay?: number | null;
+  /** Póliza currency: the payment is registered in it */
+  currency?: string | null;
 };
 
 type Props = {
@@ -185,6 +189,7 @@ export function RegisterPaymentDialog({
     }
   };
 
+  const currencyCode = normalizeCurrency(target.currency);
   const dueHint = target.nextDue
     ? `Próximo cobro sugerido: ${formatDateShortEsLocal(target.nextDue)}`
     : undefined;
@@ -212,6 +217,23 @@ export function RegisterPaymentDialog({
         {dueHint ? (
           <p className="text-sm text-(--lifeops-muted)">{dueHint}</p>
         ) : null}
+
+        <p className="flex items-start gap-2.5 rounded-lg border border-(--lifeops-border) bg-(--lifeops-hover)/40 px-3 py-2.5 text-sm text-(--lifeops-fg)">
+          <Coins className="mt-0.5 h-4 w-4 shrink-0 text-(--lifeops-accent)" aria-hidden />
+          {currencyCode ? (
+            <span>
+              El pago se registra en{' '}
+              <span className="font-semibold">
+                {CURRENCY_LABELS[currencyCode]} ({CURRENCY_CODES[currencyCode]})
+              </span>
+              , la moneda de la póliza.
+            </span>
+          ) : (
+            <span className="text-(--lifeops-muted)">
+              La póliza no tiene moneda. El monto se guarda sin moneda; complétala en «Editar» de la póliza.
+            </span>
+          )}
+        </p>
 
         <FormField
           label="Fecha real de pago *"
@@ -247,20 +269,31 @@ export function RegisterPaymentDialog({
         </FormField>
 
         <FormField
-          label="Monto (opcional)"
+          label={currencyCode ? `Monto en ${CURRENCY_CODES[currencyCode]} (opcional)` : 'Monto (opcional)'}
           htmlFor="register-amount"
           variant="auth"
           error={fieldErrors.amount}
         >
-          <Input
-            id="register-amount"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+          <div className="relative">
+            <Input
+              id="register-amount"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className={currencyCode ? 'pr-16' : undefined}
+            />
+            {currencyCode ? (
+              <span
+                className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-semibold text-(--lifeops-accent)"
+                aria-hidden
+              >
+                {CURRENCY_CODES[currencyCode]}
+              </span>
+            ) : null}
+          </div>
         </FormField>
 
         <FormField

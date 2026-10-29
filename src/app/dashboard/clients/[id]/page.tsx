@@ -115,7 +115,7 @@ function ClientDetailsPageContent() {
       {summary ? (
         <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           <StatTile
-            label="Pólizas activas"
+            label="Pólizas en vigor"
             icon={FileText}
             value={summary ? numberEs.format(summary.active) : '—'}
             detail={

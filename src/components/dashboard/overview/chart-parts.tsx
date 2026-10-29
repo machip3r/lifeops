@@ -95,7 +95,16 @@ export function ChartTooltip({ state, above = false }: { state: TooltipState; ab
   );
 }
 
-export function DataTable({ head, rows }: { head: string[]; rows: Array<Array<string | number>> }) {
+/** Accessible table behind a chart. `rowKeys` when the first cell can repeat (two asesores with the same name). */
+export function DataTable({
+  head,
+  rows,
+  rowKeys,
+}: {
+  head: string[];
+  rows: Array<Array<string | number>>;
+  rowKeys?: string[];
+}) {
   return (
     <table className="w-full min-w-64 border-collapse text-left text-sm">
       <thead>
@@ -115,8 +124,8 @@ export function DataTable({ head, rows }: { head: string[]; rows: Array<Array<st
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <tr key={String(row[0])}>
+        {rows.map((row, index) => (
+          <tr key={rowKeys?.[index] ?? `${index}:${row[0]}`}>
             {row.map((cell, i) => (
               <td
                 key={i}
@@ -135,12 +144,12 @@ export function DataTable({ head, rows }: { head: string[]; rows: Array<Array<st
   );
 }
 
-/** Clean y-axis ticks (0 … niceMax, 4 steps of 1/2/5 × 10^k). */
+/** Clean y-axis ticks (0 … niceMax, up to 4 steps of 1/2/5 × 10^k). Counts: whole steps, so no repeated ticks. */
 export function niceTicks(max: number): number[] {
   if (max <= 0) return [0, 1];
   const rawStep = max / 4;
   const magnitude = 10 ** Math.floor(Math.log10(rawStep));
-  const step = [1, 2, 5, 10].map((m) => m * magnitude).find((s) => s >= rawStep) ?? 10 * magnitude;
+  const step = Math.max(1, [1, 2, 5, 10].map((m) => m * magnitude).find((s) => s >= rawStep) ?? 10 * magnitude);
   const ticks: number[] = [];
   for (let t = 0; t <= max + step * 0.0001; t += step) ticks.push(Math.round(t));
   if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);

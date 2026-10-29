@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAnonKey, getSupabaseUrl } from '@/lib/supabase/env';
 import type { PortfolioStatus } from '@/lib/collections/status';
+import type { PolicyStatus } from '@/lib/contracts/policy-status';
 
 const supabaseUrl = getSupabaseUrl();
 const supabaseAnonKey = getSupabaseAnonKey();
@@ -169,7 +170,10 @@ export interface Contract {
     exchange_rate?: number | null; // Tipo de cambio. NULL means MXN (no conversion)
     payment_channel?: string | null;
     folder_key?: string | null;
-    status: string; // Default 'PENDING' — lifecycle, not cobranza
+    /** Póliza status from the insurer (default IN_FORCE); only IN_FORCE is in cobranza */
+    status: PolicyStatus;
+    /** Insurer reported it en vigor on this date (Mina de Oro cut-off / rehabilitation): receipts due up to it count as paid */
+    in_force_as_of?: string | null;
     collection_status?: CollectionStatus | null;
     collection_day?: number | null;
     /** Persona asegurada principal (may differ from the contratante) */
@@ -267,7 +271,7 @@ export interface ContractPortfolioRow {
     currency: string | null;
     payment_method: string | null;
     issue_date: string | null;
-    status: string;
+    status: PolicyStatus;
     next_due: string | null;
     /** Positive = days late; null without next due */
     days_past_due: number | null;
@@ -277,9 +281,11 @@ export interface ContractPortfolioRow {
 export interface ContractPortfolio {
     /** Rows matching search + status filter */
     total: number;
-    /** Per-status counts after search (chips) */
+    /** Per cartera status counts after search + póliza status filter (chips) */
     counts: Record<PortfolioStatus | 'all', number>;
-    /** Active pólizas in scope (counters) */
+    /** Per póliza status counts after search (chips) */
+    policy_counts: Record<PolicyStatus | 'all', number>;
+    /** Pólizas en vigor in scope (counters) */
     summary: {
         active: number;
         clients: number;

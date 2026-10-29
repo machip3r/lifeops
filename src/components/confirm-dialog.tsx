@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId } from "react";
+import { Loader2 } from "lucide-react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
 
@@ -62,8 +63,15 @@ export function ConfirmDialog({
           <Button type="button" variant="outline" size="lg" disabled={loading} onClick={onCancel}>
             {cancelLabel}
           </Button>
-          <Button type="button" variant={confirmVariant} size="lg" disabled={loading} onClick={onConfirm}>
-            {loading ? loadingLabel : confirmLabel}
+          <Button type="button" variant={confirmVariant} size="lg" disabled={loading} onClick={onConfirm} className="gap-2">
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                {loadingLabel}
+              </>
+            ) : (
+              confirmLabel
+            )}
           </Button>
         </>
       }

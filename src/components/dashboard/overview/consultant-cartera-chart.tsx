@@ -26,13 +26,14 @@ export function ConsultantCarteraChart({
       subtitle={
         rows.length > MAX_ROWS
           ? `Los ${MAX_ROWS} asesores con más pólizas vencidas o en peligro (de ${rows.length})`
-          : "Pólizas activas por estado, ordenadas por vencidas y en peligro"
+          : "Pólizas en vigor por estado, ordenadas por vencidas y en peligro"
       }
       legend={<ChartLegend items={CARTERA_STATES.map((s) => ({ label: s.label, color: s.color }))} />}
       table={
         <DataTable
           head={["Asesor", ...CARTERA_STATES.map((s) => s.label), "Sin pagos"]}
           rows={rows.map((r) => [r.name, ...CARTERA_STATES.map((s) => r[s.key]), r.no_payment])}
+          rowKeys={rows.map((r) => r.consultant_id)}
         />
       }
     >

@@ -6,6 +6,9 @@ export type CurrencyCode = (typeof CURRENCY_OPTIONS)[number];
 /** UI labels for the catalog. */
 export const CURRENCY_LABELS: Record<string, string> = { PESO: 'Pesos', DOLAR: 'Dólares', UDI: 'UDI' };
 
+/** Short code shown next to amounts (MXN / USD / UDI). */
+export const CURRENCY_CODES: Record<CurrencyCode, string> = { PESO: 'MXN', DOLAR: 'USD', UDI: 'UDI' };
+
 function foldCurrency(value: string): string {
   return value
     .trim()

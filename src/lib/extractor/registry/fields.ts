@@ -4,6 +4,8 @@
  */
 import { normalizeClientName } from "@/lib/clients/name-match";
 import { normalizePaymentMethod } from "@/lib/extractor/import/parse";
+import { normalizeContractNumber } from "@/lib/contracts/contract-number";
+import { POLICY_STATUS, isPolicyStatus, policyStatusFromText, type PolicyStatus } from "@/lib/contracts/policy-status";
 
 export type RegistrySource = "mina_de_oro" | "template";
 
@@ -25,7 +27,7 @@ export type RegistryRow = {
   lineCode: "LIFE" | "HEALTH" | null;
   planClassification: string | null;
   insuredName: string | null;
-  status: "ACTIVE" | "INACTIVE";
+  status: PolicyStatus;
   currency: "PESO" | "DOLAR" | "UDI" | null;
   /** In the póliza currency (kept as text like today) */
   annualPremium: string | null;
@@ -55,7 +57,7 @@ export const REGISTRY_FIELDS = {
   lineCode: { label: "Ramo", target: "contract", column: "line_code" },
   planClassification: { label: "Clasificación del plan", target: "contract", column: "plan_classification" },
   insuredName: { label: "Asegurado principal", target: "contract", column: "insured_name" },
-  status: { label: "Estado", target: "contract", column: "status" },
+  status: { label: "Estatus de la póliza", target: "contract", column: "status" },
   currency: { label: "Moneda", target: "contract", column: "currency" },
   annualPremium: { label: "Prima anual", target: "contract", column: "annual_premium", kind: "number" },
   insuredAmount: { label: "Suma asegurada", target: "contract", column: "insured_amount", kind: "number" },
@@ -77,14 +79,13 @@ export const REGISTRY_FIELDS = {
 
 export type RegistryField = keyof typeof REGISTRY_FIELDS;
 
-const STATUS_LABEL: Record<string, string> = { ACTIVE: "Activa", INACTIVE: "Inactiva", PENDING: "En trámite" };
 const LINE_LABEL: Record<string, string> = { LIFE: "Vida", HEALTH: "Gastos médicos" };
 const CURRENCY_LABEL: Record<string, string> = { PESO: "Pesos", DOLAR: "Dólares", UDI: "UDI" };
 
 /** Human value for the review table. */
 export function displayRegistryValue(field: RegistryField, value: unknown): string {
   if (value == null || value === "") return "—";
-  if (field === "status") return STATUS_LABEL[String(value)] ?? String(value);
+  if (field === "status") return isPolicyStatus(value) ? POLICY_STATUS[value].label : String(value);
   if (field === "lineCode") return LINE_LABEL[String(value)] ?? String(value);
   if (field === "currency") return CURRENCY_LABEL[String(value)] ?? String(value);
   const meta = REGISTRY_FIELDS[field] as { kind?: string };
@@ -192,11 +193,9 @@ export function toLineCode(value: unknown, contractNumber: string): RegistryRow[
   return null;
 }
 
-/** "En Vigor" / "Vigente" / "Activa" → ACTIVE; anything else written → INACTIVE; empty → ACTIVE. */
+/** Insurer «Estatus» → póliza status (see `policyStatusFromText`). */
 export function toStatus(value: unknown): RegistryRow["status"] {
-  const text = fold(String(value ?? ""));
-  if (!text) return "ACTIVE";
-  return /^(en vigor|vigente|vigor|activa|activo)$/.test(text) ? "ACTIVE" : "INACTIVE";
+  return policyStatusFromText(value);
 }
 
 export function toCurrency(value: unknown): RegistryRow["currency"] {
@@ -209,12 +208,7 @@ export function toCurrency(value: unknown): RegistryRow["currency"] {
 }
 
 export function toContractNumber(value: unknown): string {
-  return String(value ?? "")
-    .trim()
-    .replace(/,/g, "")
-    .replace(/\s+/g, "")
-    .toUpperCase()
-    .slice(0, 64);
+  return normalizeContractNumber(value).slice(0, 64);
 }
 
 export function toTaxId(value: unknown, length: number[]): string | null {

@@ -17,6 +17,10 @@ import { SegmentedControl } from '@/components/ui/segmented-control';
 import { formatDateShortEsLocal } from '@/lib/format/date';
 import { filterCode, filterDigits, filterPersonName, filterTaxId } from '@/lib/validation/input-filters';
 import { PAYMENT_METHOD_OPTIONS } from '@/lib/contracts/payment-methods';
+import { CURRENCY_LABELS, CURRENCY_OPTIONS } from '@/lib/contracts/currencies';
+import { PAYMENT_CHANNEL_LABELS, PAYMENT_CHANNEL_OPTIONS } from '@/lib/contracts/payment-channels';
+import { PLAN_CLASSIFICATION_LABELS, PLAN_CLASSIFICATION_OPTIONS } from '@/lib/contracts/plan-classifications';
+import { CatalogSelect } from '@/components/contracts/catalog-select';
 import { PROJECT_NAME_OPTIONS } from '@/lib/contracts/project-names';
 import { db } from '@/lib/db';
 import type { Client, Consultant } from '@/lib/supabase';
@@ -60,6 +64,9 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
   const [collectionDay, setCollectionDay] = useState('');
   const [projectName, setProjectName] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [currency, setCurrency] = useState('');
+  const [planClassification, setPlanClassification] = useState('');
+  const [paymentChannel, setPaymentChannel] = useState('');
 
   const isPromotory = profile?.role === 'promotory';
   const maxDate = todayIsoDate();
@@ -127,6 +134,9 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
     setCollectionDay('');
     setProjectName('');
     setPaymentMethod('');
+    setCurrency('');
+    setPlanClassification('');
+    setPaymentChannel('');
     setFieldErrors({});
     setFormError('');
     setInviteOpen(false);
@@ -169,6 +179,7 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
     Boolean(issueDate) &&
     Boolean(projectName) &&
     Boolean(paymentMethod) &&
+    Boolean(currency) &&
     (!isPromotory || Boolean(consultantId)) &&
     (clientMode === 'existing'
       ? Boolean(clientId)
@@ -209,6 +220,9 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
         collectionDay: collectionDay ? Number(collectionDay) : null,
         projectName,
         paymentMethod,
+        currency: currency || null,
+        planClassification: planClassification || null,
+        paymentChannel: paymentChannel || null,
       });
 
       if (!result.ok) {
@@ -411,15 +425,33 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                 </div>
               )}
             </div>
-            <FormField label="Proyecto" htmlFor="manual-project" variant="auth" error={fieldErrors.projectName}>
-              <Combobox
-                id="manual-project"
-                value={projectName}
-                onChange={setProjectName}
-                options={PROJECT_NAME_OPTIONS.map((name) => ({ value: name, label: name }))}
-                placeholder="Busca el proyecto o plan…"
-              />
-            </FormField>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Proyecto" htmlFor="manual-project" variant="auth" error={fieldErrors.projectName}>
+                <Combobox
+                  id="manual-project"
+                  value={projectName}
+                  onChange={setProjectName}
+                  options={PROJECT_NAME_OPTIONS.map((name) => ({ value: name, label: name }))}
+                  placeholder="Busca el proyecto o plan…"
+                />
+              </FormField>
+              <FormField
+                label="Clasificación"
+                htmlFor="manual-plan-classification"
+                variant="auth"
+                hint="Opcional · vida: tradicional o flexible"
+                error={fieldErrors.planClassification}
+              >
+                <CatalogSelect
+                  id="manual-plan-classification"
+                  value={planClassification}
+                  onChange={setPlanClassification}
+                  options={PLAN_CLASSIFICATION_OPTIONS}
+                  labels={PLAN_CLASSIFICATION_LABELS}
+                  emptyLabel="Elige la clasificación…"
+                />
+              </FormField>
+            </div>
           </FormSection>
 
           <FormSection title="Cobranza" description="Con la emisión y la forma de pago se arma el calendario de recibos.">
@@ -447,21 +479,50 @@ export function ManualContractDialog({ open, onClose, onCreated }: Props) {
                 />
               </FormField>
             </div>
-            <FormField label="Forma de pago" htmlFor="manual-payment-method" variant="auth" error={fieldErrors.paymentMethod}>
-              <Select
-                id="manual-payment-method"
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value)}
-                required
+            <div className="grid gap-4 sm:grid-cols-3">
+              <FormField label="Forma de pago" htmlFor="manual-payment-method" variant="auth" error={fieldErrors.paymentMethod}>
+                <Select
+                  id="manual-payment-method"
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  required
+                >
+                  <option value="">Elige la forma de pago…</option>
+                  {PAYMENT_METHOD_OPTIONS.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </Select>
+              </FormField>
+              <FormField label="Moneda" htmlFor="manual-currency" variant="auth" error={fieldErrors.currency}>
+                <CatalogSelect
+                  id="manual-currency"
+                  value={currency}
+                  onChange={setCurrency}
+                  options={CURRENCY_OPTIONS}
+                  labels={CURRENCY_LABELS}
+                  emptyLabel="Elige la moneda…"
+                  required
+                />
+              </FormField>
+              <FormField
+                label="Conducto de cobro"
+                htmlFor="manual-payment-channel"
+                variant="auth"
+                hint="Opcional"
+                error={fieldErrors.paymentChannel}
               >
-                <option value="">Elige la forma de pago…</option>
-                {PAYMENT_METHOD_OPTIONS.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </Select>
-            </FormField>
+                <CatalogSelect
+                  id="manual-payment-channel"
+                  value={paymentChannel}
+                  onChange={setPaymentChannel}
+                  options={PAYMENT_CHANNEL_OPTIONS}
+                  labels={PAYMENT_CHANNEL_LABELS}
+                  emptyLabel="Elige el conducto…"
+                />
+              </FormField>
+            </div>
           </FormSection>
 
           {formError ? (

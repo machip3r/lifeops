@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FileText, Gauge, Siren, UsersRound } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FileText, Gauge, Siren, UserPlus, UsersRound } from 'lucide-react';
 import type { Consultant, ConsultantPortfolio, ConsultantPortfolioRow } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import ProtectedRoute from '@/components/protected-route';
@@ -286,9 +288,21 @@ function ConsultantsPageContent() {
               getRowKey={(row) => row.id}
               onRowClick={(row) => router.push(`/dashboard/consultants/${row.id}`)}
               empty={
-                counts?.all === 0 && !search
-                  ? 'Aún no hay asesores. Créalos aquí o impórtalos desde el extractor.'
-                  : 'No hay asesores que coincidan con la búsqueda o el filtro.'
+                counts?.all === 0 && !search ? (
+                  <EmptyState
+                    size="sm"
+                    icon={UserPlus}
+                    title="Aún no hay asesores"
+                    description="Invítalos con «Invitar asesor», o se crean solos como «Sin invitar» al importar tu Mina de Oro o tus comisiones."
+                    actions={
+                      <Button asChild variant="outline">
+                        <Link href="/dashboard/extractor">Ir a Importar</Link>
+                      </Button>
+                    }
+                  />
+                ) : (
+                  'No hay asesores que coincidan con la búsqueda o el filtro.'
+                )
               }
               columns={columns}
             />

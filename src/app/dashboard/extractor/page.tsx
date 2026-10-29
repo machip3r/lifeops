@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  CalendarClock,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
@@ -37,6 +38,8 @@ import { EditableClientName } from '@/components/extractor/editable-client-name'
 import { OrDivider, RegistrySources, SourceHeader } from '@/components/extractor/registry-sources';
 import { ImportDropzone } from '@/components/extractor/import-dropzone';
 import { RegistryImport } from '@/components/extractor/registry-import';
+import { ImportStepper } from '@/components/extractor/import-stepper';
+import { ImportProgressOverlay } from '@/components/extractor/import-progress';
 import { CommissionReview } from '@/components/extractor/commission-review';
 import type { CommissionChangeItem } from '@/lib/extractor/import/types';
 import type { RegistrySource } from '@/lib/extractor/registry/fields';
@@ -50,6 +53,8 @@ import {
   type MissingConsultantDraft,
 } from '@/components/extractor/missing-consultants-dialog';
 import { cn } from '@/lib/utils';
+import { normalizeContractNumber } from '@/lib/contracts/contract-number';
+import { formatDateShortEsLocal } from '@/lib/format/date';
 import { useNavigationBlock } from '@/contexts/navigation-guard';
 
 interface ContractorMetadata {
@@ -178,7 +183,9 @@ interface UploadedFile {
 const REQUIRE_MANUAL_CONSULTANT_CREDENTIALS =
   process.env.NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS === 'true';
 
-function ExtractorPageContent() {
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function ExtractorPageContent({ initialCommissionsFrom }: { initialCommissionsFrom: string | null }) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
@@ -221,6 +228,8 @@ function ExtractorPageContent() {
   const [commissionPicks, setCommissionPicks] = useState<Record<string, string[]>>({});
   /** Mina de Oro / plantilla chosen: the registry review replaces the commission steps */
   const [registry, setRegistry] = useState<{ source: RegistrySource; file: File } | null>(null);
+  /** After a Mina de Oro with an old cut-off: step 1 asks only for the commission files from this date */
+  const [commissionsFrom, setCommissionsFrom] = useState<string | null>(initialCommissionsFrom);
 
   const importInProgress =
     registry != null ||
@@ -1120,9 +1129,7 @@ function ExtractorPageContent() {
         officeId,
         headers,
       );
-      const existingSet = new Set(
-        duplicateData.contracts.map((c) => c.trim().replace(/,/g, '').replace(/\s+/g, '')),
-      );
+      const existingSet = new Set(duplicateData.contracts.map((c) => normalizeContractNumber(c)));
 
       let existingClientNames: string[] = [];
       try {
@@ -1144,8 +1151,7 @@ function ExtractorPageContent() {
       const dateRowMap = new Map<string, ImportDateRow>();
 
       rowsForImport.forEach((row, rowIndex) => {
-        const rawNumber = (row[polizaIdx] ?? '').trim();
-        const contractNumber = rawNumber.replace(/,/g, '').replace(/\s+/g, '');
+        const contractNumber = normalizeContractNumber(row[polizaIdx]);
         const clientName = normalizeClientName(row[clienteIdx] ?? '') || '—';
         const issueRaw = (row[issueIdx] ?? '').trim();
         const issueIso = parseFlexibleDateToIso(issueRaw);
@@ -1778,7 +1784,12 @@ function ExtractorPageContent() {
           source={registry.source}
           file={registry.file}
           onExit={() => setRegistry(null)}
-          onUploadCommissions={() => setRegistry(null)}
+          onUploadCommissions={(from) => {
+            setRegistry(null);
+            setStep(1);
+            setCommissionsFrom(from);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
         />
       </div>
     );
@@ -1796,41 +1807,22 @@ function ExtractorPageContent() {
         }
       />
 
-      <nav aria-label="Pasos de importación" className="mb-6 grid grid-cols-3 gap-2">
-        {STEPS.map((s) => {
-          const active = step === s.id;
-          const done = step > s.id;
-          const Icon = s.icon;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => {
-                if (s.id < step) setStep(s.id);
-              }}
-              disabled={s.id > step}
-              className={cn(
-                'flex flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-3 text-center transition-colors sm:px-3',
-                active
-                  ? 'border-[#FBDBAC] bg-[#FBDBAC]/15 text-(--lifeops-fg)'
-                  : done
-                    ? 'cursor-pointer border-(--lifeops-border) bg-(--lifeops-hover) text-(--lifeops-fg)'
-                    : 'cursor-default border-(--lifeops-border) text-(--lifeops-muted) opacity-70',
-              )}
-            >
-              <Icon
-                className={cn(
-                  'h-5 w-5',
-                  active || done ? 'text-(--lifeops-accent)' : 'text-(--lifeops-muted)',
-                )}
-                strokeWidth={1.75}
-                aria-hidden
-              />
-              <span className="text-xs font-semibold sm:text-sm">{s.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+      <ImportStepper steps={STEPS} current={step} onSelect={(id) => setStep(id as 1 | 2 | 3)} />
+
+      {step === 1 && commissionsFrom ? (
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-(--viz-due-soon)/50 bg-(--viz-due-soon)/10 px-4 py-3 text-sm text-(--lifeops-fg) sm:flex-row sm:items-center sm:px-5">
+          <CalendarClock className="hidden h-5 w-5 shrink-0 text-(--viz-due-soon) sm:block" aria-hidden />
+          <p className="min-w-0 flex-1">
+            <span className="font-medium">Tu cartera ya está cargada.</span>{' '}
+            <span className="text-(--lifeops-muted)">
+              Ahora sube los archivos de comisiones del {formatDateShortEsLocal(commissionsFrom)} a hoy para que los pagos queden al día.
+            </span>
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={() => setCommissionsFrom(null)} className="self-start sm:self-auto">
+            Ver otras opciones
+          </Button>
+        </div>
+      ) : null}
 
       {step === 1 && (
         // Same card as the Mina de Oro / plantilla sources below
@@ -1900,7 +1892,7 @@ function ExtractorPageContent() {
         </div>
       )}
 
-      {step === 1 && profile?.role === 'promotory' && uploadedFiles.length === 0 ? (
+      {step === 1 && profile?.role === 'promotory' && uploadedFiles.length === 0 && !commissionsFrom ? (
         <div className="mt-4 space-y-4">
           <OrDivider />
           <RegistrySources onPick={(source, file) => setRegistry({ source, file })} />
@@ -2494,69 +2486,24 @@ function ExtractorPageContent() {
       </div>
       ) : null}
 
-      {/* Loading Overlay */}
-      {(isExtracting || isCheckingDuplicates || isImporting) && (
-        <div
-          className={cn(
-            'fixed flex items-center justify-center bg-black/50',
-            isImporting
-              ? 'bottom-0 left-0 right-0 top-20 z-40 sm:top-24 lg:top-0'
-              : 'inset-0 z-50',
-          )}
-        >
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 max-w-md w-full mx-4">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                {isExtracting
-                  ? 'Extrayendo datos'
-                  : isCheckingDuplicates
-                    ? 'Verificando Duplicados'
-                    : 'Importando Datos'}
-              </h3>
-              {isImporting && importProgress ? (
-                <div className="space-y-3 text-left">
-                  <p className="text-sm text-gray-700 dark:text-gray-300">
-                    {importProgress.message}
-                  </p>
-                  <div
-                    className="h-2.5 w-full rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden"
-                    role="progressbar"
-                    aria-valuenow={importProgress.percent}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label="Progreso de importación"
-                  >
-                    <div
-                      className="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out"
-                      style={{ width: `${importProgress.percent}%` }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                    <span>{importProgress.percent}%</span>
-                    <span>
-                      {importProgress.total > 0
-                        ? `${importProgress.current} / ${importProgress.total}`
-                        : null}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">
-                    Tiempo restante: {formatEtaSeconds(importProgress.etaSeconds)}
-                  </p>
-                </div>
-              ) : (
-                <p className="text-gray-600 dark:text-gray-400">
-                  {isExtracting
-                    ? 'Procesando archivos y ordenando por cliente...'
-                    : isCheckingDuplicates
-                      ? 'Por favor espera mientras verificamos la base de datos por registros existentes...'
-                      : 'Por favor espera mientras importamos tus datos...'}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <ImportProgressOverlay
+        open={isExtracting || isCheckingDuplicates || isImporting}
+        title={isExtracting ? 'Leyendo los archivos' : isCheckingDuplicates ? 'Revisando lo que ya tienes' : 'Importando tus datos'}
+        message={
+          isImporting
+            ? importProgress?.message ?? 'Guardando pólizas, asesores, clientes y recibos…'
+            : isExtracting
+              ? 'Extrayendo las tablas y ordenando por cliente…'
+              : 'Buscando recibos y pólizas que ya están en LifeOps…'
+        }
+        percent={isImporting && importProgress ? importProgress.percent : null}
+        countLabel={
+          isImporting && importProgress && importProgress.total > 0
+            ? `${importProgress.current.toLocaleString('es-MX')} de ${importProgress.total.toLocaleString('es-MX')}`
+            : undefined
+        }
+        etaLabel={isImporting && importProgress ? `Tiempo restante: ${formatEtaSeconds(importProgress.etaSeconds)}` : undefined}
+      />
 
       {/* Duplicate Confirmation Dialog */}
       {showDuplicateDialog && (
@@ -2699,10 +2646,18 @@ function ExtractorPageContent() {
   );
 }
 
+/** `?commissionsFrom=YYYY-MM-DD` (from onboarding): open on the commission files after the Mina de Oro cut-off. */
+function ExtractorPageWithParams() {
+  const from = useSearchParams().get('commissionsFrom');
+  return <ExtractorPageContent initialCommissionsFrom={from && ISO_DATE.test(from) ? from : null} />;
+}
+
 export default function ExtractorPage() {
   return (
     <ProtectedRoute allowedRoles={['promotory', 'consultant']}>
-      <ExtractorPageContent />
+      <Suspense fallback={null}>
+        <ExtractorPageWithParams />
+      </Suspense>
     </ProtectedRoute>
   );
 }

@@ -11,6 +11,8 @@ import {
 } from '@/lib/collections/constants';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
 import { CollectionOverview } from '@/components/dashboard/overview/collection-overview';
+import { GettingStarted } from '@/components/dashboard/getting-started';
+import { useContractCount } from '@/hooks/use-contract-count';
 import { useQueryEffect, useQueryLoading } from '@/hooks/use-query-effect';
 import { OverviewSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 
@@ -23,6 +25,10 @@ export function ConsultantHome() {
   const [error, setError] = useState<string | null>(null);
   const [atRisk, setAtRisk] = useState<ContractAtRisk[]>([]);
   const [pending, setPending] = useState<ContractPendingPayment[]>([]);
+  const cartera = useContractCount(
+    { consultantId: profile?.role === 'consultant' ? profile.id : undefined },
+    !authLoading,
+  );
 
   const load = useCallback(async () => {
     if (!profile?.id || profile.role !== 'consultant') return;
@@ -78,17 +84,29 @@ export function ConsultantHome() {
         description="Tu cartera y cobranza de un vistazo."
       />
 
-      {profile?.role === 'consultant' ? (
-        <CollectionOverview scope={{ consultantId: profile.id }} />
-      ) : null}
+      {cartera.count === 0 ? (
+        <GettingStarted
+          context="overview"
+          onRegistered={() => {
+            void cartera.reload();
+            void load();
+          }}
+        />
+      ) : (
+        <>
+          {profile?.role === 'consultant' ? (
+            <CollectionOverview scope={{ consultantId: profile.id }} />
+          ) : null}
 
-      {error && (
-        <p className="text-center text-red-400" role="alert">
-          {error}
-        </p>
+          {error && (
+            <p className="text-center text-red-400" role="alert">
+              {error}
+            </p>
+          )}
+
+          <CollectionPriorityLists atRisk={atRisk} pending={pending} />
+        </>
       )}
-
-      <CollectionPriorityLists atRisk={atRisk} pending={pending} />
     </div>
   );
 }

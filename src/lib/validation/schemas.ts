@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { PAYMENT_METHOD_OPTIONS } from "@/lib/contracts/payment-methods";
 import { CURRENCY_OPTIONS } from "@/lib/contracts/currencies";
+import { POLICY_STATUSES } from "@/lib/contracts/policy-status";
+import { normalizeContractNumber } from "@/lib/contracts/contract-number";
+import { PAYMENT_CHANNEL_OPTIONS } from "@/lib/contracts/payment-channels";
+import { PLAN_CLASSIFICATION_OPTIONS } from "@/lib/contracts/plan-classifications";
 import {
   ACTIVE_POLICY_RANGES,
   CONSULTANT_COUNT_RANGES,
@@ -140,12 +144,11 @@ export const optionalIsoDateSchema = z.preprocess((value) => {
   })
   .transform((v) => (v.length === 0 ? null : v)));
 
-export const contractNumberSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(LIMITS.contractNumber)
-  .regex(CONTRACT_NUMBER_PATTERN);
+/** Póliza number, normalized like every import (`normalizeContractNumber`) so all sources link. */
+export const contractNumberSchema = z.preprocess(
+  (value) => (typeof value === "string" ? normalizeContractNumber(value) : value),
+  z.string().min(1).max(LIMITS.contractNumber).regex(CONTRACT_NUMBER_PATTERN),
+);
 
 export const consultantCodeSchema = z
   .string()
@@ -414,6 +417,9 @@ export const createManualContractSchema = z.object({
   collectionDay: collectionDaySchema.nullable().optional(),
   projectName: entityNameSchema,
   paymentMethod: paymentMethodSchema,
+  currency: z.enum(CURRENCY_OPTIONS),
+  planClassification: z.enum(PLAN_CLASSIFICATION_OPTIONS).nullable().optional(),
+  paymentChannel: z.enum(PAYMENT_CHANNEL_OPTIONS).nullable().optional(),
 });
 
 const importCellSchema = z
@@ -575,6 +581,10 @@ export const clientContactSchema = z.object({
 /** Free-text amounts kept as text on `contract` (prima anual, suma asegurada): digits, , . $ and spaces. */
 const AMOUNT_TEXT_PATTERN = /^[0-9$.,\s]{1,32}$/;
 
+/** Insurer catalog text (clasificación, conducto de cobro): the select offers the catalog plus a legacy value already stored. */
+const CATALOG_TEXT_PATTERN = /^[\p{L}\p{N} .,()/&-]+$/u;
+const catalogTextSchema = (max: number) => z.string().trim().max(max).regex(CATALOG_TEXT_PATTERN);
+
 /** Full póliza edit (expediente / Pólizas list). Asesor changes go through Reasignar. */
 export const updateContractSchema = z.object({
   contractId: uuidSchema,
@@ -586,7 +596,9 @@ export const updateContractSchema = z.object({
   annualPremium: optionalText(z.string().trim().max(32).regex(AMOUNT_TEXT_PATTERN)),
   insuredAmount: optionalText(z.string().trim().max(32).regex(AMOUNT_TEXT_PATTERN)),
   projectName: optionalText(entityNameSchema),
-  status: z.enum(["ACTIVE", "INACTIVE", "PENDING"]),
+  planClassification: optionalText(catalogTextSchema(40)),
+  paymentChannel: optionalText(catalogTextSchema(60)),
+  status: z.enum(POLICY_STATUSES),
 });
 
 /** "-1,234.50" / "$ 1 234" → number; empty → null. Commission receipts may be negative. */
@@ -643,6 +655,9 @@ export const deleteClientSchema = z.object({ clientId: uuidSchema });
 
 export const deleteContractSchema = z.object({ contractId: uuidSchema });
 
+/** Rehabilitar: an anulada póliza goes back to en vigor (and into cobranza). */
+export const rehabilitateContractSchema = z.object({ contractId: uuidSchema });
+
 /** Perfil (asesor): its own display name. */
 export const updateOwnNameSchema = z.object({ name: consultantDisplayNameSchema });
 
@@ -665,7 +680,7 @@ export const registryRowSchema = z.object({
   lineCode: z.enum(["LIFE", "HEALTH"]).nullable(),
   planClassification: registryText(40),
   insuredName: registryText(120),
-  status: z.enum(["ACTIVE", "INACTIVE"]),
+  status: z.enum(POLICY_STATUSES),
   currency: z.enum(CURRENCY_OPTIONS).nullable(),
   annualPremium: z.string().regex(/^\d{1,13}(\.\d{1,6})?$/).nullable(),
   insuredAmount: z.string().regex(/^\d{1,13}(\.\d{1,6})?$/).nullable(),
@@ -690,8 +705,15 @@ const REGISTRY_FIELD_KEYS = [
 ] as const;
 
 /** Registry import batch: rows + which differing fields to overwrite, per póliza number. */
+/** Insurer «en vigor» date of an import: the Mina de Oro cut-off or the import day, never in the future (1 day of timezone slack). */
+const inForceAsOfSchema = z
+  .string()
+  .regex(ISO_DATE_PATTERN)
+  .refine((iso) => iso <= new Date(Date.now() + 86_400_000).toISOString().slice(0, 10));
+
 export const registryImportBatchSchema = z.object({
   source: z.enum(["mina_de_oro", "template"]),
+  asOf: inForceAsOfSchema.nullable().optional(),
   rows: z.array(registryRowSchema).min(1).max(250),
   updates: z.record(contractNumberSchema, z.array(z.enum(REGISTRY_FIELD_KEYS)).max(REGISTRY_FIELD_KEYS.length)).optional(),
 });

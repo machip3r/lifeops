@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Cake, ContactRound, Siren, Users } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Cake, ContactRound, Siren, Users, UsersRound } from 'lucide-react';
 import type { Client, ClientPortfolio, ClientPortfolioFilter, ClientPortfolioRow } from '@/lib/supabase';
 import { db } from '@/lib/db';
 import { useAuth } from '@/contexts/auth-context';
@@ -182,10 +184,10 @@ function ClientsPageContent() {
     },
     {
       id: 'active_contracts',
-      header: 'Pólizas activas',
+      header: 'Pólizas en vigor',
       align: 'right',
       className: 'tabular-nums',
-      sort: sortFor('active_contracts', 'Pólizas activas'),
+      sort: sortFor('active_contracts', 'Pólizas en vigor'),
       cell: (row) => row.active_contracts,
     },
     {
@@ -232,7 +234,7 @@ function ClientsPageContent() {
       <PageHeader
         title="Clientes"
         watermark="Clientes"
-        description="Registro único de tus clientes: contacto, pólizas activas y cómo van con sus pagos."
+        description="Registro único de tus clientes: contacto, pólizas en vigor y cómo van con sus pagos."
       />
 
       <EditClientDialog
@@ -323,9 +325,21 @@ function ClientsPageContent() {
               getRowKey={(row) => row.id}
               onRowClick={(row) => router.push(`/dashboard/clients/${row.id}`)}
               empty={
-                counts?.all === 0 && !search
-                  ? 'Aún no hay clientes. Se crean al importar comisiones o con «Nuevo cliente».'
-                  : 'No hay clientes que coincidan con la búsqueda o el filtro.'
+                counts?.all === 0 && !search ? (
+                  <EmptyState
+                    size="sm"
+                    icon={UsersRound}
+                    title="Aún no hay clientes"
+                    description="Se crean solos al importar tu cartera o tus comisiones. También puedes registrarlos con «Nuevo cliente»."
+                    actions={
+                      <Button asChild variant="outline">
+                        <Link href="/dashboard/extractor">Ir a Importar</Link>
+                      </Button>
+                    }
+                  />
+                ) : (
+                  'No hay clientes que coincidan con la búsqueda o el filtro.'
+                )
               }
               columns={columns}
             />

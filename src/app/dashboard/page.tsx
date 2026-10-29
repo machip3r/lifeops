@@ -7,6 +7,8 @@ import { ConsultantHome } from '@/components/dashboard/consultant-home';
 import { CollectionPriorityLists } from '@/components/dashboard/collection-priority-lists';
 import { PageHeader } from '@/components/dashboard/page-header';
 import { CollectionOverview } from '@/components/dashboard/overview/collection-overview';
+import { GettingStarted } from '@/components/dashboard/getting-started';
+import { useContractCount } from '@/hooks/use-contract-count';
 import {
   PENDING_PAYMENT_WITHIN_DAYS,
   POLICY_AT_RISK_DAYS,
@@ -21,6 +23,7 @@ export default function DashboardPage() {
   const [priorityLoading, setPriorityLoading] = useQueryLoading(officeId);
   const [atRisk, setAtRisk] = useState<ContractAtRisk[]>([]);
   const [pendingPayments, setPendingPayments] = useState<ContractPendingPayment[]>([]);
+  const cartera = useContractCount({ officeId }, !loading);
 
   const loadPriorityLists = useCallback(async () => {
     if (!officeId) {
@@ -74,19 +77,31 @@ export default function DashboardPage() {
         description="Cartera y cobranza de tu promotoría de un vistazo."
       />
 
-      <CollectionOverview scope={{ officeId: profile.id }} />
+      {cartera.count === 0 ? (
+        <GettingStarted
+          context="overview"
+          onRegistered={() => {
+            void cartera.reload();
+            void loadPriorityLists();
+          }}
+        />
+      ) : (
+        <>
+          <CollectionOverview scope={{ officeId: profile.id }} />
 
-      <div className="mt-4 mb-10">
-        {priorityLoading ? (
-          <CardSkeleton lines={6} />
-        ) : (
-          <CollectionPriorityLists
-            atRisk={atRisk}
-            pending={pendingPayments}
-            showConsultant
-          />
-        )}
-      </div>
+          <div className="mt-4 mb-10">
+            {priorityLoading ? (
+              <CardSkeleton lines={6} />
+            ) : (
+              <CollectionPriorityLists
+                atRisk={atRisk}
+                pending={pendingPayments}
+                showConsultant
+              />
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

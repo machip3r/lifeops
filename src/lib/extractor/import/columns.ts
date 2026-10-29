@@ -1,5 +1,6 @@
 /** Column mapping, grouping and batch planning shared by the browser and the server import. */
 import { normalizeClientName } from "@/lib/clients/name-match";
+import { normalizeContractNumber } from "@/lib/contracts/contract-number";
 import { currencyToStore } from "@/lib/contracts/currencies";
 import { RECEIPT_HEADER } from "@/lib/extractor/receipt";
 import { normalizeHeader } from "./parse";
@@ -53,11 +54,6 @@ export function cellAt(row: string[], index: number): string {
   return row[index]?.trim() || "";
 }
 
-/** Póliza number as used for lookups and the prior-payment map. */
-function normalizeContractNumber(raw: string): string {
-  return raw.trim().replace(/,/g, "").replace(/\s+/g, "");
-}
-
 export type ContractGroup = {
   clientName: string;
   contractNumber: string;
@@ -77,7 +73,8 @@ export function groupRowsByContract(
 
   for (const { index, cells } of rows) {
     const clientName = normalizeClientName(cellAt(cells, columns.clientName));
-    const contractNumber = cellAt(cells, columns.contractNumber);
+    // Canonical number: links the file to pólizas registered by hand or from the Mina de Oro
+    const contractNumber = normalizeContractNumber(cellAt(cells, columns.contractNumber));
     const consultantCode = cellAt(cells, columns.consultantCode);
     if (!clientName || !consultantCode) {
       errors.push({ row: index + 1, error: "Falta el cliente o la clave del asesor en esta fila." });
