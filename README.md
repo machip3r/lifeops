@@ -2,6 +2,10 @@
 
 A Next.js application for managing insurance operations, consultants, clients, contracts, and policy data. The system includes an HTML commission extractor that imports payment data into a structured database.
 
+## Access
+
+LifeOps is invitation-only in the product UI. `/login` is for existing accounts; the public landing page lets promotorías request a demo through the configured support email or WhatsApp. The `/invite/[token]` flow remains the way asesores accept an invitation. To enforce this at the Auth API as well, disable **Allow new users to sign up** in the intended Supabase project's Auth settings (`disable_signup = true`); removing the registration UI alone does not close the public Auth endpoint.
+
 ## Tech Stack
 
 - **Framework**: Next.js 16 (App Router)
@@ -236,7 +240,7 @@ Optional:
 ```
 # When true, import opens a dialog for new asesores (generated correo, optional invite) instead of auto-create.
 NEXT_PUBLIC_IMPORT_MANUAL_CONSULTANT_CREDENTIALS=true
-# Support contact shown in the UI (e.g. aseguradora not supported yet). Without them a generic "contacta a soporte" text is shown.
+# Contact channels used for insurer support and the public landing page's demo request. Set at least one to show a scheduling link.
 NEXT_PUBLIC_SUPPORT_EMAIL=soporte@example.com
 NEXT_PUBLIC_SUPPORT_WHATSAPP=523312345678
 ```

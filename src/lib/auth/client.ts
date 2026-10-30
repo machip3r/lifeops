@@ -27,22 +27,6 @@ export async function signInWithPassword(email: string, password: string) {
   return supabase.auth.signInWithPassword({ email, password });
 }
 
-export async function signUp(opts: {
-  email: string;
-  password: string;
-  emailRedirectTo?: string;
-  data?: Record<string, unknown>;
-}) {
-  return supabase.auth.signUp({
-    email: opts.email,
-    password: opts.password,
-    options: {
-      emailRedirectTo: opts.emailRedirectTo,
-      data: opts.data,
-    },
-  });
-}
-
 export async function verifyOtp(opts: {
   email: string;
   token: string;

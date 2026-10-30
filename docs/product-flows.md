@@ -47,11 +47,17 @@ office (promotory) ── owns ──► consultants (asesores)
 
 ## Core flows
 
-### Login / signup (`/login`)
+### Login (`/login`)
 
-1. User signs in (correo + contraseña) or registers. Sign-up asks **only correo + contraseña** (promotorías only; asesores are invited).
+1. Existing users sign in with correo + contraseña. There is no public registration form; access is by invitation. Asesores accept invitations at `/invite/[token]`.
 2. Optional email verification OTP when required.
 3. Promotorías without onboarding go to `/onboarding`; everyone else to `/dashboard`.
+
+### Public landing (`/`)
+
+- Explains LifeOps to prospective promotorías and shows clearly labeled illustrative cobranza data.
+- **Agendar demo** opens the configured WhatsApp and/or email contact channel with a prefilled request. These destinations use `NEXT_PUBLIC_SUPPORT_WHATSAPP` and `NEXT_PUBLIC_SUPPORT_EMAIL`.
+- **Iniciar sesión** opens `/login`. Account access is by invitation; the public page does not create accounts.
 
 ### Onboarding (`/onboarding`) — promotoría
 

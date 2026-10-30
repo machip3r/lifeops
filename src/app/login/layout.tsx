@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Login - LifeOps",
-  description: "Sign in or create your LifeOps account",
+  title: "Iniciar sesión | LifeOps",
+  description: "Inicia sesión en tu cuenta de LifeOps.",
 };
 
 export default function LoginLayout({

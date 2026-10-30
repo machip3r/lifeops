@@ -9,7 +9,6 @@ import {
     resendOtp,
     signInWithPassword,
     signOut as authSignOut,
-    signUp as authSignUp,
     verifyOtp,
 } from '@/lib/auth/client';
 import { installNavigationGuardListener } from '@/lib/navigation-guard-listener';
@@ -31,11 +30,6 @@ interface UserProfile {
     onboarding_completed?: boolean;
 }
 
-interface SignUpResult {
-    needsEmailVerification: boolean;
-    user?: User;
-}
-
 /** `loading` is the in-flight profile read. `missing` means it finished without a profile. */
 export type ProfilePhase = 'loading' | 'ready' | 'missing';
 
@@ -48,8 +42,6 @@ interface AuthContextType {
     /** Load the office or consultant row again. Sends the user to login when the session is gone. */
     reloadProfile: () => Promise<void>;
     signIn: (email: string, password: string) => Promise<void>;
-    /** Promotoría signup (correo + contraseña); onboarding collects the rest. */
-    signUp: (email: string, password: string) => Promise<SignUpResult>;
     verifyEmailCode: (email: string, token: string) => Promise<void>;
     resendVerificationEmail: (email: string) => Promise<void>;
     signOut: () => Promise<void>;
@@ -142,7 +134,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!authUser.email) {
             throw new Error('No se pudo crear la oficina: falta el correo.');
         }
-        // Older signups sent the name in metadata; new ones fill it in onboarding.
+        // Legacy accounts may carry the office name in metadata; current onboarding collects it.
         const metaName = authUser.user_metadata?.office_name;
         const officeName =
             typeof metaName === 'string' && metaName.trim().length > 0 ? metaName.trim() : null;
@@ -171,7 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             };
         }
 
-        // Orphaned promotory signup: auth user exists, office row deferred until session.
+        // An invited promotoría account may exist before its office row is created.
         // Never bootstrap an office for invited asesores (they may briefly fail consultant RLS
         // before auth_user_id policies apply — creating an office would grant promotory access).
         if (!officeData && authUser?.email) {
@@ -475,39 +467,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // No need to do it here - just let the session be set
     };
 
-    const signUp = async (email: string, password: string): Promise<SignUpResult> => {
-        const { data, error } = await authSignUp({
-            email,
-            password,
-            emailRedirectTo: `${window.location.origin}/login`,
-            data: {
-                intended_role: 'promotory',
-            },
-        });
-
-        if (error) throw error;
-
-        // Check if email confirmation is required (OTP code-based)
-        const needsEmailVerification = Boolean(!data.session && data.user && !data.user.email_confirmed_at);
-
-        // create_office is only executable by `authenticated`. With email confirm on,
-        // signUp often returns a user without a session (still anon) — defer office create.
-        if (data.user && data.session) {
-            try {
-                await ensurePromotoryOffice(data.user);
-                await resolveProfile(data.user);
-            } catch (officeError: unknown) {
-                console.error('Error creating office:', officeError);
-                throw officeError;
-            }
-        }
-
-        return {
-            needsEmailVerification,
-            user: data.user || undefined,
-        };
-    };
-
     const verifyEmailCode = async (email: string, token: string) => {
         // Try both signup and email verification types
         let data, error;
@@ -561,7 +520,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ user, profile, session, loading, profilePhase, reloadProfile, signIn, signUp, verifyEmailCode, resendVerificationEmail, signOut }}>
+        <AuthContext.Provider value={{ user, profile, session, loading, profilePhase, reloadProfile, signIn, verifyEmailCode, resendVerificationEmail, signOut }}>
             {children}
         </AuthContext.Provider>
     );

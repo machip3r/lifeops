@@ -13,14 +13,13 @@ import {
   LIMITS,
   loginSchema,
   otpVerifySchema,
-  signupSchema,
 } from '@/lib/validation/schemas';
 import { VALIDATION_MESSAGES, zodFieldErrors } from '@/lib/validation/field-errors';
 import { homePathFor } from '@/lib/onboarding/routes';
 import { AuthCardSkeleton } from '@/components/ui/skeleton';
+import { LandingSectionLink } from '@/components/landing/landing-header';
 
 export default function LoginPage() {
-  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -31,7 +30,7 @@ export default function LoginPage() {
   const [verificationCode, setVerificationCode] = useState('');
   const [verifyingCode, setVerifyingCode] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
-  const { signIn, signUp, verifyEmailCode, resendVerificationEmail, profile, loading: authLoading } = useAuth();
+  const { signIn, verifyEmailCode, resendVerificationEmail, profile, loading: authLoading } = useAuth();
   const router = useRouter();
 
   const canSubmit = useMemo(() => Boolean(email.trim() && password), [email, password]);
@@ -49,9 +48,7 @@ export default function LoginPage() {
     setFieldErrors({});
     setNeedsVerification(false);
 
-    const parsed = isSignUp
-      ? signupSchema.safeParse({ email, password })
-      : loginSchema.safeParse({ email, password });
+    const parsed = loginSchema.safeParse({ email, password });
 
     if (!parsed.success) {
       setFieldErrors(zodFieldErrors(parsed.error, VALIDATION_MESSAGES));
@@ -61,34 +58,22 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      if (isSignUp) {
-        const result = await signUp(parsed.data.email, parsed.data.password);
+      try {
+        await signIn(parsed.data.email, parsed.data.password);
+        setLoading(false);
+        // The profile effect routes to onboarding or the dashboard.
+      } catch (signInError: unknown) {
+        const err = signInError as { needsVerification?: boolean; message?: string; };
+        const isVerificationNeeded =
+          err?.needsVerification === true || err?.message === 'EMAIL_NOT_CONFIRMED';
 
-        if (result.needsEmailVerification) {
+        if (isVerificationNeeded) {
           setNeedsVerification(true);
           setLoading(false);
+          setError('');
           return;
         }
-        // The profile effect sends the new promotoría to onboarding.
-      } else {
-        const data = parsed.data as { email: string; password: string };
-        try {
-          await signIn(data.email, data.password);
-          setLoading(false);
-          // The profile effect routes to onboarding or the dashboard.
-        } catch (signInError: unknown) {
-          const err = signInError as { needsVerification?: boolean; message?: string };
-          const isVerificationNeeded =
-            err?.needsVerification === true || err?.message === 'EMAIL_NOT_CONFIRMED';
-
-          if (isVerificationNeeded) {
-            setNeedsVerification(true);
-            setLoading(false);
-            setError('');
-            return;
-          }
-          throw signInError;
-        }
+        throw signInError;
       }
     } catch (err) {
       const errorMessage =
@@ -164,15 +149,14 @@ export default function LoginPage() {
     <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center px-4">
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
-          <Link href="/" className="text-4xl font-bold text-gray-900 dark:text-white">
-            {assets.brand.name}
+          <Link href="/" aria-label="LifeOps, inicio" className="inline-flex items-baseline tracking-[-0.04em] text-4xl text-gray-900 dark:text-white">
+            <span className="font-title font-normal">Life</span>
+            <span className="font-title font-bold">Ops</span>
           </Link>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
             {needsVerification
               ? 'Verifica tu correo'
-              : isSignUp
-                ? 'Crea tu cuenta'
-                : 'Inicia sesión en tu cuenta'}
+              : 'Inicia sesión en tu cuenta'}
           </p>
         </div>
 
@@ -288,9 +272,9 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  minLength={isSignUp ? LIMITS.password.min : 1}
+                  minLength={1}
                   maxLength={LIMITS.password.max}
-                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  autoComplete="current-password"
                   placeholder="••••••••"
                 />
               </FormField>
@@ -307,27 +291,15 @@ export default function LoginPage() {
                 disabled={loading || !canSubmit}
                 className="w-full h-11"
               >
-                {loading ? 'Por favor espera…' : isSignUp ? 'Crear cuenta' : 'Iniciar sesión'}
+                {loading ? 'Por favor espera…' : 'Iniciar sesión'}
               </Button>
 
-              <div className="text-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignUp(!isSignUp);
-                    setError('');
-                    setSuccess('');
-                    setFieldErrors({});
-                    setNeedsVerification(false);
-                    setVerificationCode('');
-                  }}
-                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                >
-                  {isSignUp
-                    ? '¿Ya tienes una cuenta? Inicia sesión'
-                    : '¿No tienes una cuenta? Regístrate'}
-                </button>
-              </div>
+              <p className="text-center text-sm text-gray-600 dark:text-gray-400">
+                ¿Te interesa usar {assets.brand.name}?{' '}
+                <LandingSectionLink targetId="contact" className="font-medium text-(--lifeops-accent) hover:underline">
+                  Agenda una demo
+                </LandingSectionLink>
+              </p>
             </form>
           )}
         </div>

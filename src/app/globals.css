@@ -6,6 +6,17 @@
    Default Tailwind v4 uses prefers-color-scheme which can behave differently in Edge. */
 @custom-variant dark (&&:where(.dark, .dark *));
 
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
 :root {
   --primary: oklch(0.205 0 0);
   --secondary: oklch(0.97 0 0);

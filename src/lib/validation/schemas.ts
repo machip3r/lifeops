@@ -199,12 +199,6 @@ export const loginSchema = z.object({
   password: loginPasswordSchema,
 });
 
-/** Promotoría signup: account only; the rest is asked in onboarding. */
-export const signupSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-});
-
 export const otpVerifySchema = z.object({
   email: emailSchema,
   otp: otpSchema,

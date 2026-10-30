@@ -20,10 +20,12 @@ De que si le pongo que el tramite esta en proceso , pues en otra hoja me arroja 
 pero en otra hoja que ponle que sea de pendientes de primera aportacion , ahi es donde me sirve a lo mejor lo del banco y la fecha de emision y etc sabes?
 
 
+we need to optimize and improve the extractor page because theres too many lines of code
+separate in components and improve the performance and clean code with excellent good practices of coding (remember DRY rules)
 
 
-when click in a cobranza row, open a dialog showing all payments and evidences
+auditoria de base de datos (con codigo y todo) para identificar mejoras y optimizaciones
 
-remove "reasignar" action
-
-test: first register contract, then import to check if the extractor detects this
+agrega todos los catalogos a la base de datos (con tag, que en este caso sera de seguros monterrey)
+y normaliza la base de datos, también agrega una parte de catalogos los cuales puedan ser editados por la promotoria
+si la promotora decide agregar mas, pues solo le apareceran a la promotoria los que agrego a solo ella y sus asesores y clientes obviamente
