@@ -24,3 +24,4 @@ export * from "./contract-cascade";
 export * from "./clients";
 export * from "./documents";
 export * from "./office-cleanup";
+export * from "./promotory-registration";

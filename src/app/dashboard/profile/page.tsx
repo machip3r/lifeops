@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { TriangleAlert } from 'lucide-react';
+import { Link2, TriangleAlert } from 'lucide-react';
 import { useAuth } from '@/contexts/auth-context';
 import { db } from '@/lib/db';
 import { authFetch } from '@/lib/api-client';
@@ -18,7 +18,7 @@ import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { DotBadge } from '@/components/ui/dot-badge';
 import { PageSkeleton } from '@/components/ui/skeleton';
-import { updateOwnNameAction } from '@/app/dashboard/profile/actions';
+import { canCreatePromotoryRegistrationLinkAction, createPromotoryRegistrationLinkAction, updateOwnNameAction } from '@/app/dashboard/profile/actions';
 import { filterEntityName } from '@/lib/validation/input-filters';
 import { LIMITS } from '@/lib/validation/schemas';
 
@@ -179,10 +179,26 @@ function ConsultantProfile() {
 }
 
 function ProfilePageContent() {
-  const { profile, loading: authLoading } = useAuth();
+  const { profile, session, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [cleaning, setCleaning] = useState(false);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+  const [canCreateInvite, setCanCreateInvite] = useState(false);
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [generatedInviteLink, setGeneratedInviteLink] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const access = session?.access_token && profile?.role === 'promotory'
+      ? canCreatePromotoryRegistrationLinkAction(session.access_token)
+      : Promise.resolve(false);
+    void access.then((allowed) => {
+      if (!cancelled) setCanCreateInvite(allowed);
+    }).catch(() => {
+      if (!cancelled) setCanCreateInvite(false);
+    });
+    return () => { cancelled = true; };
+  }, [profile?.role, session?.access_token]);
 
   if (authLoading) return <PageSkeleton />;
 
@@ -215,6 +231,33 @@ function ProfilePageContent() {
     }
   };
 
+  const createInvite = async () => {
+    if (!session?.access_token) {
+      toast.error('Tu sesión expiró. Inicia sesión de nuevo.');
+      return;
+    }
+    setCreatingInvite(true);
+    try {
+      const result = await createPromotoryRegistrationLinkAction(session.access_token);
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      setGeneratedInviteLink(result.link);
+      try {
+        await navigator.clipboard.writeText(result.link);
+        toast.success('Enlace creado y copiado. Vence en 7 días.');
+      } catch {
+        toast.success('Enlace creado. Cópialo desde el campo de abajo.');
+      }
+    } catch (error) {
+      console.error('createPromotoryRegistrationLinkAction:', error);
+      toast.error('No se pudo crear o copiar el enlace.');
+    } finally {
+      setCreatingInvite(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -230,7 +273,30 @@ function ProfilePageContent() {
       {profile.role === 'promotory' ? (
         <OfficeSettings
           officeId={profile.id}
-          aside={<DangerZone cleaning={cleaning} onClean={() => setShowCleanupDialog(true)} />}
+          aside={
+            <div className="space-y-4">
+              {canCreateInvite ? (
+                <section className="rounded-xl border border-(--lifeops-border) bg-(--lifeops-chrome) p-5">
+                  <h2 className="flex items-center gap-2 text-[15px] font-semibold text-(--lifeops-fg)">
+                    <Link2 className="h-4 w-4 text-(--lifeops-accent)" aria-hidden />
+                    Invitar promotoría
+                  </h2>
+                  <p className="mt-2 text-[13px] text-(--lifeops-muted)">
+                    Crea un enlace para registrar una nueva promotoría. Cada enlace vence en 7 días y se puede usar una sola vez.
+                  </p>
+                  <Button type="button" variant="brand" className="mt-4 w-full" disabled={creatingInvite} onClick={() => void createInvite()}>
+                    {creatingInvite ? 'Creando enlace…' : 'Crear enlace de registro'}
+                  </Button>
+                  {generatedInviteLink ? (
+                    <FormField label="Enlace de registro" htmlFor="promotory-registration-link" className="mt-4">
+                      <Input id="promotory-registration-link" value={generatedInviteLink} readOnly onFocus={(event) => event.currentTarget.select()} />
+                    </FormField>
+                  ) : null}
+                </section>
+              ) : null}
+              <DangerZone cleaning={cleaning} onClean={() => setShowCleanupDialog(true)} />
+            </div>
+          }
         />
       ) : (
         <ConsultantProfile />

@@ -68,11 +68,13 @@ export async function createAuthUser(opts: {
   email: string;
   password: string;
   emailConfirm?: boolean;
+  userMetadata?: Record<string, unknown>;
 }) {
   return supabaseAdmin.auth.admin.createUser({
     email: opts.email,
     password: opts.password,
     email_confirm: opts.emailConfirm ?? true,
+    user_metadata: opts.userMetadata,
   });
 }
 

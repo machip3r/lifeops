@@ -165,10 +165,12 @@ Invitation and similar one-time tokens.
 | Column | Notes |
 | ------ | ----- |
 | `token` | Unique |
-| `type` | e.g. `CONSULTANT_INVITATION`, `EMAIL_VERIFICATION`, `PASSWORD_RESET` |
+| `type` | e.g. `CONSULTANT_INVITATION`, `PROMOTORY_REGISTRATION`, `EMAIL_VERIFICATION`, `PASSWORD_RESET` |
 | `status` | `ACTIVE` \| `USED` \| `EXPIRED` |
 | `expires_at` | Required |
-| `metadata` | JSONB |
+| `metadata` | JSONB; promotoría registration stores `created_by` (Auth user ID) |
+
+Promotoría registration links expire after seven days. The server creates the Auth user and then conditionally changes `ACTIVE` to `USED`; if another request wins that update, the losing Auth user is deleted. No migration is required; the existing columns and service-role access are used.
 
 ### `contract`
 

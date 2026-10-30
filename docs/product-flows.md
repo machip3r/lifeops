@@ -49,7 +49,7 @@ office (promotory) ── owns ──► consultants (asesores)
 
 ### Login (`/login`)
 
-1. Existing users sign in with correo + contraseña. There is no public registration form; access is by invitation. Asesores accept invitations at `/invite/[token]`.
+1. Existing users sign in with correo + contraseña. Promotorías register only through a one-time link created by the configured operator in Perfil; asesores accept invitations at `/invite/[token]`.
 2. Optional email verification OTP when required.
 3. Promotorías without onboarding go to `/onboarding`; everyone else to `/dashboard`.
 
@@ -58,6 +58,12 @@ office (promotory) ── owns ──► consultants (asesores)
 - Explains LifeOps to prospective promotorías and shows clearly labeled illustrative cobranza data.
 - **Agendar demo** opens the configured WhatsApp and/or email contact channel with a prefilled request. These destinations use `NEXT_PUBLIC_SUPPORT_WHATSAPP` and `NEXT_PUBLIC_SUPPORT_EMAIL`.
 - **Iniciar sesión** opens `/login`. Account access is by invitation; the public page does not create accounts.
+
+### Promotoría registration (`/register?token=…`)
+
+- Only the account configured in `PROMOTORY_INVITE_GENERATOR_EMAIL` sees the link generator in Perfil. Each generated link is valid for seven days and can be used once.
+- The registration page checks token type, status, and expiry. The server rechecks the token when creating the Auth account and atomically marks it used; if a concurrent request already used it, the losing account creation is rolled back. The new user then signs in and continues at `/onboarding`.
+- Keep Supabase Auth public signup disabled. The generator uses `APP_BASE_URL` or the existing `NEXT_PUBLIC_APP_URL` setting to construct absolute links.
 
 ### Onboarding (`/onboarding`) — promotoría
 
@@ -76,6 +82,7 @@ Registro → onboarding → dashboard. Applies to new promotorías **and** exist
 
 - Read-only first: data is shown as label / value rows and tags; each card has **Editar**, which opens that section in a dialog (Cancelar / Guardar cambios). Nothing is a disabled input.
 - **Promotoría:** identity card (avatar, name, estado, registro completo / pendiente, clave, account correo, fecha de alta) with **Zona de peligro** under it; on the right **Tu promotoría** (nombre, estado, clave), **Contacto** (who uses LifeOps + dueño(a)) and **Tu operación** (aseguradoras and ramos as tags, rangos, objetivo). The **clave de promotoría** is locked once captured and onboarding is complete (support changes it). The account correo is read-only.
+- The configured invite generator account also sees **Invitar promotoría**, which creates and copies a single-use registration link that expires after seven days.
 - **Asesor:** identity card (avatar, name, promotoría, clave) and **Tus datos**; only the name is editable (Server Action `updateOwnNameAction`, `audit_log` `consultant.update`). Correo and clave are managed by the promotoría.
 
 ### Invite consultant (promotory)

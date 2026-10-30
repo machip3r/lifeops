@@ -4,7 +4,7 @@ A Next.js application for managing insurance operations, consultants, clients, c
 
 ## Access
 
-LifeOps is invitation-only in the product UI. `/login` is for existing accounts; the public landing page lets promotorías request a demo through the configured support email or WhatsApp. The `/invite/[token]` flow remains the way asesores accept an invitation. To enforce this at the Auth API as well, disable **Allow new users to sign up** in the intended Supabase project's Auth settings (`disable_signup = true`); removing the registration UI alone does not close the public Auth endpoint.
+LifeOps is invitation-only in the product UI. `/login` is for existing accounts; the public landing page lets promotorías request a demo through the configured support email or WhatsApp. Asesores accept invitations at `/invite/[token]`. A single configured promotoría operator can create one-time, seven-day registration links from Perfil; invitees register at `/register?token=…` and continue through promotoría onboarding. Registration uses the server-side Auth Admin API, so keep **Allow new users to sign up** disabled in Supabase (`disable_signup = true`). Configure `PROMOTORY_INVITE_GENERATOR_EMAIL` with that operator's account email. Links use `APP_BASE_URL` when set, otherwise the existing `NEXT_PUBLIC_APP_URL` app origin.
 
 ## Tech Stack
 
@@ -167,6 +167,7 @@ While an import is in progress (files loaded, dates, summary, or the save itself
 - Profile stored in `office` or `consultant` tables; if both resolve for the same auth user, **consultant wins** (avoids phantom office rows granting promotory UI)
 - `ProtectedRoute` component enforces role-based access
 - Consultant invitations create tokens that can be used to sign up
+- The configured operator (`PROMOTORY_INVITE_GENERATOR_EMAIL`) can generate one-time promotoría registration links in Perfil. Links expire after seven days; registration creates a promotoría Auth account, and the next login opens onboarding. `APP_BASE_URL` or `NEXT_PUBLIC_APP_URL` supplies the public site origin.
 - Promotory full wipe (`POST /api/office/cleanup` from Perfil; database part all-or-nothing in the `cleanup_office_data` RPC, then Storage / Auth) deletes contracts, details, change requests, clients, consultants (and their auth users), plus cobranza rows (`contract_collection_payment`), `audit_log`, `file` rows, and Storage objects under the office `documents/` prefix
 
 **Key Files**:
