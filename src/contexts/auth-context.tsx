@@ -14,6 +14,7 @@ import {
 import { installNavigationGuardListener } from '@/lib/navigation-guard-listener';
 import { db } from '@/lib/db';
 import { useRouter } from 'next/navigation';
+import { getAuthErrorCode, toSafeAuthError } from '@/lib/auth/error-messages';
 
 installNavigationGuardListener();
 
@@ -413,29 +414,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (error) {
             // Only treat as "email not confirmed" when Supabase clearly says so.
             // Do NOT use status 400 alone — wrong password also returns 400.
-            const errorMessage = error.message.toLowerCase();
-            const errorCode = String((error as any).code ?? '').toLowerCase();
-
-            const isInvalidCredentials =
-                errorMessage.includes('invalid') && (
-                    errorMessage.includes('credential') ||
-                    errorMessage.includes('login') ||
-                    errorMessage.includes('password')
-                );
-
-            const isEmailConfirmMessage =
-                errorMessage.includes('not confirmed') ||
-                errorMessage.includes('unconfirmed') ||
-                (errorMessage.includes('confirm') && !errorMessage.includes('invalid'));
-            const isEmailNotConfirmed =
-                !isInvalidCredentials &&
-                (errorCode === 'email_not_confirmed' ||
-                    errorCode === 'signup_disabled' ||
-                    errorMessage.includes('signup_disabled') ||
-                    (errorMessage.includes('email') && isEmailConfirmMessage));
+            const isEmailNotConfirmed = getAuthErrorCode(error) === 'email_not_confirmed';
 
             if (isEmailNotConfirmed) {
-                console.log('Email not confirmed detected, sending verification code...');
                 // If email is not confirmed, trigger OTP verification flow
                 // Send OTP code to email
                 const { error: otpError } = await resendOtp({
@@ -451,7 +432,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     });
 
                     if (emailOtpError) {
-                        throw new Error('No se pudo enviar el código de verificación. Por favor, intenta de nuevo.');
+                        throw toSafeAuthError(emailOtpError, 'resend');
                     }
                 }
 
@@ -460,7 +441,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 (verificationError as any).needsVerification = true;
                 throw verificationError;
             }
-            throw error;
+            throw toSafeAuthError(error, 'login');
         }
 
         // Auth state change handler will automatically load the profile
@@ -487,7 +468,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }));
         }
 
-        if (error) throw error;
+        if (error) throw toSafeAuthError(error, 'verification');
 
         if (data.user) {
             // Session exists now → authenticated can call create_office
@@ -501,7 +482,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             email,
         });
 
-        if (error) throw error;
+        if (error) throw toSafeAuthError(error, 'resend');
     };
 
     const signOut = async () => {

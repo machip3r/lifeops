@@ -39,10 +39,7 @@ export async function POST(request: NextRequest) {
     console.error("invite/accept:", e);
     return NextResponse.json(
       {
-        error:
-          e instanceof Error
-            ? e.message
-            : "No se pudo completar el registro.",
+        error: "No se pudo completar el registro. Intenta de nuevo.",
       },
       { status: 500 },
     );

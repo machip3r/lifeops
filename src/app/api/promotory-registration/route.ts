@@ -4,6 +4,7 @@ import { consumePromotoryRegistrationTokenAdmin, getPromotoryRegistrationTokenAd
 import { createAuthUser, deleteAuthUser } from "@/lib/auth/admin";
 import { emailSchema, passwordSchema } from "@/lib/validation/schemas";
 import { VALIDATION_MESSAGES, zodFieldErrors } from "@/lib/validation/field-errors";
+import { getAuthErrorCode, getAuthErrorMessage } from "@/lib/auth/error-messages";
 
 const registrationSchema = z.object({
   token: z.string().trim().regex(/^[a-f0-9]{64}$/i),
@@ -32,9 +33,9 @@ export async function POST(request: NextRequest) {
       userMetadata: { intended_role: "promotory", role: "promotory" },
     });
     if (error || !data.user) {
-      const message = error?.message.toLowerCase() ?? "";
-      const conflict = /already|registered|exists/.test(message);
-      return NextResponse.json({ error: conflict ? "Ya existe una cuenta con ese correo. Inicia sesión o usa otro correo." : "No se pudo crear la cuenta. Intenta de nuevo." }, { status: conflict ? 409 : 400 });
+      const code = getAuthErrorCode(error);
+      const conflict = code === "email_exists" || code === "user_already_exists";
+      return NextResponse.json({ error: getAuthErrorMessage(error, "registration") }, { status: conflict ? 409 : 400 });
     }
     createdAuthUserId = data.user.id;
 

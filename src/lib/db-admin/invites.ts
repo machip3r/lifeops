@@ -2,6 +2,7 @@
 import "server-only";
 
 import { createAuthUser, deleteAuthUser, findAuthUserIdByEmail, updateAuthUserEmail, updateAuthUserPassword } from "@/lib/auth/admin";
+import { getAuthErrorCode, getAuthErrorMessage } from "@/lib/auth/error-messages";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 /** Promotory invite: create token via service role (after assertOfficeAccess in the route). */
@@ -242,9 +243,9 @@ export async function acceptConsultantInviteAdmin(input: {
     userId = authData.user.id;
     createdNewAuth = true;
   } else {
-    const msg = authError?.message || "No se pudo crear el usuario.";
-    if (!/already|registered|exists/i.test(msg)) {
-      return { ok: false, status: 400, error: msg };
+    const authErrorCode = getAuthErrorCode(authError);
+    if (authErrorCode !== "email_exists" && authErrorCode !== "user_already_exists") {
+      return { ok: false, status: 400, error: getAuthErrorMessage(authError, "invitation") };
     }
     const existingId = await findAuthUserIdByEmail(email);
     if (!existingId) {
@@ -262,7 +263,7 @@ export async function acceptConsultantInviteAdmin(input: {
       return {
         ok: false,
         status: 500,
-        error: "No se pudo actualizar la cuenta existente.",
+        error: getAuthErrorMessage(e, "invitation"),
       };
     }
     userId = existingId;

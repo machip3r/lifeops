@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { LIMITS } from '@/lib/validation/schemas';
 import { useAuth } from '@/contexts/auth-context';
+import { LoaderCircle } from 'lucide-react';
 
 export function PromotoryRegistrationForm({ token }: { token: string }) {
   const [email, setEmail] = useState('');
@@ -39,8 +40,8 @@ export function PromotoryRegistrationForm({ token }: { token: string }) {
       setAccountCreated(true);
       try {
         await signIn(email.trim().toLowerCase(), password);
-      } catch (signInError) {
-        console.error('Automatic sign-in after promotoría registration failed:', signInError);
+      } catch {
+        console.warn('Automatic sign-in after promotoría registration failed.');
         setAutoLoginError(true);
       }
     } catch {
@@ -52,9 +53,11 @@ export function PromotoryRegistrationForm({ token }: { token: string }) {
 
   if (accountCreated && !autoLoginError) {
     return (
-      <div className="space-y-4 text-center" role="status">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Tu cuenta está lista</h1>
-        <p className="text-sm text-gray-600 dark:text-gray-300">Iniciando sesión para continuar con el registro de tu promotoría…</p>
+      <div className="flex flex-col items-center gap-4 py-2 text-center" role="status" aria-label="Preparando tu espacio de trabajo">
+        <LoaderCircle className="size-9 text-(--lifeops-accent) motion-safe:animate-spin" strokeWidth={1.6} aria-hidden />
+        <span className="font-title text-xl tracking-[-0.04em] text-(--lifeops-fg)">
+          <span className="font-normal">Life</span><span className="font-bold">Ops</span>
+        </span>
       </div>
     );
   }
@@ -73,10 +76,6 @@ export function PromotoryRegistrationForm({ token }: { token: string }) {
 
   return (
     <form onSubmit={submit} className="space-y-5">
-      <div>
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Crea tu cuenta</h1>
-        <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">Regístrate como promotoría para empezar a usar LifeOps.</p>
-      </div>
       <FormField label="Correo electrónico" htmlFor="registration-email" variant="auth" error={fieldErrors.email}>
         <Input id="registration-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={LIMITS.email} autoComplete="email" required placeholder="tu.correo@ejemplo.com" />
       </FormField>

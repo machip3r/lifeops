@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import Link from 'next/link';
-import { assets } from '../theme/assets';
 import { FormField } from '@/components/ui/form-field';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
@@ -18,6 +17,9 @@ import { VALIDATION_MESSAGES, zodFieldErrors } from '@/lib/validation/field-erro
 import { homePathFor } from '@/lib/onboarding/routes';
 import { AuthCardSkeleton } from '@/components/ui/skeleton';
 import { LandingSectionLink } from '@/components/landing/landing-header';
+import { getAuthErrorMessage } from '@/lib/auth/error-messages';
+import { LoaderCircle } from 'lucide-react';
+import { AuthLayout } from '@/components/auth/auth-layout';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -76,9 +78,7 @@ export default function LoginPage() {
         throw signInError;
       }
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Ocurrió un error. Por favor intenta de nuevo.';
-      setError(errorMessage);
+      setError(getAuthErrorMessage(err, 'login'));
     } finally {
       setLoading(false);
     }
@@ -101,11 +101,7 @@ export default function LoginPage() {
       await verifyEmailCode(parsed.data.email, parsed.data.otp);
       // The profile effect sends the new promotoría to onboarding.
     } catch (err) {
-      const errorMessage =
-        err instanceof Error
-          ? err.message
-          : 'Código de verificación inválido. Por favor intenta de nuevo.';
-      setError(errorMessage);
+      setError(getAuthErrorMessage(err, 'verification'));
     } finally {
       setVerifyingCode(false);
     }
@@ -119,9 +115,7 @@ export default function LoginPage() {
       await resendVerificationEmail(email);
       setSuccess('¡Código de verificación enviado! Por favor revisa tu bandeja de entrada.');
     } catch (err) {
-      const errorMessage =
-        err instanceof Error ? err.message : 'Error al reenviar el código de verificación.';
-      setError(errorMessage);
+      setError(getAuthErrorMessage(err, 'resend'));
     } finally {
       setResendingEmail(false);
     }
@@ -129,38 +123,48 @@ export default function LoginPage() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+      <AuthLayout>
         <AuthCardSkeleton />
-      </div>
+      </AuthLayout>
     );
   }
 
   if (profile) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 dark:text-gray-400 text-lg">Redirigiendo...</p>
+      <AuthLayout>
+        <div role="status" aria-label="Preparando tu espacio de trabajo" className="flex w-full max-w-[420px] flex-col items-center gap-5">
+          <div className="relative flex size-16 items-center justify-center rounded-full bg-(--lifeops-chrome)/85 shadow-sm">
+            <LoaderCircle className="size-9 text-(--lifeops-accent) motion-safe:animate-spin" strokeWidth={1.6} aria-hidden />
+            <span className="absolute size-2 rounded-full bg-(--lifeops-accent)" aria-hidden />
+          </div>
+          <span className="font-title text-xl tracking-[-0.04em] text-(--lifeops-fg)">
+            <span className="font-normal">Life</span><span className="font-bold">Ops</span>
+          </span>
         </div>
-      </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center px-4">
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <Link href="/" aria-label="LifeOps, inicio" className="inline-flex items-baseline tracking-[-0.04em] text-4xl text-gray-900 dark:text-white">
+    <AuthLayout>
+      <div className="w-full max-w-[420px]">
+        <div className="mb-10 flex flex-col items-start">
+          <Link href="/" aria-label="LifeOps, inicio" className="inline-flex items-baseline tracking-[-0.04em] text-[38px] text-(--lifeops-fg)">
             <span className="font-title font-normal">Life</span>
             <span className="font-title font-bold">Ops</span>
           </Link>
-          <p className="text-gray-600 dark:text-gray-400 mt-2">
+          <p className="mt-4 text-sm font-medium text-(--lifeops-accent)">Acceso a LifeOps</p>
+          <h1 className="mt-2 font-title text-2xl font-semibold tracking-[-0.035em] text-(--lifeops-fg) sm:text-[28px]">
+            {needsVerification ? 'Confirma tu correo' : 'Inicia sesión'}
+          </h1>
+          <p className="mt-2 max-w-[36ch] text-sm leading-6 text-(--lifeops-muted)">
             {needsVerification
-              ? 'Verifica tu correo'
-              : 'Inicia sesión en tu cuenta'}
+              ? 'Escribe el código que enviamos para continuar.'
+              : 'Ingresa con tu correo electrónico y contraseña.'}
           </p>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
+        <div className="rounded-2xl border border-(--lifeops-border)/70 bg-(--lifeops-chrome)/75 p-6 shadow-[0_24px_70px_-42px_rgba(0,0,0,0.45)] backdrop-blur-sm sm:p-8 dark:border-(--lifeops-border) dark:bg-(--lifeops-chrome)/80">
           {needsVerification ? (
             <form onSubmit={handleVerifyCode} className="space-y-6">
               <div className="space-y-1">
@@ -280,7 +284,7 @@ export default function LoginPage() {
               </FormField>
 
               {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                <div role="alert" className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
                   <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
                 </div>
               )}
@@ -294,16 +298,18 @@ export default function LoginPage() {
                 {loading ? 'Por favor espera…' : 'Iniciar sesión'}
               </Button>
 
-              <p className="text-center text-sm text-gray-600 dark:text-gray-400">
-                ¿Te interesa usar {assets.brand.name}?{' '}
-                <LandingSectionLink targetId="contact" className="font-medium text-(--lifeops-accent) hover:underline">
-                  Agenda una demo
-                </LandingSectionLink>
-              </p>
             </form>
           )}
         </div>
+        {!needsVerification && (
+          <p className="mt-6 text-center text-sm leading-6 text-(--lifeops-muted)">
+            El acceso se habilita por invitación. ¿Quieres conocer LifeOps?{' '}
+            <LandingSectionLink targetId="contact" className="font-medium text-(--lifeops-accent) underline-offset-4 hover:underline">
+              Solicita una demo
+            </LandingSectionLink>
+          </p>
+        )}
       </div>
-    </div>
+    </AuthLayout>
   );
 }
